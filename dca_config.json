@@ -1,0 +1,43 @@
+{
+  "levels": [
+    {
+      "level": 1,
+      "drop_pct": 0.0,
+      "weight_pct": 100.0,
+      "order_amount": 5000
+    }
+  ],
+  "take_profit_pct": 10.0,
+  "stop_loss_pct": 20.0,
+  "total_capital": 5000,
+  "enabled": true,
+  "take_profit_levels": [
+    {
+      "level": 1,
+      "profit_pct": 3.0,
+      "sell_ratio": 30.0
+    },
+    {
+      "level": 2,
+      "profit_pct": 6.0,
+      "sell_ratio": 50.0
+    },
+    {
+      "level": 3,
+      "profit_pct": 9.0,
+      "sell_ratio": 100.0
+    }
+  ],
+  "stop_loss_levels": [
+    {
+      "level": 1,
+      "loss_pct": 3.0,
+      "sell_ratio": 50.0
+    },
+    {
+      "level": 2,
+      "loss_pct": 6.0,
+      "sell_ratio": 100.0
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "buy_amount": 10000,
+  "monitoring": {
+    "mode": "top_marketcap",
+    "top_n": 10,
+    "custom_symbols": []
+  },
+  "risk_management": {
+    "max_positions": {
+      "enabled": true,
+      "limit": 3
+    },
+    "daily_trades": {
+      "enabled": true,
+      "limit": 5
+    },
+    "min_krw_balance": {
+      "enabled": true,
+      "amount": 50000
+    },
+    "stop_on_loss": {
+      "enabled": true,
+      "daily_loss_pct": 10.0
+    }
+  },
+  "strategy": {
+    "type": "scalping",
+    "scan_interval": 60
+  }
+}

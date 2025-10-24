@@ -1,0 +1,43 @@
+# Upbit DCA Trading Bot - 의존성 패키지
+
+# GUI Framework
+PySide6>=6.6.0
+
+# HTTP Client
+requests>=2.31.0
+
+# JWT Authentication
+PyJWT>=2.8.0
+
+# Numerical Computing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Security (Phase 1)
+cryptography>=41.0.0
+keyring>=24.0.0
+
+# Telegram Bot (Phase 5)
+python-telegram-bot>=20.0
+
+# Technical Analysis (Phase 2)
+ta>=0.11.0
+pyupbit>=0.2.30
+
+# Chart Visualization (Phase 6)
+pyqtgraph>=0.13.0
+matplotlib>=3.8.0
+
+# WebSocket (Phase 3)
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+
+# Build & Packaging
+pyinstaller>=6.3.0
