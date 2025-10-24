@@ -95,28 +95,48 @@ Real-time   Candle      Signal      Risk Check    Upbit API       Notifications
 Base class: `BaseStrategy` (`core/strategies/base.py`)
 
 Available strategies:
-- `FilteredBBStrategy` - Bollinger Bands with ATR/MA240/Time filters (recommended)
+
+**Currently in Production:**
+- `ScalpingStrategy` - MACD + Volume surge (auto-trading, 10 coins)
+  - Monitors top 10 marketcap coins automatically
+  - 20-30 buy signals per day (all coins combined)
+  - Used in `AutoTradingManager` for fully automated trading
+
+**Backtesting (Future Use):**
+- `FilteredBBStrategy` - Bollinger Bands with ATR/MA240/Time filters
+  - Coin-specific optimized parameters (BTC/ETH/XRP)
+  - For mid-long term investment strategy
+  - 1-year backtest: +29.13% portfolio return
+
+**Other Strategies (Experimental):**
 - `ProximityBBStrategy` - Bollinger Bands proximity detection
 - `BinanceMultiSignalStrategy` - Multi-indicator signal system
-- `HybridConservativeStrategy` - Conservative hybrid approach
-- `HybridBalancedStrategy` - Balanced hybrid approach
-- `HybridAggressiveStrategy` - Aggressive hybrid approach
-- `HybridSmartStrategy` - Smart hybrid with time filtering
-- `BBStrategy` - Basic Bollinger Bands
-- `RSIStrategy` - RSI-based trading
-- `MACDStrategy` - MACD-based trading
+- `HybridConservativeStrategy`, `HybridBalancedStrategy`, `HybridAggressiveStrategy`, `HybridSmartStrategy`
+- `BBStrategy`, `RSIStrategy`, `MACDStrategy`
 
 **Strategy Selection Pattern**:
 ```python
-from core.strategies import FilteredBBStrategy, HybridBalancedStrategy
+# Production: ScalpingStrategy (auto-trading)
+from core.strategies import ScalpingStrategy
 
-# Coin-specific optimized parameters are auto-applied
-strategy = FilteredBBStrategy(symbol='KRW-BTC')  # BTC params
-strategy = FilteredBBStrategy(symbol='KRW-ETH')  # ETH params
-strategy = FilteredBBStrategy(symbol='KRW-XRP')  # XRP params
+# Top 10 marketcap coins (hardcoded in auto_trading_manager.py)
+MARKETCAP_TOP_10 = [
+    'KRW-BTC', 'KRW-ETH', 'KRW-USDT', 'KRW-SOL', 'KRW-LINK',
+    'KRW-USDC', 'KRW-DOGE', 'KRW-ADA', 'KRW-TRX', 'KRW-XRP'
+]
 
-# Or hybrid strategy
-strategy = HybridBalancedStrategy(symbol='KRW-ETH')
+strategy = ScalpingStrategy(
+    symbol='KRW-BTC',
+    macd_fast=12, macd_slow=26, macd_signal=9,
+    volume_threshold=2.0  # 2x average volume
+)
+
+# Backtesting: FilteredBBStrategy (mid-long term)
+from core.strategies import FilteredBBStrategy
+
+strategy = FilteredBBStrategy(symbol='KRW-BTC')  # BTC params auto-applied
+strategy = FilteredBBStrategy(symbol='KRW-ETH')  # ETH params auto-applied
+strategy = FilteredBBStrategy(symbol='KRW-XRP')  # XRP params auto-applied
 ```
 
 **3. Risk Management (`core/risk_manager.py`)**
@@ -357,14 +377,20 @@ python backtest/collect_historical_sequential.py
 - ❌ Wrong: Expecting strategy to trigger profit-taking
 - ✅ Correct: Configure DCA `profit_target_pct` and `stop_loss_pct`
 
-### 2. Coin-Specific Optimization
+### 2. Strategy-Specific Coin Handling
 
-Strategies like `FilteredBBStrategy` have **coin-specific parameters**:
-- BTC: `std=2.0, wait=6h, atr=0.3`
-- ETH: `std=2.5, wait=10h, atr=0.4`
-- XRP: `std=2.0, wait=6h, atr=0.3`
+**ScalpingStrategy** (currently in production):
+- **All coins use identical parameters**: MACD(12,26,9), volume threshold 2.0x
+- **Monitored coins**: Top 10 marketcap (hardcoded in `auto_trading_manager.py:30-42`)
+- No coin-specific optimization needed
 
-Parameters are auto-applied based on `symbol` parameter. Do NOT manually override unless backtesting new parameters.
+**FilteredBBStrategy** (backtesting, mid-long term):
+- **Coin-specific optimized parameters**:
+  - BTC: `std=2.0, wait=6h, atr=0.3`
+  - ETH: `std=2.5, wait=10h, atr=0.4`
+  - XRP: `std=2.0, wait=6h, atr=0.3`
+- Parameters auto-applied based on `symbol` parameter
+- Do NOT manually override unless backtesting new parameters
 
 ### 3. Data Collection Rate Limiting
 
