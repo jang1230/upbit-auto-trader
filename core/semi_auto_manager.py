@@ -243,15 +243,15 @@ class SemiAutoManager:
                         await self._listen_websocket()
     
     async def _update_gui_if_needed(self, symbol: str, price: float):
-        """🔧 GUI 업데이트 (100ms throttling)"""
+        """🔧 GUI 업데이트 (1000ms throttling)"""
         if not self.position_callback:
             return
-        
+
         now = time.time()
         last_update = self.last_gui_update.get(symbol, 0)
-        
-        # 100ms = 0.1초마다 업데이트 (초당 10회)
-        if now - last_update < 0.1:
+
+        # 1000ms = 1초마다 업데이트 (초당 1회) - GUI 과부하 방지
+        if now - last_update < 1.0:
             return
         
         # 관리 중인 포지션만 업데이트
@@ -280,12 +280,12 @@ class SemiAutoManager:
         self.last_gui_update[symbol] = now
     
     async def _check_trading_conditions(self, symbol: str, price: float):
-        """🔧 DCA/익절/손절 체크 (500ms throttling)"""
+        """🔧 DCA/익절/손절 체크 (2000ms throttling)"""
         now = time.time()
         last_check = self.last_check_time.get(symbol, 0)
-        
-        # 500ms = 0.5초마다 체크 (초당 2회)
-        if now - last_check < 0.5:
+
+        # 2000ms = 2초마다 체크 (초당 0.5회) - 부하 감소
+        if now - last_check < 2.0:
             return
         
         # 관리 중인 포지션만 체크
