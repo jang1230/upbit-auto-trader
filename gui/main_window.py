@@ -132,13 +132,8 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._update_status()
 
-        # 🔧 GUI 시작 시 자동으로 잔고 조회 (500ms 후)
+        # 🔧 GUI 시작 시 자동으로 잔고 조회 (최초 1회만)
         QTimer.singleShot(500, self._refresh_balance)
-
-        # 🔧 주기적 잔고 갱신 (60초마다 fallback)
-        self.balance_refresh_timer = QTimer(self)
-        self.balance_refresh_timer.timeout.connect(self._refresh_balance)
-        self.balance_refresh_timer.start(60000)  # 60초
 
     def _init_ui(self):
         """UI 초기화 - Step 2: 좌측 사이드바 + 우측 메인 패널"""
@@ -242,10 +237,6 @@ class MainWindow(QMainWindow):
         self.mdd_label.setStyleSheet("color: gray;")
         self.mdd_label.setFont(QFont("맑은 고딕", 9))
         account_layout.addWidget(self.mdd_label)
-
-        self.refresh_btn = QPushButton("🔄 새로고침")
-        self.refresh_btn.clicked.connect(self._refresh_balance)
-        account_layout.addWidget(self.refresh_btn)
 
         account_group.setLayout(account_layout)
         sidebar_layout.addWidget(account_group)
@@ -1222,9 +1213,8 @@ class MainWindow(QMainWindow):
             # self._add_log("⏳ 이미 계좌 정보를 조회 중입니다...")
             return
 
-        # 🔧 자동 콜백인 경우 로그 출력 최소화
+        # 🔧 최초 1회만 조회
         # self._add_log("🔄 계좌 정보 조회 중...")
-        self.refresh_btn.setEnabled(False)  # 버튼 비활성화
 
         # 워커 스레드 생성 및 실행
         self.balance_worker = BalanceWorker(
@@ -1251,9 +1241,6 @@ class MainWindow(QMainWindow):
         if btc_balance > 0:
             self._add_log(f"   BTC: {btc_balance:.8f}")
 
-        # 버튼 다시 활성화
-        self.refresh_btn.setEnabled(True)
-
     def _on_balance_error(self, error_msg: str):
         """잔고 조회 실패"""
         self._add_log(f"❌ 계좌 조회 실패: {error_msg}")
@@ -1262,9 +1249,6 @@ class MainWindow(QMainWindow):
             "조회 실패",
             f"계좌 정보를 가져올 수 없습니다:\n{error_msg}"
         )
-
-        # 버튼 다시 활성화
-        self.refresh_btn.setEnabled(True)
 
     # ========================================
     # Trading Engine 시그널 핸들러
@@ -1685,47 +1669,90 @@ class MainWindow(QMainWindow):
 
     def _on_auto_trading_status(self, status: dict):
         """
-        완전 자동 모드 상태 업데이트 처리 (AutoTradingWorker)
-        
+        트레이딩 상태 업데이트 처리 (반자동 + 완전 자동 모드 통합)
+
         Args:
-            status: 자동 트레이딩 상태
+            status: 트레이딩 상태
+
+                [반자동 모드 - SemiAutoWorker]
+                - total_value: 총 평가금액 (KRW)
+                - total_return_pct: 총 수익률 (%)
+                - managed_count: 관리 중인 포지션 수
+                - positions: 포지션 리스트
+
+                [완전 자동 모드 - AutoTradingWorker]
+                - krw_balance: KRW 잔고
+                - daily_pnl_pct: 오늘 손익률
                 - monitoring_count: 모니터링 중인 코인 수
                 - managed_positions: 관리 중인 포지션 수
                 - daily_trades: 오늘 거래 횟수
-                - daily_pnl_pct: 오늘 손익률
-                - krw_balance: KRW 잔고
-                - positions: 포지션 리스트
         """
         try:
-            # 상단 통계 업데이트
-            krw_balance = status.get('krw_balance', 0)
-            daily_pnl = status.get('daily_pnl_pct', 0)
-            
-            self.total_asset_label.setText(f"KRW 잔고: {krw_balance:,.0f}원")
-            
-            # 일일 손익률 표시
-            if daily_pnl > 0:
-                self.profit_label.setText(f"오늘 손익: +{daily_pnl:.2f}%")
-                self.profit_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
-            elif daily_pnl < 0:
-                self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
-                self.profit_label.setStyleSheet("color: #f44336; font-weight: bold;")
+            # 🔧 반자동 모드 vs 완전 자동 모드 구분
+            # 반자동: total_return_pct 존재
+            # 완전 자동: daily_pnl_pct 존재
+
+            if 'total_return_pct' in status:
+                # ===== 반자동 모드 =====
+                total_value = status.get('total_value', 0)
+                return_pct = status.get('total_return_pct', 0)
+                managed = status.get('managed_count', 0)
+
+                # 총 자산 (평가금액) 표시
+                self.total_asset_label.setText(f"포지션 평가액: {total_value:,.0f}원")
+
+                # 수익률 표시
+                if return_pct > 0:
+                    self.profit_label.setText(f"수익률: +{return_pct:.2f}%")
+                    self.profit_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                elif return_pct < 0:
+                    self.profit_label.setText(f"수익률: {return_pct:.2f}%")
+                    self.profit_label.setStyleSheet("color: #f44336; font-weight: bold;")
+                else:
+                    self.profit_label.setText(f"수익률: {return_pct:.2f}%")
+                    self.profit_label.setStyleSheet("color: gray;")
+
+                # 최대 낙폭 (수익률이 마이너스면 표시)
+                if return_pct < 0:
+                    self.mdd_label.setText(f"최대 낙폭: {abs(return_pct):.2f}%")
+                    self.mdd_label.setStyleSheet("color: #f44336;")
+                else:
+                    self.mdd_label.setText("최대 낙폭: 0.00%")
+                    self.mdd_label.setStyleSheet("color: gray;")
+
+                # 관리 중인 포지션 수 표시
+                self.price_label.setText(f"관리 중: {managed}개 포지션")
+
             else:
-                self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
-                self.profit_label.setStyleSheet("color: gray;")
-            
-            # 모니터링/관리 정보 표시
-            monitoring = status.get('monitoring_count', 0)
-            managed = status.get('managed_positions', 0)
-            daily_trades = status.get('daily_trades', 0)
-            
-            self.price_label.setText(
-                f"모니터링: {monitoring}개 | 관리 중: {managed}개\n"
-                f"오늘 거래: {daily_trades}회"
-            )
-            
+                # ===== 완전 자동 모드 =====
+                krw_balance = status.get('krw_balance', 0)
+                daily_pnl = status.get('daily_pnl_pct', 0)
+
+                self.total_asset_label.setText(f"KRW 잔고: {krw_balance:,.0f}원")
+
+                # 일일 손익률 표시
+                if daily_pnl > 0:
+                    self.profit_label.setText(f"오늘 손익: +{daily_pnl:.2f}%")
+                    self.profit_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                elif daily_pnl < 0:
+                    self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
+                    self.profit_label.setStyleSheet("color: #f44336; font-weight: bold;")
+                else:
+                    self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
+                    self.profit_label.setStyleSheet("color: gray;")
+
+                # 모니터링/관리 정보 표시
+                monitoring = status.get('monitoring_count', 0)
+                managed = status.get('managed_positions', 0)
+                daily_trades = status.get('daily_trades', 0)
+
+                self.price_label.setText(
+                    f"모니터링: {monitoring}개 | 관리 중: {managed}개\n"
+                    f"오늘 거래: {daily_trades}회"
+                )
+
         except Exception as e:
-            self._add_log(f"⚠️ 자동 트레이딩 상태 업데이트 오류: {e}")
+            self._add_log(f"⚠️ 트레이딩 상태 업데이트 오류: {e}")
 
     def _on_position_update(self, position_data: dict):
         """

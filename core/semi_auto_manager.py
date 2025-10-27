@@ -919,20 +919,60 @@ class SemiAutoManager:
         return None
     
     def get_status(self) -> Dict:
-        """현재 상태 조회"""
+        """
+        현재 상태 조회 (포트폴리오 수익률 포함)
+
+        Returns:
+            dict:
+                - is_running: 실행 중 여부
+                - managed_count: 관리 중인 포지션 수
+                - total_invested: 총 투자금액 (KRW)
+                - total_value: 총 평가금액 (KRW)
+                - total_profit: 총 수익금액 (KRW)
+                - total_return_pct: 총 수익률 (%)
+                - positions: 포지션 리스트
+        """
+        total_invested = 0.0  # 총 투자금액
+        total_value = 0.0     # 총 평가금액
+
+        positions_data = []
+
+        for symbol, pos in self.managed_positions.items():
+            # 투자금액 = 평균 진입가 × 보유량
+            invested = pos.avg_entry_price * pos.total_balance
+            total_invested += invested
+
+            # 평가금액 = 현재가 × 보유량
+            current_price = self.last_prices.get(symbol, pos.avg_entry_price)  # 가격 없으면 진입가 사용
+            value = current_price * pos.total_balance
+            total_value += value
+
+            # 포지션 정보
+            positions_data.append({
+                'symbol': pos.position.symbol,
+                'balance': pos.total_balance,
+                'avg_price': pos.avg_entry_price,
+                'current_price': current_price,
+                'invested': invested,
+                'value': value,
+                'profit': value - invested,
+                'return_pct': ((value - invested) / invested * 100) if invested > 0 else 0,
+                'dca_levels': len(pos.executed_dca_levels),
+                'signal_price': pos.signal_price,
+            })
+
+        # 전체 수익/손실 계산
+        total_profit = total_value - total_invested
+        total_return_pct = (total_profit / total_invested * 100) if total_invested > 0 else 0
+
         return {
             'is_running': self.is_running,
             'managed_count': len(self.managed_positions),
-            'positions': [
-                {
-                    'symbol': pos.position.symbol,
-                    'balance': pos.total_balance,
-                    'avg_price': pos.avg_entry_price,
-                    'dca_levels': len(pos.executed_dca_levels),
-                    'signal_price': pos.signal_price,
-                }
-                for pos in self.managed_positions.values()
-            ]
+            'total_invested': total_invested,      # 총 투자금액
+            'total_value': total_value,            # 총 평가금액
+            'total_profit': total_profit,          # 총 수익금액
+            'total_return_pct': total_return_pct,  # 총 수익률 (%)
+            'positions': positions_data
         }
 
     async def update_dca_config(self, dca_config: AdvancedDcaConfig):
