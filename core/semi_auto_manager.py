@@ -323,42 +323,69 @@ class SemiAutoManager:
             # scan_positions()는 동기 blocking 함수 (requests.get 사용)
             # asyncio.to_thread()로 별도 스레드에서 실행
             result = await asyncio.to_thread(self.detector.scan_positions)
-            
+
             # 2. 새로운 수동 매수 처리
-            for position in result['new_manual']:
-                await self._on_new_manual_buy(position)
-            
+            new_manual_count = len(result['new_manual'])
+            if new_manual_count > 0:
+                logger.info(f"🔔 새로운 수동 매수 감지: {new_manual_count}개 종목 처리 중...")
+
+                for position in result['new_manual']:
+                    # WebSocket 재구독과 잔고 갱신은 건너뛰고 포지션만 등록
+                    await self._on_new_manual_buy(position, skip_websocket_resubscribe=True, skip_balance_update=True)
+
+                # 🔧 모든 종목 처리 후 WebSocket 재구독 (한 번만)
+                if self.websocket.is_connected and self.managed_positions:
+                    try:
+                        all_symbols = list(self.managed_positions.keys())
+                        await self.websocket.subscribe_ticker(all_symbols)
+                        logger.info(f"📊 WebSocket ticker 구독 완료: {len(all_symbols)}개 종목")
+                    except Exception as e:
+                        logger.warning(f"⚠️ WebSocket 구독 실패: {e}")
+
+                # 🔧 모든 종목 처리 후 잔고 갱신 (한 번만)
+                if self.balance_update_callback:
+                    try:
+                        if asyncio.iscoroutinefunction(self.balance_update_callback):
+                            await self.balance_update_callback()
+                        else:
+                            self.balance_update_callback()
+                        logger.info(f"✅ {new_manual_count}개 종목 등록 완료, 잔고 갱신 완료")
+                    except Exception as e:
+                        logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
+
             # 3. 관리 중인 포지션 업데이트
             for position in result['managed']:
                 await self._update_managed_position(position)
-            
+
             # 4. 현재 가격 조회 및 DCA/익절/손절 체크
             await self._check_all_positions()
-            
+
         except Exception as e:
             logger.error(f"포지션 스캔 중 에러: {e}", exc_info=True)
     
-    async def _on_new_manual_buy(self, position: Position):
-        """새로운 수동 매수 감지 시 처리"""
+    async def _on_new_manual_buy(self, position: Position, skip_websocket_resubscribe: bool = False, skip_balance_update: bool = False):
+        """
+        새로운 수동 매수 감지 시 처리
+
+        Args:
+            position: 포지션 정보
+            skip_websocket_resubscribe: WebSocket 재구독 건너뛰기 (일괄 처리 시)
+            skip_balance_update: 잔고 갱신 건너뛰기 (일괄 처리 시)
+        """
         symbol = position.symbol
-        
-        logger.info(
-            f"🔔 새로운 수동 매수 감지: {symbol} "
-            f"수량={position.balance:.6f} 평단가={position.avg_buy_price:,.0f}원"
-        )
-        
+
         # 평단가 0원인 포지션은 제외 (에어드랍 코인 등)
         if position.avg_buy_price == 0:
             logger.warning(f"⚠️ 평단가 0원 포지션 제외: {symbol} (에어드랍 또는 이벤트 지급)")
             return
-        
+
         # 현재 가격 조회
         current_price = await self._get_current_price(symbol)
-        
+
         if current_price is None:
             logger.warning(f"현재 가격 조회 실패: {symbol}")
             return
-        
+
         # ManagedPosition 생성
         # ⭐ signal_price를 평단가로 설정 (사용자가 매수한 가격 기준)
         managed = ManagedPosition(
@@ -366,23 +393,19 @@ class SemiAutoManager:
             dca_config=self.dca_config,
             initial_signal_price=position.avg_buy_price  # 평단가 기준
         )
-        
+
         self.managed_positions[symbol] = managed
-        
+
         # PositionDetector에 관리 포지션 등록
         self.detector.register_managed_position(symbol, position)
-        
-        # 알림
-        if self.notification_callback:
-            await self.notification_callback(
-                f"🔔 수동 매수 감지\n"
-                f"심볼: {symbol}\n"
-                f"수량: {position.balance:.6f}\n"
-                f"평단가: {position.avg_buy_price:,.0f}원\n"
-                f"현재가: {current_price:,.0f}원\n"
-                f"자동 관리 시작!"
-            )
-        
+
+        logger.info(
+            f"  ✅ {symbol}: 수량={position.balance:.6f}, "
+            f"평단가={position.avg_buy_price:,.0f}원, "
+            f"현재가={current_price:,.0f}원 "
+            f"({((current_price - position.avg_buy_price) / position.avg_buy_price) * 100:+.2f}%)"
+        )
+
         # 🔧 포지션 업데이트 콜백 (GUI 업데이트용)
         if self.position_callback:
             position_data = {
@@ -395,9 +418,9 @@ class SemiAutoManager:
                 'entry_time': managed.created_at.isoformat()
             }
             await self.position_callback(position_data)
-        
-        # 🔧 WebSocket에 모든 관리 심볼 재구독 (기존 구독 유지)
-        if self.websocket.is_connected:
+
+        # 🔧 WebSocket 재구독 (skip 플래그가 False일 때만 - 개별 감지 시)
+        if not skip_websocket_resubscribe and self.websocket.is_connected:
             try:
                 all_symbols = list(self.managed_positions.keys())
                 await self.websocket.subscribe_ticker(all_symbols)
@@ -405,8 +428,8 @@ class SemiAutoManager:
             except Exception as e:
                 logger.warning(f"⚠️ WebSocket 구독 실패: {e}")
 
-        # 🔧 잔고 갱신 콜백 호출 (반자동 수동 매수 감지 시)
-        if self.balance_update_callback:
+        # 🔧 잔고 갱신 (skip 플래그가 False일 때만 - 개별 감지 시)
+        if not skip_balance_update and self.balance_update_callback:
             try:
                 if asyncio.iscoroutinefunction(self.balance_update_callback):
                     await self.balance_update_callback()
@@ -415,8 +438,6 @@ class SemiAutoManager:
                 logger.debug("✅ 잔고 갱신 콜백 호출 완료 (수동 매수 감지)")
             except Exception as e:
                 logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
-
-        logger.info(f"✅ 관리 포지션 등록: {managed}")
     
     async def _update_managed_position(self, position: Position):
         """관리 중인 포지션 정보 업데이트"""
