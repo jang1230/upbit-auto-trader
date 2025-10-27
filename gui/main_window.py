@@ -190,7 +190,8 @@ class MainWindow(QMainWindow):
         
         # 시그널 연결
         self.semi_auto_radio.toggled.connect(self._on_mode_changed)
-        
+        self.full_auto_radio.toggled.connect(self._on_mode_changed)  # 🔧 완전 자동 버튼도 연결
+
         mode_layout.addWidget(self.semi_auto_radio)
         mode_layout.addWidget(self.full_auto_radio)
         
