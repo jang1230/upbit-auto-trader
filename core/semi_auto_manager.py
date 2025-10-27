@@ -896,3 +896,77 @@ class SemiAutoManager:
                 for pos in self.managed_positions.values()
             ]
         }
+
+    async def update_dca_config(self, dca_config: AdvancedDcaConfig):
+        """
+        DCA 설정 실시간 업데이트
+
+        설정 변경 시 모든 관리 중인 포지션에 새 설정을 적용하고,
+        즉시 익절/손절 조건을 재체크하여 변경된 레벨에 도달한 포지션은 자동 매도합니다.
+
+        Args:
+            dca_config: 새로운 DCA 설정
+        """
+        logger.info("🔄 DCA 설정 업데이트 시작...")
+
+        # 1. 매니저의 DCA 설정 업데이트
+        old_config = self.dca_config
+        self.dca_config = dca_config
+
+        # 2. 모든 ManagedPosition의 DCA 설정 업데이트
+        for symbol, managed in self.managed_positions.items():
+            managed.dca_config = dca_config
+
+        # 3. 설정 변경 로그
+        logger.info(f"  📊 관리 중인 포지션: {len(self.managed_positions)}개")
+
+        # 익절 설정 변경 로그
+        if old_config.is_multi_level_tp_enabled() or dca_config.is_multi_level_tp_enabled():
+            if dca_config.is_multi_level_tp_enabled():
+                logger.info(f"  🎯 익절: 다단계 ({len(dca_config.take_profit_levels)}레벨)")
+                for tp in dca_config.take_profit_levels:
+                    logger.info(f"     Level {tp.level}: +{tp.profit_pct}% → {tp.sell_ratio}% 매도")
+            else:
+                logger.info(f"  🎯 익절: 단일 레벨 (+{dca_config.take_profit_pct}%)")
+        else:
+            logger.info(f"  🎯 익절: +{dca_config.take_profit_pct}%")
+
+        # 손절 설정 변경 로그
+        if old_config.is_multi_level_sl_enabled() or dca_config.is_multi_level_sl_enabled():
+            if dca_config.is_multi_level_sl_enabled():
+                logger.info(f"  🛑 손절: 다단계 ({len(dca_config.stop_loss_levels)}레벨)")
+                for sl in dca_config.stop_loss_levels:
+                    logger.info(f"     Level {sl.level}: -{sl.loss_pct}% → {sl.sell_ratio}% 매도")
+            else:
+                logger.info(f"  🛑 손절: 단일 레벨 (-{dca_config.stop_loss_pct}%)")
+        else:
+            logger.info(f"  🛑 손절: -{dca_config.stop_loss_pct}%")
+
+        # 4. 즉시 모든 포지션 재체크 (익절/손절 레벨 변경 시 즉시 실행)
+        if self.managed_positions:
+            logger.info("🔍 변경된 설정으로 모든 포지션 재체크 중...")
+
+            for symbol, managed in self.managed_positions.items():
+                # 현재 가격 가져오기
+                current_price = await self._get_current_price(symbol)
+
+                if current_price is None:
+                    logger.warning(f"  ⚠️ {symbol}: 현재 가격 조회 실패, 스킵")
+                    continue
+
+                # 수익률 계산
+                avg_price = managed.avg_entry_price
+                if avg_price == 0:
+                    continue
+
+                profit_pct = ((current_price - avg_price) / avg_price) * 100
+
+                logger.info(
+                    f"  📊 {symbol}: 현재 수익률 {profit_pct:+.2f}% "
+                    f"(평단가 {avg_price:,.0f}원 → 현재가 {current_price:,.0f}원)"
+                )
+
+                # 익절/손절/DCA 체크 (변경된 설정으로)
+                await self._check_trading_conditions(symbol, current_price)
+
+        logger.info("✅ DCA 설정 업데이트 완료")
