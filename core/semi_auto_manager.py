@@ -626,13 +626,42 @@ class SemiAutoManager:
         sell_ratio = tp_level.sell_ratio / 100.0  # 퍼센트를 비율로 변환
         sell_volume = balance * sell_ratio
 
+        # ⚠️ 최소 주문 금액 체크 (Upbit: 5,000원)
+        MIN_ORDER_AMOUNT = 5000
+        estimated_amount = sell_volume * price
+
+        adjusted = False
+        if estimated_amount < MIN_ORDER_AMOUNT:
+            # 5,100원(여유분 포함)이 되도록 수량 조정
+            target_amount = MIN_ORDER_AMOUNT + 100
+            adjusted_volume = target_amount / price
+
+            # 보유 수량을 초과하지 않도록 체크
+            if adjusted_volume <= balance:
+                sell_volume = adjusted_volume
+                estimated_amount = sell_volume * price
+                adjusted = True
+                logger.info(
+                    f"⚙️ 최소 주문 금액 조정: {symbol}\n"
+                    f"   원래 금액: {estimated_amount - (target_amount - estimated_amount):,.0f}원 → 조정 후: {estimated_amount:,.0f}원\n"
+                    f"   조정 수량: {balance * sell_ratio:.6f}개 → {sell_volume:.6f}개"
+                )
+            else:
+                # 전량 매도해도 5,000원 미만이면 건너뛰기
+                logger.warning(
+                    f"⚠️ 최소 주문 금액 미달로 익절 건너뜀: {symbol} Level {tp_level.level}\n"
+                    f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {balance * price:,.0f}원 < 5,000원"
+                )
+                return
+
         logger.info(
             f"🎯 익절 실행 (Level {tp_level.level}): {symbol}\n"
             f"   목표 수익률: {tp_level.profit_pct:.2f}%\n"
             f"   현재 수익률: {profit_pct:.2f}%\n"
             f"   현재가: {price:,.0f}원\n"
-            f"   매도 비율: {tp_level.sell_ratio:.0f}%\n"
-            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}"
+            f"   매도 비율: {tp_level.sell_ratio:.0f}%{' (수량 조정됨)' if adjusted else ''}\n"
+            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}\n"
+            f"   예상 금액: {estimated_amount:,.0f}원"
         )
 
         # 일부 매도 (실거래 모드)
@@ -707,13 +736,42 @@ class SemiAutoManager:
         sell_ratio = sl_level.sell_ratio / 100.0  # 퍼센트를 비율로 변환
         sell_volume = balance * sell_ratio
 
+        # ⚠️ 최소 주문 금액 체크 (Upbit: 5,000원)
+        MIN_ORDER_AMOUNT = 5000
+        estimated_amount = sell_volume * price
+
+        adjusted = False
+        if estimated_amount < MIN_ORDER_AMOUNT:
+            # 5,100원(여유분 포함)이 되도록 수량 조정
+            target_amount = MIN_ORDER_AMOUNT + 100
+            adjusted_volume = target_amount / price
+
+            # 보유 수량을 초과하지 않도록 체크
+            if adjusted_volume <= balance:
+                sell_volume = adjusted_volume
+                estimated_amount = sell_volume * price
+                adjusted = True
+                logger.info(
+                    f"⚙️ 최소 주문 금액 조정: {symbol}\n"
+                    f"   원래 금액: {estimated_amount - (target_amount - estimated_amount):,.0f}원 → 조정 후: {estimated_amount:,.0f}원\n"
+                    f"   조정 수량: {balance * sell_ratio:.6f}개 → {sell_volume:.6f}개"
+                )
+            else:
+                # 전량 매도해도 5,000원 미만이면 건너뛰기
+                logger.warning(
+                    f"⚠️ 최소 주문 금액 미달로 손절 건너뜀: {symbol} Level {sl_level.level}\n"
+                    f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {balance * price:,.0f}원 < 5,000원"
+                )
+                return
+
         logger.info(
             f"🚨 손절 실행 (Level {sl_level.level}): {symbol}\n"
             f"   목표 손실률: -{sl_level.loss_pct:.2f}%\n"
             f"   현재 손실률: {loss_pct:.2f}%\n"
             f"   현재가: {price:,.0f}원\n"
-            f"   매도 비율: {sl_level.sell_ratio:.0f}%\n"
-            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}"
+            f"   매도 비율: {sl_level.sell_ratio:.0f}%{' (수량 조정됨)' if adjusted else ''}\n"
+            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}\n"
+            f"   예상 금액: {estimated_amount:,.0f}원"
         )
 
         # 일부 매도 (실거래 모드)
