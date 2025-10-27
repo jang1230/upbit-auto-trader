@@ -1710,7 +1710,7 @@ class MainWindow(QMainWindow):
     def _on_position_update(self, position_data: dict):
         """
         완전 자동 모드 포지션 업데이트 처리 (AutoTradingWorker)
-        
+
         Args:
             position_data: 포지션 정보
                 - symbol: 심볼
@@ -1725,7 +1725,10 @@ class MainWindow(QMainWindow):
             symbol = position_data.get('symbol', '')
             # 기존 _on_coin_update와 동일한 로직 재사용
             self._on_coin_update(symbol, position_data)
-            
+
+        except KeyboardInterrupt:
+            # 프로그램 종료 시 발생하는 KeyboardInterrupt 무시
+            pass
         except Exception as e:
             self._add_log(f"⚠️ 포지션 업데이트 오류: {e}")
 
@@ -1907,13 +1910,11 @@ class MainWindow(QMainWindow):
             # 🔧 모드별 Trading Engine 중지
             if self.trading_worker:
                 self._add_log("⏸️ Trading Engine 중지 중...")
-                
+
                 if self.trading_mode == "semi_auto":
-                    # 반자동 모드: MultiCoinTradingWorker
-                    if hasattr(self.trading_worker, 'stop_trader'):
-                        self.trading_worker.stop_trader()
-                    else:
-                        self.trading_worker.stop_engine()
+                    # 반자동 모드: SemiAutoWorker
+                    # SemiAutoWorker는 stop() 메서드 사용
+                    self.trading_worker.stop()
                 else:
                     # 완전 자동 모드: AutoTradingWorker
                     self.trading_worker.stop()
