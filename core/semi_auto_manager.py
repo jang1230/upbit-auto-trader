@@ -597,11 +597,11 @@ class SemiAutoManager:
             f"   하락률: {level_config.drop_pct}%"
         )
         
-        # 주문 실행 (dry_run 모드)
+        # 주문 실행 (실거래 모드)
         order_result = await self.order_manager.execute_buy(
             symbol=symbol,
             amount=buy_amount,
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
         
         if order_result and order_result.get('success'):
@@ -635,11 +635,11 @@ class SemiAutoManager:
             f"   매도 수량: {sell_volume:.6f} / {balance:.6f}"
         )
 
-        # 일부 매도 (dry_run 모드)
+        # 일부 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
             volume=sell_volume,
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
 
         if order_result and order_result.get('success'):
@@ -675,11 +675,11 @@ class SemiAutoManager:
             f"   수량: {balance:.6f}"
         )
         
-        # 전량 매도 (dry_run 모드)
+        # 전량 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
             volume=balance,  # ⭐ 파라미터 이름: volume (수량)
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
         
         if order_result and order_result.get('success'):
@@ -716,11 +716,11 @@ class SemiAutoManager:
             f"   매도 수량: {sell_volume:.6f} / {balance:.6f}"
         )
 
-        # 일부 매도 (dry_run 모드)
+        # 일부 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
             volume=sell_volume,
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
 
         if order_result and order_result.get('success'):
@@ -756,11 +756,11 @@ class SemiAutoManager:
             f"   수량: {balance:.6f}"
         )
         
-        # 전량 매도 (dry_run 모드)
+        # 전량 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
             volume=balance,  # ⭐ 파라미터 이름: volume (수량)
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
         
         if order_result and order_result.get('success'):
