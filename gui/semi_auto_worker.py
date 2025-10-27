@@ -146,7 +146,11 @@ class SemiAutoWorker(QThread):
                 self._loop
             )
             try:
+                # 최대 5초 대기 (SemiAutoManager.stop()은 최대 4초 소요)
                 future.result(timeout=5)
+                logger.info("✅ SemiAutoManager 정상 종료")
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ SemiAutoManager 종료 타임아웃 (5초 초과)")
             except Exception as e:
                 logger.error(f"SemiAutoManager 중단 오류: {e}")
 

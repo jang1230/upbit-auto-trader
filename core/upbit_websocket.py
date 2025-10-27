@@ -62,8 +62,20 @@ class UpbitWebSocket:
         """웹소켓 연결 종료"""
         self.is_connected = False
         if self.websocket:
-            await self.websocket.close()
-            logger.info("웹소켓 연결 종료")
+            try:
+                # 1초 타임아웃으로 graceful shutdown 시도
+                await asyncio.wait_for(self.websocket.close(), timeout=1.0)
+                logger.info("웹소켓 연결 종료")
+            except asyncio.TimeoutError:
+                # 타임아웃 시 강제 종료
+                logger.warning("⚠️ 웹소켓 graceful shutdown 타임아웃, 강제 종료")
+                # websocket close_timeout을 0으로 설정하여 즉시 종료
+                try:
+                    await asyncio.wait_for(self.websocket.close(), timeout=0.1)
+                except:
+                    pass
+            except Exception as e:
+                logger.warning(f"⚠️ 웹소켓 종료 중 에러: {e}")
 
     async def subscribe_ticker(self, symbols: List[str]):
         """
