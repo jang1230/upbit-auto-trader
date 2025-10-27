@@ -109,7 +109,8 @@ class OrderManager:
             }
         
         # 2. 검증: KRW 잔고
-        krw_balance = self.api.get_balance('KRW')
+        # get_balance()는 동기 blocking 함수이므로 별도 스레드에서 실행
+        krw_balance = await asyncio.to_thread(self.api.get_balance, 'KRW')
         if krw_balance < amount:
             error_msg = f"잔고 부족: {krw_balance:,.0f}원 < {amount:,.0f}원"
             logger.error(f"❌ {error_msg}")
@@ -139,7 +140,8 @@ class OrderManager:
         
         # 4. 실제 주문 실행
         try:
-            order = self.api.buy_market_order(symbol, amount)
+            # buy_market_order()는 동기 blocking 함수이므로 별도 스레드에서 실행
+            order = await asyncio.to_thread(self.api.buy_market_order, symbol, amount)
             order_id = order['uuid']
             
             # 5. 주문 완료 대기
@@ -230,8 +232,9 @@ class OrderManager:
         
         # 1. 검증: 보유 수량
         currency = symbol.split('-')[1]  # 'KRW-BTC' -> 'BTC'
-        balance = self.api.get_balance(currency)
-        
+        # get_balance()는 동기 blocking 함수이므로 별도 스레드에서 실행
+        balance = await asyncio.to_thread(self.api.get_balance, currency)
+
         if balance < volume:
             error_msg = f"보유 수량 부족: {balance:.8f}개 < {volume:.8f}개"
             logger.error(f"❌ {error_msg}")
@@ -261,7 +264,8 @@ class OrderManager:
         
         # 3. 실제 주문 실행
         try:
-            order = self.api.sell_market_order(symbol, volume)
+            # sell_market_order()는 동기 blocking 함수이므로 별도 스레드에서 실행
+            order = await asyncio.to_thread(self.api.sell_market_order, symbol, volume)
             order_id = order['uuid']
             
             # 4. 주문 완료 대기
@@ -347,17 +351,18 @@ class OrderManager:
                 break
             
             # 주문 상태 조회
-            order = self.api.get_order(order_id)
-            
+            # get_order()는 동기 blocking 함수이므로 별도 스레드에서 실행
+            order = await asyncio.to_thread(self.api.get_order, order_id)
+
             # 완료 또는 취소 상태면 반환
             if order['state'] in ['done', 'cancel']:
                 return order
-            
+
             # 0.5초 대기 후 재시도
             await asyncio.sleep(0.5)
-        
+
         # 타임아웃 시 최종 상태 반환
-        return self.api.get_order(order_id)
+        return await asyncio.to_thread(self.api.get_order, order_id)
     
     def get_order_history(self, limit: Optional[int] = None) -> list:
         """
