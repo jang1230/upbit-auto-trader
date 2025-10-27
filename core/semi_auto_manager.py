@@ -280,12 +280,13 @@ class SemiAutoManager:
         self.last_gui_update[symbol] = now
     
     async def _check_trading_conditions(self, symbol: str, price: float):
-        """🔧 DCA/익절/손절 체크 (2000ms throttling)"""
+        """🔧 DCA/익절/손절 체크 (300ms throttling)"""
         now = time.time()
         last_check = self.last_check_time.get(symbol, 0)
 
-        # 2000ms = 2초마다 체크 (초당 0.5회) - 부하 감소
-        if now - last_check < 2.0:
+        # 300ms = 0.3초마다 체크 (초당 3.3회) - 실시간 대응
+        # GUI 업데이트(1초)보다 빠르게 체크하여 급격한 가격 변동에 대응
+        if now - last_check < 0.3:
             return
         
         # 관리 중인 포지션만 체크
