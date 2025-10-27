@@ -149,11 +149,33 @@ class SemiAutoWorker(QThread):
                 future.result(timeout=5)
             except Exception as e:
                 logger.error(f"SemiAutoManager 중단 오류: {e}")
-    
+
+    def update_dca_config(self, dca_config: AdvancedDcaConfig):
+        """
+        DCA 설정 실시간 업데이트
+
+        Args:
+            dca_config: 새로운 DCA 설정
+        """
+        self.dca_config = dca_config
+
+        if self._loop and self.semi_auto_manager and self._running:
+            # 비동기 업데이트 호출을 위한 태스크 생성
+            future = asyncio.run_coroutine_threadsafe(
+                self.semi_auto_manager.update_dca_config(dca_config),
+                self._loop
+            )
+            try:
+                future.result(timeout=3)
+                self.log_signal.emit("✅ DCA 설정 실시간 반영 완료")
+            except Exception as e:
+                logger.error(f"DCA 설정 업데이트 오류: {e}")
+                self.error_signal.emit(f"DCA 설정 업데이트 실패: {str(e)}")
+
     async def _notification_callback(self, message: str):
         """알림 콜백 (SemiAutoManager에서 호출)"""
         self.log_signal.emit(f"📢 {message}")
-    
+
     async def _position_callback(self, position_data: dict):
         """포지션 업데이트 콜백 (SemiAutoManager에서 호출)"""
         # GUI 업데이트를 위해 position_update_signal emit
