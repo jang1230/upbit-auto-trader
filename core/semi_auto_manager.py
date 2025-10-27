@@ -217,14 +217,23 @@ class SemiAutoManager:
                 
                 symbol = data['code']  # "KRW-BTC"
                 price = data['trade_price']
-                
+
+                # 🔍 디버깅: 가격 수신 로그 (심볼별 처음 3회만)
+                if not hasattr(self, '_debug_price_count'):
+                    self._debug_price_count = {}
+                if symbol not in self._debug_price_count:
+                    self._debug_price_count[symbol] = 0
+                if self._debug_price_count[symbol] < 3:
+                    logger.info(f"🔍 WebSocket 가격 수신: {symbol} = {price:,.0f}원")
+                    self._debug_price_count[symbol] += 1
+
                 # 가격 캐시 업데이트
                 self.last_prices[symbol] = price
-                
-                # 1. GUI 업데이트 (100ms throttling)
+
+                # 1. GUI 업데이트
                 await self._update_gui_if_needed(symbol, price)
-                
-                # 2. DCA/익절/손절 체크 (500ms throttling)
+
+                # 2. DCA/익절/손절 체크
                 await self._check_trading_conditions(symbol, price)
                 
         except asyncio.CancelledError:
@@ -495,6 +504,20 @@ class SemiAutoManager:
             return
 
         profit_pct = ((current_price - avg_price) / avg_price) * 100
+
+        # 🔍 디버깅: 익절 체크 로그 (심볼별 처음 1회만)
+        symbol = managed.position.symbol
+        if not hasattr(self, '_debug_profit_check'):
+            self._debug_profit_check = set()
+        if symbol not in self._debug_profit_check:
+            logger.info(
+                f"🔍 익절 체크 시작: {symbol}\n"
+                f"   평단가: {avg_price:,.0f}원\n"
+                f"   현재가: {current_price:,.0f}원\n"
+                f"   수익률: {profit_pct:.2f}%\n"
+                f"   다단계 익절 설정: {len(self.dca_config.take_profit_levels) if self.dca_config.take_profit_levels else 0}개"
+            )
+            self._debug_profit_check.add(symbol)
 
         # 다단계 익절 체크
         if self.dca_config.take_profit_levels and len(self.dca_config.take_profit_levels) > 0:

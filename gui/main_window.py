@@ -1922,8 +1922,10 @@ class MainWindow(QMainWindow):
                 # 스레드 종료 대기 (최대 5초로 단축)
                 if not self.trading_worker.wait(5000):
                     self._add_log("⚠️ 엔진 중지 시간 초과, 강제 종료")
-                    self.trading_worker.terminate()
-                    self.trading_worker.wait(1000)  # 강제 종료 후 1초 대기
+                    if self.trading_worker:  # None 체크
+                        self.trading_worker.terminate()
+                        if self.trading_worker:  # terminate 후 다시 체크
+                            self.trading_worker.wait(1000)  # 강제 종료 후 1초 대기
 
                 # Worker 정리
                 self.trading_worker = None
