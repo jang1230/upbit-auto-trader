@@ -169,29 +169,39 @@ class SemiAutoManager:
         """매니저 종료"""
         if not self.is_running:
             return
-        
+
+        logger.info("🛑 SemiAutoManager 종료 시작...")
         self.is_running = False
-        
-        # 🔧 1. 스캔 태스크 취소
-        if self._scan_task:
+
+        # 🔧 1. 스캔 태스크 취소 (1초 타임아웃)
+        if self._scan_task and not self._scan_task.done():
             self._scan_task.cancel()
             try:
-                await self._scan_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(self._scan_task), timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-        
-        # 🔧 2. WebSocket 태스크 취소
-        if self._websocket_task:
+            except Exception as e:
+                logger.debug(f"스캔 태스크 종료 중 에러: {e}")
+
+        # 🔧 2. WebSocket 연결 종료 (먼저 연결을 끊어야 listen이 종료됨)
+        try:
+            await asyncio.wait_for(self.websocket.disconnect(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ WebSocket 종료 타임아웃")
+        except Exception as e:
+            logger.debug(f"WebSocket 종료 중 에러: {e}")
+
+        # 🔧 3. WebSocket 태스크 취소 (연결이 끊어진 후)
+        if self._websocket_task and not self._websocket_task.done():
             self._websocket_task.cancel()
             try:
-                await self._websocket_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(self._websocket_task), timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-        
-        # 🔧 3. WebSocket 연결 종료
-        await self.websocket.disconnect()
-        
-        logger.info("🛑 SemiAutoManager 종료")
+            except Exception as e:
+                logger.debug(f"WebSocket 태스크 종료 중 에러: {e}")
+
+        logger.info("✅ SemiAutoManager 종료 완료")
     
     async def _run_scan_loop(self):
         """🔧 PositionDetector 스캔 루프 (수동 매수 감지 전용)"""
