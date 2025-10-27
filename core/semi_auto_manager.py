@@ -310,8 +310,10 @@ class SemiAutoManager:
     async def _scan_and_process(self):
         """포지션 스캔 및 처리"""
         try:
-            # 1. 포지션 스캔
-            result = self.detector.scan_positions()
+            # 1. 포지션 스캔 (별도 스레드에서 실행하여 이벤트 루프 차단 방지)
+            # scan_positions()는 동기 blocking 함수 (requests.get 사용)
+            # asyncio.to_thread()로 별도 스레드에서 실행
+            result = await asyncio.to_thread(self.detector.scan_positions)
             
             # 2. 새로운 수동 매수 처리
             for position in result['new_manual']:
@@ -633,10 +635,11 @@ class SemiAutoManager:
         # 1. WebSocket 캐시에서 확인 (실시간)
         if symbol in self.last_prices:
             return self.last_prices[symbol]
-        
+
         # 2. REST API fallback (WebSocket 연결 전 또는 실패 시)
+        # get_ticker()는 동기 blocking 함수이므로 별도 스레드에서 실행
         try:
-            ticker = self.api.get_ticker(symbol)
+            ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
             if ticker and 'trade_price' in ticker:
                 price = float(ticker['trade_price'])
                 # 캐시에 저장
@@ -644,7 +647,7 @@ class SemiAutoManager:
                 return price
         except Exception as e:
             logger.error(f"가격 조회 실패 ({symbol}): {e}")
-        
+
         return None
     
     def get_status(self) -> Dict:
