@@ -339,9 +339,26 @@ class SemiAutoManager:
             if new_manual_count > 0:
                 logger.info(f"🔔 새로운 수동 매수 감지: {new_manual_count}개 종목 처리 중...")
 
+                # 🔧 배치 GUI 업데이트를 위한 리스트
+                batch_position_updates = []
+
                 for position in result['new_manual']:
-                    # WebSocket 재구독과 잔고 갱신은 건너뛰고 포지션만 등록
-                    await self._on_new_manual_buy(position, skip_websocket_resubscribe=True, skip_balance_update=True)
+                    # WebSocket 재구독, 잔고 갱신, GUI 콜백 모두 건너뛰고 포지션만 등록
+                    position_data = await self._on_new_manual_buy(
+                        position,
+                        skip_websocket_resubscribe=True,
+                        skip_balance_update=True,
+                        skip_position_callback=True  # GUI 콜백도 건너뛰기
+                    )
+
+                    # GUI 업데이트 데이터 수집 (None이 아니면)
+                    if position_data:
+                        batch_position_updates.append(position_data)
+
+                # 🔧 모든 종목 처리 후 GUI 업데이트 (배치로 한 번에!)
+                if batch_position_updates and self.position_callback:
+                    for position_data in batch_position_updates:
+                        await self.position_callback(position_data)
 
                 # 🔧 모든 종목 처리 후 WebSocket 재구독 (한 번만)
                 if self.websocket.is_connected and self.managed_positions:
@@ -373,7 +390,7 @@ class SemiAutoManager:
         except Exception as e:
             logger.error(f"포지션 스캔 중 에러: {e}", exc_info=True)
     
-    async def _on_new_manual_buy(self, position: Position, skip_websocket_resubscribe: bool = False, skip_balance_update: bool = False):
+    async def _on_new_manual_buy(self, position: Position, skip_websocket_resubscribe: bool = False, skip_balance_update: bool = False, skip_position_callback: bool = False):
         """
         새로운 수동 매수 감지 시 처리
 
@@ -381,20 +398,24 @@ class SemiAutoManager:
             position: 포지션 정보
             skip_websocket_resubscribe: WebSocket 재구독 건너뛰기 (일괄 처리 시)
             skip_balance_update: 잔고 갱신 건너뛰기 (일괄 처리 시)
+            skip_position_callback: GUI 콜백 건너뛰기 (배치 처리 시)
+
+        Returns:
+            position_data (dict): GUI 업데이트용 데이터 (skip_position_callback=True 시에만 반환)
         """
         symbol = position.symbol
 
         # 평단가 0원인 포지션은 제외 (에어드랍 코인 등)
         if position.avg_buy_price == 0:
             logger.warning(f"⚠️ 평단가 0원 포지션 제외: {symbol} (에어드랍 또는 이벤트 지급)")
-            return
+            return None
 
         # 현재 가격 조회
         current_price = await self._get_current_price(symbol)
 
         if current_price is None:
             logger.warning(f"현재 가격 조회 실패: {symbol}")
-            return
+            return None
 
         # ManagedPosition 생성
         # ⭐ signal_price를 평단가로 설정 (사용자가 매수한 가격 기준)
@@ -416,18 +437,22 @@ class SemiAutoManager:
             f"({((current_price - position.avg_buy_price) / position.avg_buy_price) * 100:+.2f}%)"
         )
 
+        # GUI 업데이트 데이터 생성
+        position_data = {
+            'symbol': symbol,
+            'position': position.balance,
+            'entry_price': position.avg_buy_price,
+            'current_price': current_price,
+            'profit_loss': (current_price - position.avg_buy_price) * position.balance,
+            'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
+            'entry_time': managed.created_at.isoformat()
+        }
+
         # 🔧 포지션 업데이트 콜백 (GUI 업데이트용)
-        if self.position_callback:
-            position_data = {
-                'symbol': symbol,
-                'position': position.balance,
-                'entry_price': position.avg_buy_price,
-                'current_price': current_price,
-                'profit_loss': (current_price - position.avg_buy_price) * position.balance,
-                'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
-                'entry_time': managed.created_at.isoformat()
-            }
+        if not skip_position_callback and self.position_callback:
+            # 개별 처리 시 즉시 GUI 업데이트
             await self.position_callback(position_data)
+        # skip_position_callback=True 시에는 데이터만 반환 (배치 처리용)
 
         # 🔧 WebSocket 재구독 (skip 플래그가 False일 때만 - 개별 감지 시)
         if not skip_websocket_resubscribe and self.websocket.is_connected:
@@ -448,6 +473,9 @@ class SemiAutoManager:
                 logger.debug("✅ 잔고 갱신 콜백 호출 완료 (수동 매수 감지)")
             except Exception as e:
                 logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
+
+        # 배치 처리용 데이터 반환
+        return position_data if skip_position_callback else None
     
     async def _update_managed_position(self, position: Position):
         """관리 중인 포지션 정보 업데이트"""
