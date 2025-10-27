@@ -262,15 +262,15 @@ class SemiAutoManager:
                         await self._listen_websocket()
     
     async def _update_gui_if_needed(self, symbol: str, price: float):
-        """🔧 GUI 업데이트 (1000ms throttling)"""
+        """🔧 GUI 업데이트 (500ms throttling)"""
         if not self.position_callback:
             return
 
         now = time.time()
         last_update = self.last_gui_update.get(symbol, 0)
 
-        # 1000ms = 1초마다 업데이트 (초당 1회) - GUI 과부하 방지
-        if now - last_update < 1.0:
+        # 500ms = 0.5초마다 업데이트 (초당 2회) - GUI 과부하 방지하면서 더 빠른 업데이트
+        if now - last_update < 0.5:
             return
         
         # 관리 중인 포지션만 업데이트
