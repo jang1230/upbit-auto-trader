@@ -280,40 +280,40 @@ class SemiAutoManager:
         self.last_gui_update[symbol] = now
     
     async def _check_trading_conditions(self, symbol: str, price: float):
-        """🔧 DCA/익절/손절 체크 (2000ms throttling)"""
-        now = time.time()
-        last_check = self.last_check_time.get(symbol, 0)
+        """
+        🔧 DCA/익절/손절 체크 (NO throttling)
 
-        # 2000ms = 2초마다 체크 (초당 0.5회) - 부하 감소
-        if now - last_check < 2.0:
-            return
-        
+        WebSocket에서 가격이 업데이트될 때마다 즉각 체크하여
+        급격한 가격 변동 시 익절/손절 타이밍을 놓치지 않습니다.
+
+        체크 로직은 가벼운 산술 연산이므로 초당 수십 번 실행해도 무방합니다.
+        """
         # 관리 중인 포지션만 체크
         managed = self.managed_positions.get(symbol)
         if not managed:
             return
-        
+
         try:
+            # ⚡ 즉각 체크 (throttling 없음)
             # DCA 체크
             await self._check_dca(managed, price)
-            
-            # 익절 체크
+
+            # 익절 체크 - 가격이 목표에 도달하면 즉시 매도
             await self._check_take_profit(managed, price)
-            
-            # 손절 체크
+
+            # 손절 체크 - 손실이 한계에 도달하면 즉시 매도
             await self._check_stop_loss(managed, price)
-            
+
         except Exception as e:
             logger.error(f"{symbol} DCA/익절/손절 체크 에러: {e}", exc_info=True)
-        
-        # 마지막 체크 시간 기록
-        self.last_check_time[symbol] = now
     
     async def _scan_and_process(self):
         """포지션 스캔 및 처리"""
         try:
-            # 1. 포지션 스캔
-            result = self.detector.scan_positions()
+            # 1. 포지션 스캔 (별도 스레드에서 실행하여 이벤트 루프 차단 방지)
+            # scan_positions()는 동기 blocking 함수 (requests.get 사용)
+            # asyncio.to_thread()로 별도 스레드에서 실행
+            result = await asyncio.to_thread(self.detector.scan_positions)
             
             # 2. 새로운 수동 매수 처리
             for position in result['new_manual']:
@@ -635,10 +635,11 @@ class SemiAutoManager:
         # 1. WebSocket 캐시에서 확인 (실시간)
         if symbol in self.last_prices:
             return self.last_prices[symbol]
-        
+
         # 2. REST API fallback (WebSocket 연결 전 또는 실패 시)
+        # get_ticker()는 동기 blocking 함수이므로 별도 스레드에서 실행
         try:
-            ticker = self.api.get_ticker(symbol)
+            ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
             if ticker and 'trade_price' in ticker:
                 price = float(ticker['trade_price'])
                 # 캐시에 저장
@@ -646,7 +647,7 @@ class SemiAutoManager:
                 return price
         except Exception as e:
             logger.error(f"가격 조회 실패 ({symbol}): {e}")
-        
+
         return None
     
     def get_status(self) -> Dict:
