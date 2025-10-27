@@ -484,40 +484,80 @@ class SemiAutoManager:
                 managed.executed_dca_levels.add(level)
     
     async def _check_take_profit(self, managed: ManagedPosition, current_price: float):
-        """익절 체크"""
+        """익절 체크 (다단계 익절 지원)"""
         if not self.dca_config.enabled:
             return
-        
+
         avg_price = managed.avg_entry_price
-        
+
         # 평단가 0 방지
         if avg_price == 0:
             return
-        
+
         profit_pct = ((current_price - avg_price) / avg_price) * 100
-        
-        # 익절 조건
-        if profit_pct >= self.dca_config.take_profit_pct:
-            await self._execute_take_profit(managed, current_price, profit_pct)
+
+        # 다단계 익절 체크
+        if self.dca_config.take_profit_levels and len(self.dca_config.take_profit_levels) > 0:
+            # 다단계 익절: 각 레벨별로 체크
+            for tp_level in self.dca_config.take_profit_levels:
+                level = tp_level.level
+                target_pct = tp_level.profit_pct
+                sell_ratio = tp_level.sell_ratio
+
+                # 이미 실행된 레벨은 건너뜀
+                if hasattr(managed, 'executed_tp_levels') and level in managed.executed_tp_levels:
+                    continue
+
+                # 익절 조건 충족 시
+                if profit_pct >= target_pct:
+                    await self._execute_take_profit_level(managed, current_price, profit_pct, tp_level)
+                    # 실행된 레벨 기록
+                    if not hasattr(managed, 'executed_tp_levels'):
+                        managed.executed_tp_levels = set()
+                    managed.executed_tp_levels.add(level)
+        else:
+            # 단일 익절: 기존 로직
+            if profit_pct >= self.dca_config.take_profit_pct:
+                await self._execute_take_profit(managed, current_price, profit_pct)
     
     async def _check_stop_loss(self, managed: ManagedPosition, current_price: float):
-        """손절 체크"""
+        """손절 체크 (다단계 손절 지원)"""
         if not self.dca_config.enabled:
             return
-        
+
         avg_price = managed.avg_entry_price
-        
+
         # 평단가 0 방지
         if avg_price == 0:
             return
-        
+
         loss_pct = ((current_price - avg_price) / avg_price) * 100
-        
-        # 손절 조건 (설정값이 양수로 저장되어 있으므로 음수로 변환하여 비교)
-        # 예: loss_pct = -10%, stop_loss_pct = 20% → -10 <= -20 (손절 안 함)
-        #     loss_pct = -25%, stop_loss_pct = 20% → -25 <= -20 (손절 실행)
-        if loss_pct <= -self.dca_config.stop_loss_pct:
-            await self._execute_stop_loss(managed, current_price, loss_pct)
+
+        # 다단계 손절 체크
+        if self.dca_config.stop_loss_levels and len(self.dca_config.stop_loss_levels) > 0:
+            # 다단계 손절: 각 레벨별로 체크
+            for sl_level in self.dca_config.stop_loss_levels:
+                level = sl_level.level
+                target_pct = sl_level.loss_pct
+                sell_ratio = sl_level.sell_ratio
+
+                # 이미 실행된 레벨은 건너뜀
+                if hasattr(managed, 'executed_sl_levels') and level in managed.executed_sl_levels:
+                    continue
+
+                # 손절 조건 충족 시 (손실률이 음수이므로 -를 붙여서 비교)
+                if loss_pct <= -target_pct:
+                    await self._execute_stop_loss_level(managed, current_price, loss_pct, sl_level)
+                    # 실행된 레벨 기록
+                    if not hasattr(managed, 'executed_sl_levels'):
+                        managed.executed_sl_levels = set()
+                    managed.executed_sl_levels.add(level)
+        else:
+            # 단일 손절: 기존 로직
+            # 예: loss_pct = -10%, stop_loss_pct = 20% → -10 <= -20 (손절 안 함)
+            #     loss_pct = -25%, stop_loss_pct = 20% → -25 <= -20 (손절 실행)
+            if loss_pct <= -self.dca_config.stop_loss_pct:
+                await self._execute_stop_loss(managed, current_price, loss_pct)
     
     async def _execute_dca_buy(self, managed: ManagedPosition, level_config, price: float):
         """DCA 추가 매수 실행"""
@@ -556,8 +596,52 @@ class SemiAutoManager:
         else:
             logger.error(f"❌ DCA 추가 매수 실패: {symbol} Level {level}")
     
+    async def _execute_take_profit_level(self, managed: ManagedPosition, price: float, profit_pct: float, tp_level):
+        """다단계 익절 실행 (일부 매도)"""
+        symbol = managed.position.symbol
+        balance = managed.total_balance
+        sell_ratio = tp_level.sell_ratio / 100.0  # 퍼센트를 비율로 변환
+        sell_volume = balance * sell_ratio
+
+        logger.info(
+            f"🎯 익절 실행 (Level {tp_level.level}): {symbol}\n"
+            f"   목표 수익률: {tp_level.profit_pct:.2f}%\n"
+            f"   현재 수익률: {profit_pct:.2f}%\n"
+            f"   현재가: {price:,.0f}원\n"
+            f"   매도 비율: {tp_level.sell_ratio:.0f}%\n"
+            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}"
+        )
+
+        # 일부 매도 (dry_run 모드)
+        order_result = await self.order_manager.execute_sell(
+            symbol=symbol,
+            volume=sell_volume,
+            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+        )
+
+        if order_result and order_result.get('success'):
+            # 알림
+            if self.notification_callback:
+                await self.notification_callback(
+                    f"🎯 익절 완료 (Level {tp_level.level})!\n"
+                    f"심볼: {symbol}\n"
+                    f"수익률: {profit_pct:.2f}%\n"
+                    f"매도 비율: {tp_level.sell_ratio:.0f}%\n"
+                    f"매도가: {price:,.0f}원"
+                )
+
+            logger.info(f"✅ 익절 완료: {symbol} Level {tp_level.level}")
+
+            # 100% 매도한 경우 포지션 제거
+            if tp_level.sell_ratio >= 100.0:
+                del self.managed_positions[symbol]
+                self.detector.unregister_managed_position(symbol)
+                logger.info(f"✅ 포지션 제거: {symbol} (전량 익절)")
+        else:
+            logger.error(f"❌ 익절 실패: {symbol} Level {tp_level.level}")
+
     async def _execute_take_profit(self, managed: ManagedPosition, price: float, profit_pct: float):
-        """익절 실행"""
+        """익절 실행 (단일 익절, 전량 매도)"""
         symbol = managed.position.symbol
         balance = managed.total_balance
         
@@ -593,8 +677,52 @@ class SemiAutoManager:
         else:
             logger.error(f"❌ 익절 실패: {symbol}")
     
+    async def _execute_stop_loss_level(self, managed: ManagedPosition, price: float, loss_pct: float, sl_level):
+        """다단계 손절 실행 (일부 매도)"""
+        symbol = managed.position.symbol
+        balance = managed.total_balance
+        sell_ratio = sl_level.sell_ratio / 100.0  # 퍼센트를 비율로 변환
+        sell_volume = balance * sell_ratio
+
+        logger.info(
+            f"🚨 손절 실행 (Level {sl_level.level}): {symbol}\n"
+            f"   목표 손실률: -{sl_level.loss_pct:.2f}%\n"
+            f"   현재 손실률: {loss_pct:.2f}%\n"
+            f"   현재가: {price:,.0f}원\n"
+            f"   매도 비율: {sl_level.sell_ratio:.0f}%\n"
+            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}"
+        )
+
+        # 일부 매도 (dry_run 모드)
+        order_result = await self.order_manager.execute_sell(
+            symbol=symbol,
+            volume=sell_volume,
+            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+        )
+
+        if order_result and order_result.get('success'):
+            # 알림
+            if self.notification_callback:
+                await self.notification_callback(
+                    f"🚨 손절 완료 (Level {sl_level.level})\n"
+                    f"심볼: {symbol}\n"
+                    f"손실률: {loss_pct:.2f}%\n"
+                    f"매도 비율: {sl_level.sell_ratio:.0f}%\n"
+                    f"매도가: {price:,.0f}원"
+                )
+
+            logger.info(f"✅ 손절 완료: {symbol} Level {sl_level.level}")
+
+            # 100% 매도한 경우 포지션 제거
+            if sl_level.sell_ratio >= 100.0:
+                del self.managed_positions[symbol]
+                self.detector.unregister_managed_position(symbol)
+                logger.info(f"✅ 포지션 제거: {symbol} (전량 손절)")
+        else:
+            logger.error(f"❌ 손절 실패: {symbol} Level {sl_level.level}")
+
     async def _execute_stop_loss(self, managed: ManagedPosition, price: float, loss_pct: float):
-        """손절 실행"""
+        """손절 실행 (단일 손절, 전량 매도)"""
         symbol = managed.position.symbol
         balance = managed.total_balance
         
