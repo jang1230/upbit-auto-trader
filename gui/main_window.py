@@ -5,6 +5,7 @@ Upbit DCA Trader GUI 메인 윈도우
 
 import sys
 import os
+import time
 
 # 🔧 프로젝트 루트를 Python 경로에 추가 (gui 폴더에서도 실행 가능)
 if __name__ == "__main__":
@@ -110,7 +111,10 @@ class MainWindow(QMainWindow):
         self.trading_worker = None  # Trading Engine 워커 스레드
         self._shutdown_timer = None  # 비동기 종료 타이머
         self._shutdown_elapsed = 0  # 종료 대기 시간
-        
+
+        # 🔧 GUI 업데이트 throttling
+        self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
+
         # 🔧 거래 내역 저장
         self.trade_history = []  # Trade 객체 리스트
 
@@ -1437,8 +1441,8 @@ class MainWindow(QMainWindow):
                     item = self.position_table.item(row, 0)
                     if item and item.text() == symbol_short:
                         self.position_table.removeRow(row)
-                        # 🔧 매도 후 요약 정보 업데이트
-                        self._update_position_summary()
+                        # 🔧 매도 후 요약 정보 업데이트 (throttled - 500ms)
+                        self._update_position_summary_throttled()
                         break
                 return
 
@@ -1510,11 +1514,26 @@ class MainWindow(QMainWindow):
                 return_pct_item.setForeground(Qt.black)  # ⚫ 검은색 (0)
             self.position_table.setItem(row_index, 6, return_pct_item)
 
-            # 🔧 포지션 요약 정보 업데이트
-            self._update_position_summary()
+            # 🔧 포지션 요약 정보 업데이트 (throttled - 500ms)
+            self._update_position_summary_throttled()
 
         except Exception as e:
             self._add_log(f"⚠️ 코인 업데이트 오류 ({symbol}): {e}")
+
+    def _update_position_summary_throttled(self):
+        """
+        포지션 요약 정보 업데이트 (throttled - 500ms)
+
+        종목이 많을 때 GUI 응답없음을 방지하기 위해 500ms throttling 적용
+        """
+        now = time.time()
+
+        # 500ms (0.5초) 이내에는 업데이트 건너뜀
+        if now - self.last_summary_update < 0.5:
+            return
+
+        self.last_summary_update = now
+        self._update_position_summary()
 
     def _update_position_summary(self):
         """
