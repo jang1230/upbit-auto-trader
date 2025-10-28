@@ -54,14 +54,10 @@ class UpbitWebSocket:
             bool: 연결 성공 여부
         """
         try:
-            # 🔧 PING/PONG 설정: 연결 안정성 향상
-            #    - ping_interval=20: 20초마다 PING 프레임 전송
-            #    - ping_timeout=20: PONG 응답 20초 대기
-            self.websocket = await websockets.connect(
-                self.url,
-                ping_interval=20,
-                ping_timeout=20
-            )
+            # 🔧 기본 keepalive 사용 (websockets 라이브러리가 자동 관리)
+            # ping_interval/ping_timeout 명시 설정 시 asyncio task 파괴 문제 발생
+            # recv() timeout으로 블로킹 방지는 이미 처리됨
+            self.websocket = await websockets.connect(self.url)
             self.is_connected = True
             logger.info("✅ 업비트 웹소켓 연결 성공")
             return True
@@ -417,22 +413,17 @@ class MyAssetWebSocket:
 
             # Authorization 헤더와 함께 연결
             # 🔧 additional_headers 사용 (websockets 10.0+)
-            # 🔧 PING/PONG 설정: Upbit의 120초 idle timeout 방지
-            #    - ping_interval=60: 60초마다 PING 프레임 전송
-            #    - ping_timeout=20: PONG 응답 20초 대기
-            #    - close_timeout=10: graceful close 10초 대기
+            # 🔧 기본 keepalive 사용 (명시적 ping_interval/ping_timeout은 asyncio task 파괴 문제 유발)
+            # 🔧 recv() timeout(60s)으로 블로킹 방지는 이미 처리됨
             self.websocket = await websockets.connect(
                 self.url,
                 additional_headers={
                     "Authorization": f"Bearer {token}"
-                },
-                ping_interval=60,  # 60초마다 PING (120초 timeout 방지)
-                ping_timeout=20,   # PONG 응답 20초 대기
-                close_timeout=10   # Graceful close 10초 대기
+                }
             )
 
             self.is_connected = True
-            logger.info("✅ MyAsset WebSocket 연결 성공 (인증 완료, PING 60초)")
+            logger.info("✅ MyAsset WebSocket 연결 성공 (인증 완료)")
             return True
 
         except Exception as e:
