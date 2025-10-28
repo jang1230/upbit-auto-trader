@@ -50,8 +50,8 @@ class UpbitWebSocket:
 
     특징:
     - websocket-client 라이브러리 사용 (Upbit 공식 예제)
-    - 자동 재연결 (reconnect=2)
-    - 자동 PING/PONG (ping_interval=30, ping_timeout=10)
+    - 자동 재연결 (reconnect=5)
+    - PING/PONG 비활성화 (Upbit 서버가 응답하지 않음)
     - Thread 기반 (asyncio 통합)
     """
 
@@ -490,7 +490,7 @@ class MyAssetWebSocket:
 
     공식 Upbit 예제 구조 사용:
     - websocket-client 라이브러리
-    - ping_interval=30, ping_timeout=10, reconnect=2
+    - PING/PONG 비활성화, reconnect=5
 
     Example:
         >>> ws = MyAssetWebSocket(access_key, secret_key)
