@@ -93,7 +93,9 @@ class SemiAutoManager:
         upbit_api: UpbitAPI,
         order_manager: OrderManager,
         dca_config: AdvancedDcaConfig,
-        scan_interval: int = 10,  # 스캔 주기 (초)
+        access_key: str,  # 🔧 MyAsset WebSocket 인증용
+        secret_key: str,  # 🔧 MyAsset WebSocket 인증용
+        scan_interval: int = 60,  # 🔧 fallback 스캔 주기 (초) - 10→60으로 변경
         notification_callback: Optional[Callable] = None,
         position_callback: Optional[Callable] = None,  # 🔧 포지션 업데이트 콜백
         balance_update_callback: Optional[Callable] = None  # 🔧 잔고 갱신 콜백
@@ -103,7 +105,9 @@ class SemiAutoManager:
             upbit_api: Upbit API 클라이언트
             order_manager: 주문 관리자
             dca_config: DCA 설정
-            scan_interval: 포지션 스캔 주기 (초)
+            access_key: Upbit Access Key (MyAsset WebSocket 인증용)
+            secret_key: Upbit Secret Key (MyAsset WebSocket 인증용)
+            scan_interval: Fallback 스캔 주기 (초, MyAsset WebSocket 실패 시 사용)
             notification_callback: 알림 콜백 함수
             position_callback: 포지션 업데이트 콜백 함수 (새 포지션 감지, 업데이트 시 호출)
             balance_update_callback: 잔고 갱신 콜백 함수 (수동 매수 감지 시 호출)
@@ -111,58 +115,82 @@ class SemiAutoManager:
         self.api = upbit_api
         self.order_manager = order_manager
         self.dca_config = dca_config
+        self.access_key = access_key
+        self.secret_key = secret_key
         self.scan_interval = scan_interval
         self.notification_callback = notification_callback
         self.position_callback = position_callback  # 🔧 저장
         self.balance_update_callback = balance_update_callback  # 🔧 저장
-        
+
         # PositionDetector 초기화
         self.detector = PositionDetector(upbit_api)
-        
+
         # 관리 중인 포지션 (symbol -> ManagedPosition)
         self.managed_positions: Dict[str, ManagedPosition] = {}
-        
-        # 🔧 WebSocket 실시간 가격 수신
+
+        # 🔧 WebSocket 실시간 가격 수신 (ticker)
         self.websocket = UpbitWebSocket()
+
+        # 🔧 MyAsset WebSocket 실시간 자산 변동 감지
+        from core.upbit_websocket import MyAssetWebSocket
+        self.myasset_websocket = MyAssetWebSocket(access_key, secret_key)
+
         self.last_prices: Dict[str, float] = {}  # {symbol: last_price}
         self.last_check_time: Dict[str, float] = {}  # {symbol: timestamp} DCA/익절/손절 체크
         self.last_gui_update: Dict[str, float] = {}  # {symbol: timestamp} GUI 업데이트
-        
+
         # 실행 상태
         self.is_running = False
-        self._scan_task = None  # PositionDetector 스캔 태스크
-        self._websocket_task = None  # WebSocket 리스닝 태스크
-        
-        logger.info(f"SemiAutoManager 초기화 완료 (스캔 주기: {scan_interval}초)")
+        self._scan_task = None  # PositionDetector 스캔 태스크 (fallback)
+        self._websocket_task = None  # Ticker WebSocket 리스닝 태스크
+        self._myasset_task = None  # 🔧 MyAsset WebSocket 리스닝 태스크
+
+        logger.info(f"SemiAutoManager 초기화 완료 (fallback 스캔: {scan_interval}초)")
     
     async def start(self):
         """매니저 시작"""
         if self.is_running:
             logger.warning("SemiAutoManager가 이미 실행 중입니다")
             return
-        
+
         self.is_running = True
         logger.info("🚀 SemiAutoManager 시작")
-        
-        # 🔧 1. WebSocket 연결
-        connected = await self.websocket.connect()
-        if not connected:
-            logger.warning("⚠️ WebSocket 연결 실패, REST API fallback 사용")
-        
-        # 🔧 2. 초기 스캔 (수동 매수 감지)
+
+        # 🔧 1. Ticker WebSocket 연결
+        ticker_connected = await self.websocket.connect()
+        if not ticker_connected:
+            logger.warning("⚠️ Ticker WebSocket 연결 실패")
+
+        # 🔧 2. MyAsset WebSocket 연결 (자산 변동 실시간 감지)
+        myasset_connected = await self.myasset_websocket.connect()
+        if myasset_connected:
+            await self.myasset_websocket.subscribe_myasset()
+            logger.info("✅ MyAsset WebSocket 활성화 - 실시간 자산 변동 감지")
+        else:
+            logger.warning("⚠️ MyAsset WebSocket 연결 실패 - fallback polling 사용")
+
+        # 🔧 3. 초기 스캔 (수동 매수 감지)
         await self._scan_and_process()
-        
-        # 🔧 3. 관리 중인 포지션이 있으면 WebSocket 구독
-        if self.managed_positions and connected:
+
+        # 🔧 4. 관리 중인 포지션이 있으면 Ticker WebSocket 구독
+        if self.managed_positions and ticker_connected:
             symbols = list(self.managed_positions.keys())
             await self.websocket.subscribe_ticker(symbols)
-            logger.info(f"📊 WebSocket ticker 구독: {symbols}")
-        
-        # 🔧 4. PositionDetector 스캔 태스크 (10초마다 수동 매수 감지)
+            logger.info(f"📊 Ticker WebSocket 구독: {symbols}")
+
+        # 🔧 5. MyAsset WebSocket 리스닝 태스크 (실시간 자산 변동 감지)
+        if myasset_connected:
+            self._myasset_task = asyncio.create_task(self._listen_myasset())
+
+        # 🔧 6. Fallback 스캔 태스크 (MyAsset 실패 시 또는 보조용)
+        if not myasset_connected:
+            logger.info(f"⏰ Fallback polling 시작 ({self.scan_interval}초)")
+        else:
+            logger.info(f"⏰ Fallback polling 활성 ({self.scan_interval}초, 보조용)")
         self._scan_task = asyncio.create_task(self._run_scan_loop())
-        
-        # 🔧 5. WebSocket 리스닝 태스크 (실시간 가격 수신)
-        if connected:
+
+        # 🔧 7. Ticker WebSocket 리스닝 태스크 (실시간 가격 수신)
+        if ticker_connected:
             self._websocket_task = asyncio.create_task(self._listen_websocket())
     
     async def stop(self):
@@ -183,15 +211,33 @@ class SemiAutoManager:
             except Exception as e:
                 logger.debug(f"스캔 태스크 종료 중 에러: {e}")
 
-        # 🔧 2. WebSocket 연결 종료 (먼저 연결을 끊어야 listen이 종료됨)
+        # 🔧 2. MyAsset WebSocket 연결 종료
+        try:
+            await asyncio.wait_for(self.myasset_websocket.disconnect(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ MyAsset WebSocket 종료 타임아웃")
+        except Exception as e:
+            logger.debug(f"MyAsset WebSocket 종료 중 에러: {e}")
+
+        # 🔧 3. MyAsset WebSocket 태스크 취소
+        if self._myasset_task and not self._myasset_task.done():
+            self._myasset_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(self._myasset_task), timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception as e:
+                logger.debug(f"MyAsset 태스크 종료 중 에러: {e}")
+
+        # 🔧 4. Ticker WebSocket 연결 종료
         try:
             await asyncio.wait_for(self.websocket.disconnect(), timeout=2.0)
         except asyncio.TimeoutError:
-            logger.warning("⚠️ WebSocket 종료 타임아웃")
+            logger.warning("⚠️ Ticker WebSocket 종료 타임아웃")
         except Exception as e:
-            logger.debug(f"WebSocket 종료 중 에러: {e}")
+            logger.debug(f"Ticker WebSocket 종료 중 에러: {e}")
 
-        # 🔧 3. WebSocket 태스크 취소 (연결이 끊어진 후)
+        # 🔧 5. Ticker WebSocket 태스크 취소
         if self._websocket_task and not self._websocket_task.done():
             self._websocket_task.cancel()
             try:
@@ -199,7 +245,7 @@ class SemiAutoManager:
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
             except Exception as e:
-                logger.debug(f"WebSocket 태스크 종료 중 에러: {e}")
+                logger.debug(f"Ticker WebSocket 태스크 종료 중 에러: {e}")
 
         logger.info("✅ SemiAutoManager 종료 완료")
     
@@ -260,7 +306,42 @@ class SemiAutoManager:
                         await self.websocket.subscribe_ticker(symbols)
                         # 재귀 호출로 리스닝 재개
                         await self._listen_websocket()
-    
+
+    async def _listen_myasset(self):
+        """🔧 MyAsset WebSocket 실시간 자산 변동 감지 루프"""
+        try:
+            logger.info("💰 MyAsset WebSocket 리스닝 시작 - 자산 변동 실시간 감지")
+
+            async for data in self.myasset_websocket.listen():
+                if not self.is_running:
+                    break
+
+                # myAsset 데이터 수신
+                asset_code = data.get('asset')  # 'KRW', 'BTC', 'XRP' 등
+                balance = data.get('balance', 0)  # 보유 수량
+                avg_buy_price = data.get('avg_buy_price', 0)  # 평균 매수가
+
+                logger.info(f"💰 자산 변동 감지: {asset_code} - 잔액: {balance:.8f}, 평단가: {avg_buy_price:,.0f}원")
+
+                # KRW가 아닌 코인 자산만 처리 (매수/매도 시)
+                if asset_code != 'KRW' and balance > 0:
+                    # 즉시 전체 스캔 실행 (새 포지션 확인)
+                    logger.info(f"🔍 {asset_code} 자산 변동 → 즉시 포지션 스캔")
+                    await self._scan_and_process()
+
+        except asyncio.CancelledError:
+            logger.info("MyAsset WebSocket 리스닝 종료")
+        except Exception as e:
+            logger.error(f"MyAsset WebSocket 리스닝 에러: {e}", exc_info=True)
+            # 에러 발생 시 재연결 시도
+            if self.is_running:
+                logger.info("MyAsset WebSocket 재연결 시도 중...")
+                await asyncio.sleep(5)
+                if await self.myasset_websocket.connect():
+                    await self.myasset_websocket.subscribe_myasset()
+                    # 재귀 호출로 리스닝 재개
+                    await self._listen_myasset()
+
     async def _update_gui_if_needed(self, symbol: str, price: float):
         """🔧 GUI 업데이트 (500ms throttling)"""
         if not self.position_callback:
