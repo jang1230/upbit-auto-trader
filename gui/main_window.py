@@ -5,6 +5,7 @@ Upbit DCA Trader GUI 메인 윈도우
 
 import sys
 import os
+import time
 
 # 🔧 프로젝트 루트를 Python 경로에 추가 (gui 폴더에서도 실행 가능)
 if __name__ == "__main__":
@@ -86,6 +87,65 @@ class BalanceWorker(QThread):
             self.error.emit(str(e))
 
 
+class MyAssetPreparationWorker(QThread):
+    """
+    MyAsset WebSocket 구독 준비 워커
+
+    프로그램 시작 시 백그라운드에서 MyAsset 구독을 수행하여
+    사용자가 시작 버튼을 누를 때 즉시 실시간 감지가 가능하도록 준비
+    """
+
+    # 시그널 정의
+    preparation_complete = Signal()  # 구독 준비 완료
+    preparation_failed = Signal(str)  # 구독 실패 (에러 메시지)
+    status_update = Signal(str)  # 상태 업데이트 메시지
+
+    def __init__(self, access_key: str, secret_key: str):
+        super().__init__()
+        self.access_key = access_key
+        self.secret_key = secret_key
+
+    def run(self):
+        """백그라운드에서 MyAsset 구독 실행"""
+        import asyncio
+
+        try:
+            self.status_update.emit("🔄 실시간 감지 준비 중...")
+
+            # asyncio 이벤트 루프 생성
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # MyAsset WebSocket 연결 및 구독
+            from core.upbit_websocket import MyAssetWebSocket
+
+            myasset_ws = MyAssetWebSocket(self.access_key, self.secret_key)
+
+            # 연결
+            connected = loop.run_until_complete(myasset_ws.connect())
+            if not connected:
+                self.preparation_failed.emit("MyAsset WebSocket 연결 실패")
+                return
+
+            # 구독 (연결 유지, start_trading에서 재사용)
+            loop.run_until_complete(myasset_ws.subscribe_myasset())
+
+            # 🔧 disconnect() 제거! (23초 블로킹 문제 해결)
+            # - 연결은 유지됨 (Worker 종료 시 자동 정리)
+            # - 구독 가능 여부만 확인하면 됨
+
+            # 성공
+            self.preparation_complete.emit()
+            self.status_update.emit("✅ 실시간 감지 준비 완료!")
+
+            # 이벤트 루프 정리 (연결은 유지하되 루프는 종료)
+            loop.close()
+
+        except Exception as e:
+            self.preparation_failed.emit(f"준비 실패: {str(e)}")
+            self.status_update.emit("⚠️ 실시간 감지 사용 불가 (Fallback 모드)")
+
+
 class MainWindow(QMainWindow):
     """
     메인 윈도우
@@ -103,14 +163,20 @@ class MainWindow(QMainWindow):
         # 🔧 트레이딩 모드 및 완전 자동 설정
         self.trading_mode = "semi_auto"  # "semi_auto" | "full_auto"
         self.auto_trading_config = AutoTradingConfig.from_file('auto_trading_config.json')  # 완전 자동 설정
-        self.scan_interval = 10  # 반자동 모드 포지션 스캔 주기 (초)
+        self.scan_interval = 60  # 🔧 반자동 모드 fallback 스캔 주기 (초, MyAsset WebSocket 보조용)
         
         self.is_running = False
         self.balance_worker = None  # 잔고 조회 워커 스레드
         self.trading_worker = None  # Trading Engine 워커 스레드
+        self.preparation_worker = None  # MyAsset 구독 준비 워커
+        self.myasset_ready = False  # MyAsset 구독 준비 완료 여부
+        self.api_keys_validated = False  # 🔧 API 키 검증 완료 플래그 (Step 1 성공 시 True)
         self._shutdown_timer = None  # 비동기 종료 타이머
         self._shutdown_elapsed = 0  # 종료 대기 시간
-        
+
+        # 🔧 GUI 업데이트 throttling
+        self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
+
         # 🔧 거래 내역 저장
         self.trade_history = []  # Trade 객체 리스트
 
@@ -128,13 +194,8 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._update_status()
 
-        # 🔧 GUI 시작 시 자동으로 잔고 조회 (500ms 후)
-        QTimer.singleShot(500, self._refresh_balance)
-
-        # 🔧 주기적 잔고 갱신 (60초마다 fallback)
-        self.balance_refresh_timer = QTimer(self)
-        self.balance_refresh_timer.timeout.connect(self._refresh_balance)
-        self.balance_refresh_timer.start(60000)  # 60초
+        # 🔧 순차적 초기화 시작 (500ms 후)
+        QTimer.singleShot(500, self._start_sequential_initialization)
 
     def _init_ui(self):
         """UI 초기화 - Step 2: 좌측 사이드바 + 우측 메인 패널"""
@@ -186,7 +247,8 @@ class MainWindow(QMainWindow):
         
         # 시그널 연결
         self.semi_auto_radio.toggled.connect(self._on_mode_changed)
-        
+        self.full_auto_radio.toggled.connect(self._on_mode_changed)  # 🔧 완전 자동 버튼도 연결
+
         mode_layout.addWidget(self.semi_auto_radio)
         mode_layout.addWidget(self.full_auto_radio)
         
@@ -228,19 +290,10 @@ class MainWindow(QMainWindow):
         self.total_asset_label.setFont(QFont("맑은 고딕", 9))
         account_layout.addWidget(self.total_asset_label)
 
+        # 🔧 수익률/최대낙폭은 포지션 테이블 위에 표시 (중복 제거)
+        # 레이블은 생성하되 화면에 추가하지 않음 (기존 코드 호환성 유지)
         self.profit_label = QLabel("수익률: 0.00%")
-        self.profit_label.setStyleSheet("color: gray;")
-        self.profit_label.setFont(QFont("맑은 고딕", 9))
-        account_layout.addWidget(self.profit_label)
-
         self.mdd_label = QLabel("최대 낙폭: 0.00%")
-        self.mdd_label.setStyleSheet("color: gray;")
-        self.mdd_label.setFont(QFont("맑은 고딕", 9))
-        account_layout.addWidget(self.mdd_label)
-
-        self.refresh_btn = QPushButton("🔄 새로고침")
-        self.refresh_btn.clicked.connect(self._refresh_balance)
-        account_layout.addWidget(self.refresh_btn)
 
         account_group.setLayout(account_layout)
         sidebar_layout.addWidget(account_group)
@@ -372,9 +425,20 @@ class MainWindow(QMainWindow):
         advanced_dca_btn.clicked.connect(self._open_advanced_dca)
         button_layout.addWidget(advanced_dca_btn)
 
+        # 🔧 MyAsset 구독 상태 라벨
+        self.myasset_status_label = QLabel("🔄 실시간 감지 준비 중...")
+        self.myasset_status_label.setFont(QFont("맑은 고딕", 9))
+        self.myasset_status_label.setStyleSheet(
+            "padding: 8px; background-color: #FFF9C4; color: #F57F17; "
+            "border-radius: 3px; border: 1px solid #FBC02D;"
+        )
+        self.myasset_status_label.setWordWrap(True)
+        button_layout.addWidget(self.myasset_status_label)
+
         # 시작 버튼
         self.start_btn = QPushButton("▶ 전체 DCA 시작")
         self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
+        self.start_btn.setEnabled(False)  # 🔧 초기에 비활성화 (MyAsset 준비 완료까지)
         self.start_btn.clicked.connect(self._start_trading)
         button_layout.addWidget(self.start_btn)
 
@@ -887,28 +951,31 @@ class MainWindow(QMainWindow):
             self._add_log("⏳ 이전 엔진이 종료되는 중입니다. 잠시만 기다려주세요...")
             return
 
-        # 🔧 API 키 검증 (실제 연결 테스트)
-        self._add_log("🔑 API 키 검증 중...")
-        self.statusbar.showMessage("API 키 검증 중...")
+        # 🔧 API 키 검증 (초기화 시 이미 검증되었으면 스킵)
+        if self.api_keys_validated:
+            self._add_log("✅ API 키 검증 완료 (초기화 시 확인됨)")
+        else:
+            self._add_log("🔑 API 키 검증 중...")
+            self.statusbar.showMessage("API 키 검증 중...")
 
-        if not self.config_manager.validate_upbit_keys():
-            self._add_log("❌ API 키 검증 실패")
-            QMessageBox.warning(
-                self,
-                "설정 오류",
-                "Upbit API 키가 설정되지 않았거나 유효하지 않습니다.\n\n"
-                "가능한 원인:\n"
-                "• API 키가 잘못 입력되었습니다\n"
-                "• API 키가 만료되었습니다\n"
-                "• 네트워크 연결에 문제가 있습니다\n\n"
-                "설정 메뉴에서 API 키를 다시 확인하세요."
-            )
+            if not self.config_manager.validate_upbit_keys():
+                self._add_log("❌ API 키 검증 실패")
+                QMessageBox.warning(
+                    self,
+                    "설정 오류",
+                    "Upbit API 키가 설정되지 않았거나 유효하지 않습니다.\n\n"
+                    "가능한 원인:\n"
+                    "• API 키가 잘못 입력되었습니다\n"
+                    "• API 키가 만료되었습니다\n"
+                    "• 네트워크 연결에 문제가 있습니다\n\n"
+                    "설정 메뉴에서 API 키를 다시 확인하세요."
+                )
+                self.statusbar.showMessage("준비")
+                self._open_settings()
+                return
+
+            self._add_log("✅ API 키 검증 성공")
             self.statusbar.showMessage("준비")
-            self._open_settings()
-            return
-
-        self._add_log("✅ API 키 검증 성공")
-        self.statusbar.showMessage("준비")
 
         # Telegram 검증 (선택사항)
         if not self.config_manager.validate_telegram_config():
@@ -1217,9 +1284,8 @@ class MainWindow(QMainWindow):
             # self._add_log("⏳ 이미 계좌 정보를 조회 중입니다...")
             return
 
-        # 🔧 자동 콜백인 경우 로그 출력 최소화
+        # 🔧 최초 1회만 조회
         # self._add_log("🔄 계좌 정보 조회 중...")
-        self.refresh_btn.setEnabled(False)  # 버튼 비활성화
 
         # 워커 스레드 생성 및 실행
         self.balance_worker = BalanceWorker(
@@ -1246,9 +1312,6 @@ class MainWindow(QMainWindow):
         if btc_balance > 0:
             self._add_log(f"   BTC: {btc_balance:.8f}")
 
-        # 버튼 다시 활성화
-        self.refresh_btn.setEnabled(True)
-
     def _on_balance_error(self, error_msg: str):
         """잔고 조회 실패"""
         self._add_log(f"❌ 계좌 조회 실패: {error_msg}")
@@ -1257,9 +1320,6 @@ class MainWindow(QMainWindow):
             "조회 실패",
             f"계좌 정보를 가져올 수 없습니다:\n{error_msg}"
         )
-
-        # 버튼 다시 활성화
-        self.refresh_btn.setEnabled(True)
 
     # ========================================
     # Trading Engine 시그널 핸들러
@@ -1437,8 +1497,8 @@ class MainWindow(QMainWindow):
                     item = self.position_table.item(row, 0)
                     if item and item.text() == symbol_short:
                         self.position_table.removeRow(row)
-                        # 🔧 매도 후 요약 정보 업데이트
-                        self._update_position_summary()
+                        # 🔧 매도 후 요약 정보 업데이트 (throttled - 500ms)
+                        self._update_position_summary_throttled()
                         break
                 return
 
@@ -1510,24 +1570,41 @@ class MainWindow(QMainWindow):
                 return_pct_item.setForeground(Qt.black)  # ⚫ 검은색 (0)
             self.position_table.setItem(row_index, 6, return_pct_item)
 
-            # 🔧 포지션 요약 정보 업데이트
-            self._update_position_summary()
+            # 🔧 포지션 요약 정보 업데이트 (throttled - 500ms)
+            self._update_position_summary_throttled()
 
         except Exception as e:
             self._add_log(f"⚠️ 코인 업데이트 오류 ({symbol}): {e}")
+
+    def _update_position_summary_throttled(self):
+        """
+        포지션 요약 정보 업데이트 (throttled - 500ms)
+
+        종목이 많을 때 GUI 응답없음을 방지하기 위해 500ms throttling 적용
+        """
+        now = time.time()
+
+        # 500ms (0.5초) 이내에는 업데이트 건너뜀
+        if now - self.last_summary_update < 0.5:
+            return
+
+        self.last_summary_update = now
+        self._update_position_summary()
 
     def _update_position_summary(self):
         """
         포지션 요약 정보 업데이트
 
-        테이블에 있는 모든 포지션의 평가손익을 합산하여 표시
+        테이블에 있는 모든 포지션의 평가손익과 수익률을 합산하여 표시
         """
         try:
             total_profit_loss = 0
+            total_invested = 0  # 🔧 총 투자금액
             position_count = self.position_table.rowCount()
 
-            # 테이블의 모든 행에서 평가손익 합산
+            # 테이블의 모든 행에서 평가손익 및 투자금액 합산
             for row in range(position_count):
+                # 평가손익 추출
                 profit_item = self.position_table.item(row, 5)  # 평가손익 컬럼
                 if profit_item:
                     # "+1,500원" → 1500 변환
@@ -1538,9 +1615,29 @@ class MainWindow(QMainWindow):
                     except ValueError:
                         pass
 
+                # 🔧 투자금액 계산 (진입가 × 수량)
+                entry_price_item = self.position_table.item(row, 2)  # 진입가 컬럼
+                quantity_item = self.position_table.item(row, 4)     # 수량 컬럼
+
+                if entry_price_item and quantity_item:
+                    try:
+                        entry_price_text = entry_price_item.text().replace('원', '').replace(',', '').replace(' ', '')
+                        quantity_text = quantity_item.text().replace(' ', '')
+
+                        entry_price = float(entry_price_text)
+                        quantity = float(quantity_text)
+                        invested = entry_price * quantity
+                        total_invested += invested
+                    except ValueError:
+                        pass
+
+            # 🔧 수익률 계산
+            return_pct = (total_profit_loss / total_invested * 100) if total_invested > 0 else 0
+
             # 요약 텍스트 생성
             if position_count > 0:
-                summary_text = f"총 {position_count}개 보유 중 | 전체 평가손익: {total_profit_loss:+,.0f}원"
+                # 🔧 수익률 추가 표시
+                summary_text = f"총 {position_count}개 보유 중 | 전체 평가손익: {total_profit_loss:+,.0f}원 ({return_pct:+.2f}%)"
 
                 # 색상 설정
                 if total_profit_loss > 0:
@@ -1665,47 +1762,90 @@ class MainWindow(QMainWindow):
 
     def _on_auto_trading_status(self, status: dict):
         """
-        완전 자동 모드 상태 업데이트 처리 (AutoTradingWorker)
-        
+        트레이딩 상태 업데이트 처리 (반자동 + 완전 자동 모드 통합)
+
         Args:
-            status: 자동 트레이딩 상태
+            status: 트레이딩 상태
+
+                [반자동 모드 - SemiAutoWorker]
+                - total_value: 총 평가금액 (KRW)
+                - total_return_pct: 총 수익률 (%)
+                - managed_count: 관리 중인 포지션 수
+                - positions: 포지션 리스트
+
+                [완전 자동 모드 - AutoTradingWorker]
+                - krw_balance: KRW 잔고
+                - daily_pnl_pct: 오늘 손익률
                 - monitoring_count: 모니터링 중인 코인 수
                 - managed_positions: 관리 중인 포지션 수
                 - daily_trades: 오늘 거래 횟수
-                - daily_pnl_pct: 오늘 손익률
-                - krw_balance: KRW 잔고
-                - positions: 포지션 리스트
         """
         try:
-            # 상단 통계 업데이트
-            krw_balance = status.get('krw_balance', 0)
-            daily_pnl = status.get('daily_pnl_pct', 0)
-            
-            self.total_asset_label.setText(f"KRW 잔고: {krw_balance:,.0f}원")
-            
-            # 일일 손익률 표시
-            if daily_pnl > 0:
-                self.profit_label.setText(f"오늘 손익: +{daily_pnl:.2f}%")
-                self.profit_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
-            elif daily_pnl < 0:
-                self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
-                self.profit_label.setStyleSheet("color: #f44336; font-weight: bold;")
+            # 🔧 반자동 모드 vs 완전 자동 모드 구분
+            # 반자동: total_return_pct 존재
+            # 완전 자동: daily_pnl_pct 존재
+
+            if 'total_return_pct' in status:
+                # ===== 반자동 모드 =====
+                total_value = status.get('total_value', 0)
+                return_pct = status.get('total_return_pct', 0)
+                managed = status.get('managed_count', 0)
+
+                # 총 자산 (평가금액) 표시
+                self.total_asset_label.setText(f"포지션 평가액: {total_value:,.0f}원")
+
+                # 수익률 표시
+                if return_pct > 0:
+                    self.profit_label.setText(f"수익률: +{return_pct:.2f}%")
+                    self.profit_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                elif return_pct < 0:
+                    self.profit_label.setText(f"수익률: {return_pct:.2f}%")
+                    self.profit_label.setStyleSheet("color: #f44336; font-weight: bold;")
+                else:
+                    self.profit_label.setText(f"수익률: {return_pct:.2f}%")
+                    self.profit_label.setStyleSheet("color: gray;")
+
+                # 최대 낙폭 (수익률이 마이너스면 표시)
+                if return_pct < 0:
+                    self.mdd_label.setText(f"최대 낙폭: {abs(return_pct):.2f}%")
+                    self.mdd_label.setStyleSheet("color: #f44336;")
+                else:
+                    self.mdd_label.setText("최대 낙폭: 0.00%")
+                    self.mdd_label.setStyleSheet("color: gray;")
+
+                # 관리 중인 포지션 수 표시
+                self.price_label.setText(f"관리 중: {managed}개 포지션")
+
             else:
-                self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
-                self.profit_label.setStyleSheet("color: gray;")
-            
-            # 모니터링/관리 정보 표시
-            monitoring = status.get('monitoring_count', 0)
-            managed = status.get('managed_positions', 0)
-            daily_trades = status.get('daily_trades', 0)
-            
-            self.price_label.setText(
-                f"모니터링: {monitoring}개 | 관리 중: {managed}개\n"
-                f"오늘 거래: {daily_trades}회"
-            )
-            
+                # ===== 완전 자동 모드 =====
+                krw_balance = status.get('krw_balance', 0)
+                daily_pnl = status.get('daily_pnl_pct', 0)
+
+                self.total_asset_label.setText(f"KRW 잔고: {krw_balance:,.0f}원")
+
+                # 일일 손익률 표시
+                if daily_pnl > 0:
+                    self.profit_label.setText(f"오늘 손익: +{daily_pnl:.2f}%")
+                    self.profit_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                elif daily_pnl < 0:
+                    self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
+                    self.profit_label.setStyleSheet("color: #f44336; font-weight: bold;")
+                else:
+                    self.profit_label.setText(f"오늘 손익: {daily_pnl:.2f}%")
+                    self.profit_label.setStyleSheet("color: gray;")
+
+                # 모니터링/관리 정보 표시
+                monitoring = status.get('monitoring_count', 0)
+                managed = status.get('managed_positions', 0)
+                daily_trades = status.get('daily_trades', 0)
+
+                self.price_label.setText(
+                    f"모니터링: {monitoring}개 | 관리 중: {managed}개\n"
+                    f"오늘 거래: {daily_trades}회"
+                )
+
         except Exception as e:
-            self._add_log(f"⚠️ 자동 트레이딩 상태 업데이트 오류: {e}")
+            self._add_log(f"⚠️ 트레이딩 상태 업데이트 오류: {e}")
 
     def _on_position_update(self, position_data: dict):
         """
@@ -1884,6 +2024,216 @@ class MainWindow(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
 
     # ========================================
+    # 순차적 초기화 시스템
+    # ========================================
+
+    def _start_sequential_initialization(self):
+        """순차적 초기화 시작 (단계별 진행)"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🚀 [Init] 순차적 초기화 시작")
+        self._add_log("🔄 초기화 시작...")
+        self.myasset_status_label.setText("🔄 초기화 중... (1/3) 예수금 조회")
+
+        # 단계 1: 예수금 조회
+        self._step1_load_balance()
+
+    def _step1_load_balance(self):
+        """단계 1: 예수금 조회"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🔄 [Step 1] 예수금 조회 시작")
+
+        # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
+        access_key = self.config_manager.get_upbit_access_key()
+        secret_key = self.config_manager.get_upbit_secret_key()
+
+        if not access_key or not secret_key:
+            logger.warning("⚠️ [Step 1] API 키 미설정 - 단계 2로 진행")
+            self._add_log("⚠️ API 키 미설정 - 단계 2로 진행")
+            self._step2_load_positions()
+            return
+
+        # BalanceWorker 시작
+        logger.info("🔧 [Step 1] BalanceWorker 시작")
+        self.balance_worker = BalanceWorker(access_key, secret_key)
+        self.balance_worker.finished.connect(self._on_step1_complete)
+        self.balance_worker.error.connect(self._on_step1_error)
+        self.balance_worker.start()
+
+    def _on_step1_complete(self, result: dict):
+        """단계 1 완료: 예수금 표시 → 단계 2로"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if result['success']:
+            krw = result['krw']
+            logger.info(f"✅ [Step 1] 예수금 조회 완료: {krw:,.0f}원")
+            self._add_log(f"✅ 예수금 조회 완료: {krw:,.0f}원")
+            # balance_label은 GUI에 없으므로 로그로만 표시
+
+            # 🔧 API 키 검증 완료 플래그 설정
+            self.api_keys_validated = True
+            logger.info("✅ [Step 1] API 키 검증 완료 (플래그 설정)")
+
+        # 단계 2로 진행
+        logger.info("🔄 [Step 1] 완료 → 단계 2로 진행")
+        self._step2_load_positions()
+
+    def _on_step1_error(self, error_msg: str):
+        """단계 1 실패: 에러 표시 → 단계 2로 계속"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.error(f"❌ [Step 1] 예수금 조회 실패: {error_msg}")
+        self._add_log(f"⚠️ 예수금 조회 실패: {error_msg}")
+        self._step2_load_positions()
+
+    def _step2_load_positions(self):
+        """단계 2: 보유 종목 조회 + 화면 표시"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🔄 [Step 2] 보유 종목 조회 시작")
+        self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
+        self._add_log("🔄 보유 종목 조회 중...")
+
+        # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
+        access_key = self.config_manager.get_upbit_access_key()
+        secret_key = self.config_manager.get_upbit_secret_key()
+
+        if not access_key or not secret_key:
+            logger.warning("⚠️ [Step 2] API 키 미설정 - 단계 3으로 진행")
+            self._add_log("⚠️ API 키 미설정 - 단계 3으로 진행")
+            self._step3_prepare_myasset()
+            return
+
+        try:
+            from core.upbit_api import UpbitAPI
+            from datetime import datetime
+
+            logger.info("🔍 [Step 2] UpbitAPI 초기화 및 계좌 조회 중...")
+            api = UpbitAPI(access_key, secret_key)
+            accounts = api.get_accounts()
+            logger.info(f"✅ [Step 2] 계좌 조회 완료: {len(accounts)}개 자산")
+
+            # 🔧 코인 포지션 수집 및 GUI 업데이트
+            positions_found = []
+            for account in accounts:
+                currency = account['currency']
+                if currency != 'KRW':
+                    balance = float(account['balance'])
+                    avg_buy_price = float(account['avg_buy_price'])
+
+                    if balance > 0:
+                        symbol = f'KRW-{currency}'
+                        logger.info(f"💰 [Step 2] 포지션 발견: {symbol}, 수량={balance}, 평단가={avg_buy_price}")
+
+                        # ✅ GUI 업데이트 (각 포지션마다 _on_coin_update 호출)
+                        position_data = {
+                            'symbol': symbol,
+                            'position': balance,
+                            'entry_price': avg_buy_price,
+                            'avg_entry_price': avg_buy_price,
+                            'current_price': avg_buy_price,  # 최초에는 진입가로 표시
+                            'profit_loss': 0,
+                            'return_pct': 0,
+                            'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+
+                        # GUI 테이블 업데이트
+                        logger.info(f"🔧 [Step 2] _on_coin_update 호출: {symbol}")
+                        self._on_coin_update(symbol, position_data)
+                        logger.info(f"✅ [Step 2] _on_coin_update 완료: {symbol}")
+                        positions_found.append(currency)
+
+            if positions_found:
+                logger.info(f"✅ [Step 2] 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
+                logger.info(f"✅ [Step 2] 활성 포지션 테이블에 표시 완료")
+                self._add_log(f"✅ 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
+                self._add_log(f"   → 활성 포지션 테이블에 표시 완료")
+            else:
+                logger.info("📭 [Step 2] 보유 종목 없음")
+                self._add_log("📭 보유 종목 없음")
+
+        except Exception as e:
+            import traceback
+            logger.error(f"❌ [Step 2] 보유 종목 조회 실패: {e}")
+            logger.error(f"❌ [Step 2] Traceback:\n{traceback.format_exc()}")
+            self._add_log(f"⚠️ 보유 종목 조회 실패: {e}")
+
+        # 단계 3으로 진행
+        logger.info("🔄 [Step 2] 완료 → 단계 3으로 진행")
+        self._step3_prepare_myasset()
+
+    def _step3_prepare_myasset(self):
+        """단계 3: MyAsset WebSocket 구독 준비"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🔄 [Step 3] 실시간 감지 준비 시작")
+        self.myasset_status_label.setText("🔄 초기화 중... (3/3) 실시간 감지 준비")
+        self._add_log("🔄 실시간 감지 준비 중...")
+
+        # 기존 _start_myasset_preparation() 로직 호출
+        self._start_myasset_preparation()
+
+    # ========================================
+    # MyAsset 구독 준비
+    # ========================================
+
+    def _start_myasset_preparation(self):
+        """MyAsset WebSocket 구독 준비 시작 (백그라운드)"""
+        # API 키 확인
+        access_key = self.config_manager.get_upbit_access_key()
+        secret_key = self.config_manager.get_upbit_secret_key()
+
+        if not access_key or not secret_key:
+            # API 키 없으면 준비 실패
+            self.myasset_status_label.setText("⚠️ API 키 미설정 (Fallback 모드)")
+            self.myasset_status_label.setStyleSheet(
+                "padding: 8px; background-color: #FFCDD2; color: #C62828; "
+                "border-radius: 3px; border: 1px solid #E53935;"
+            )
+            self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
+            return
+
+        # MyAsset 구독 준비 워커 시작
+        self.preparation_worker = MyAssetPreparationWorker(access_key, secret_key)
+        self.preparation_worker.preparation_complete.connect(self._on_myasset_preparation_complete)
+        self.preparation_worker.preparation_failed.connect(self._on_myasset_preparation_failed)
+        self.preparation_worker.status_update.connect(self._on_myasset_status_update)
+        self.preparation_worker.start()
+
+    def _on_myasset_preparation_complete(self):
+        """MyAsset 구독 준비 완료"""
+        self.myasset_ready = True
+        self.start_btn.setEnabled(True)  # 시작 버튼 활성화
+        self._add_log("✅ 실시간 감지 준비 완료! 이제 시작 버튼을 눌러주세요.")
+        self._add_log("ℹ️  참고: 프로그램 시작 직후 첫 매수는 1-3분 지연될 수 있습니다 (Upbit 정책)")
+        self._add_log("   이후 매수부터는 즉시 감지됩니다 (평균 15-30초 이내)")
+
+        # 상태 라벨 업데이트
+        self.myasset_status_label.setText("✅ 실시간 감지 준비 완료!")
+        self.myasset_status_label.setStyleSheet(
+            "padding: 8px; background-color: #C8E6C9; color: #2E7D32; "
+            "border-radius: 3px; border: 1px solid #4CAF50;"
+        )
+
+    def _on_myasset_preparation_failed(self, error_msg: str):
+        """MyAsset 구독 준비 실패"""
+        self.myasset_ready = False
+        self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
+        self._add_log(f"⚠️ 실시간 감지 준비 실패: {error_msg}")
+        self._add_log("   → Fallback polling 모드로 작동합니다 (60초마다 확인)")
+
+    def _on_myasset_status_update(self, status_msg: str):
+        """MyAsset 상태 업데이트"""
+        self.myasset_status_label.setText(status_msg)
+
+    # ========================================
     # 종료 처리
     # ========================================
 
@@ -1922,8 +2272,10 @@ class MainWindow(QMainWindow):
                 # 스레드 종료 대기 (최대 5초로 단축)
                 if not self.trading_worker.wait(5000):
                     self._add_log("⚠️ 엔진 중지 시간 초과, 강제 종료")
-                    self.trading_worker.terminate()
-                    self.trading_worker.wait(1000)  # 강제 종료 후 1초 대기
+                    if self.trading_worker:  # None 체크
+                        self.trading_worker.terminate()
+                        if self.trading_worker:  # terminate 후 다시 체크
+                            self.trading_worker.wait(1000)  # 강제 종료 후 1초 대기
 
                 # Worker 정리
                 self.trading_worker = None
