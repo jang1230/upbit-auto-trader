@@ -228,15 +228,10 @@ class MainWindow(QMainWindow):
         self.total_asset_label.setFont(QFont("맑은 고딕", 9))
         account_layout.addWidget(self.total_asset_label)
 
+        # 🔧 수익률/최대낙폭은 포지션 테이블 위에 표시 (중복 제거)
+        # 레이블은 생성하되 화면에 추가하지 않음 (기존 코드 호환성 유지)
         self.profit_label = QLabel("수익률: 0.00%")
-        self.profit_label.setStyleSheet("color: gray;")
-        self.profit_label.setFont(QFont("맑은 고딕", 9))
-        account_layout.addWidget(self.profit_label)
-
         self.mdd_label = QLabel("최대 낙폭: 0.00%")
-        self.mdd_label.setStyleSheet("color: gray;")
-        self.mdd_label.setFont(QFont("맑은 고딕", 9))
-        account_layout.addWidget(self.mdd_label)
 
         account_group.setLayout(account_layout)
         sidebar_layout.addWidget(account_group)
@@ -1524,14 +1519,16 @@ class MainWindow(QMainWindow):
         """
         포지션 요약 정보 업데이트
 
-        테이블에 있는 모든 포지션의 평가손익을 합산하여 표시
+        테이블에 있는 모든 포지션의 평가손익과 수익률을 합산하여 표시
         """
         try:
             total_profit_loss = 0
+            total_invested = 0  # 🔧 총 투자금액
             position_count = self.position_table.rowCount()
 
-            # 테이블의 모든 행에서 평가손익 합산
+            # 테이블의 모든 행에서 평가손익 및 투자금액 합산
             for row in range(position_count):
+                # 평가손익 추출
                 profit_item = self.position_table.item(row, 5)  # 평가손익 컬럼
                 if profit_item:
                     # "+1,500원" → 1500 변환
@@ -1542,9 +1539,29 @@ class MainWindow(QMainWindow):
                     except ValueError:
                         pass
 
+                # 🔧 투자금액 계산 (진입가 × 수량)
+                entry_price_item = self.position_table.item(row, 2)  # 진입가 컬럼
+                quantity_item = self.position_table.item(row, 4)     # 수량 컬럼
+
+                if entry_price_item and quantity_item:
+                    try:
+                        entry_price_text = entry_price_item.text().replace('원', '').replace(',', '').replace(' ', '')
+                        quantity_text = quantity_item.text().replace(' ', '')
+
+                        entry_price = float(entry_price_text)
+                        quantity = float(quantity_text)
+                        invested = entry_price * quantity
+                        total_invested += invested
+                    except ValueError:
+                        pass
+
+            # 🔧 수익률 계산
+            return_pct = (total_profit_loss / total_invested * 100) if total_invested > 0 else 0
+
             # 요약 텍스트 생성
             if position_count > 0:
-                summary_text = f"총 {position_count}개 보유 중 | 전체 평가손익: {total_profit_loss:+,.0f}원"
+                # 🔧 수익률 추가 표시
+                summary_text = f"총 {position_count}개 보유 중 | 전체 평가손익: {total_profit_loss:+,.0f}원 ({return_pct:+.2f}%)"
 
                 # 색상 설정
                 if total_profit_loss > 0:
