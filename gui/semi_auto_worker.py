@@ -103,6 +103,8 @@ class SemiAutoWorker(QThread):
                 upbit_api=self.api,
                 order_manager=self.order_manager,
                 dca_config=self.dca_config,
+                access_key=self.access_key,  # 🔧 MyAsset WebSocket 인증용
+                secret_key=self.secret_key,  # 🔧 MyAsset WebSocket 인증용
                 scan_interval=self.scan_interval,
                 notification_callback=self._notification_callback,
                 position_callback=self._position_callback,  # 🔧 포지션 업데이트 콜백

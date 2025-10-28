@@ -19,8 +19,13 @@ Example:
 import json
 import asyncio
 import logging
+import time
+import uuid
+import hashlib
+import jwt as pyjwt
 from typing import List, Dict, Optional, Callable, AsyncIterator
 from datetime import datetime
+from urllib.parse import urlencode, unquote
 import websockets
 
 logger = logging.getLogger(__name__)
@@ -318,6 +323,173 @@ class CandleWebSocket(UpbitWebSocket):
 
                 if self.is_running:  # 종료되지 않은 경우에만 재시도 로그
                     logger.info(f"🔄 재시도 중... (시도 {consecutive_errors}회)")
+
+
+class MyAssetWebSocket:
+    """
+    내 자산 변동 실시간 알림 WebSocket (인증 필요)
+
+    사용자의 계좌에서 자산 변동(매수/매도)이 발생할 때 실시간으로 알림을 받습니다.
+    - 10초 polling 대신 즉시 감지
+    - API 호출 불필요
+    - JWT 인증 필요
+
+    Example:
+        >>> ws = MyAssetWebSocket(access_key, secret_key)
+        >>> await ws.connect()
+        >>> await ws.subscribe_myasset()
+        >>> async for data in ws.listen():
+        >>>     print(f"자산 변동: {data}")
+    """
+
+    def __init__(self, access_key: str, secret_key: str):
+        """
+        내 자산 WebSocket 초기화
+
+        Args:
+            access_key: Upbit Access Key
+            secret_key: Upbit Secret Key
+        """
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.url = "wss://api.upbit.com/websocket/v1"
+        self.websocket = None
+        self.is_connected = False
+
+    def _generate_jwt_token(self) -> str:
+        """
+        JWT 토큰 생성 (WebSocket 인증용)
+
+        Returns:
+            str: JWT 토큰 (Bearer 제외)
+        """
+        payload = {
+            'access_key': self.access_key,
+            'nonce': str(uuid.uuid4()),
+            'timestamp': round(time.time() * 1000)
+        }
+
+        jwt_token = pyjwt.encode(payload, self.secret_key, algorithm='HS256')
+        return jwt_token
+
+    async def connect(self) -> bool:
+        """
+        WebSocket 연결 (JWT 인증 포함)
+
+        Returns:
+            bool: 연결 성공 여부
+        """
+        try:
+            # JWT 토큰 생성
+            token = self._generate_jwt_token()
+
+            # Authorization 헤더와 함께 연결
+            self.websocket = await websockets.connect(
+                self.url,
+                extra_headers={
+                    "Authorization": f"Bearer {token}"
+                }
+            )
+
+            self.is_connected = True
+            logger.info("✅ MyAsset WebSocket 연결 성공 (인증 완료)")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ MyAsset WebSocket 연결 실패: {e}")
+            self.is_connected = False
+            return False
+
+    async def disconnect(self):
+        """WebSocket 연결 종료"""
+        self.is_connected = False
+        if self.websocket:
+            try:
+                await asyncio.wait_for(self.websocket.close(), timeout=1.0)
+                logger.info("MyAsset WebSocket 연결 종료")
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ MyAsset WebSocket graceful shutdown 타임아웃")
+                try:
+                    await asyncio.wait_for(self.websocket.close(), timeout=0.1)
+                except:
+                    pass
+            except Exception as e:
+                logger.warning(f"⚠️ MyAsset WebSocket 종료 중 에러: {e}")
+
+    async def subscribe_myasset(self):
+        """
+        내 자산 구독
+
+        자산 변동(매수/매도) 발생 시 실시간 알림 수신
+
+        주의:
+        - codes 파라미터 없음 (전체 자산 자동 구독)
+        - 최초 연결 시 수분간 데이터 수신 안 될 수 있음 (Upbit 정책)
+        - 자산 변동 없으면 데이터 수신 없음 (정상)
+        """
+        if not self.is_connected:
+            raise ConnectionError("WebSocket이 연결되지 않았습니다.")
+
+        # myAsset 구독 요청 (codes 파라미터 없음!)
+        subscribe_fmt = [
+            {"ticket": str(uuid.uuid4())},
+            {"type": "myAsset"},
+            {"format": "DEFAULT"}
+        ]
+
+        await self.websocket.send(json.dumps(subscribe_fmt))
+        logger.info("💰 MyAsset 구독 완료 - 자산 변동 실시간 감지 시작")
+
+    async def listen(self) -> AsyncIterator[Dict]:
+        """
+        자산 변동 메시지 수신 (Generator)
+
+        Yields:
+            Dict: 자산 변동 데이터
+                - type: 'myAsset'
+                - asset: 자산 코드 (예: 'KRW', 'BTC')
+                - balance: 보유 수량
+                - locked: 주문 중 수량
+                - avg_buy_price: 평균 매수가
+                - modified: 변동 여부
+        """
+        if not self.is_connected:
+            raise ConnectionError("WebSocket이 연결되지 않았습니다.")
+
+        try:
+            while self.is_connected:
+                message = await self.websocket.recv()
+
+                # 바이너리 데이터 디코딩
+                if isinstance(message, bytes):
+                    message = message.decode('utf-8')
+
+                # JSON 파싱
+                data = json.loads(message)
+
+                # myAsset 데이터만 반환
+                if data.get('type') == 'myAsset':
+                    yield data
+
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning("⚠️ MyAsset WebSocket 연결 끊김")
+            self.is_connected = False
+        except Exception as e:
+            logger.error(f"❌ MyAsset 메시지 수신 오류: {e}")
+            self.is_connected = False
+
+    async def listen_with_callback(self, callback: Callable):
+        """
+        자산 변동 메시지 수신 (Callback)
+
+        Args:
+            callback: 메시지 처리 콜백 함수
+        """
+        async for data in self.listen():
+            try:
+                await callback(data)
+            except Exception as e:
+                logger.error(f"❌ MyAsset 콜백 처리 오류: {e}")
 
 
 # 편의 함수
