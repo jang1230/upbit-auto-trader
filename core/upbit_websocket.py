@@ -488,13 +488,15 @@ class MyAssetWebSocket:
                     logger.error(f"❌ JSON 파싱 실패: {je}, 원본: {message[:100]}")
                     continue
 
-                # JSON_LIST 형식 처리 (배열로 온 경우 첫 번째 요소 추출)
-                if isinstance(data, list) and len(data) > 0:
-                    data = data[0]
-
-                # myAsset 데이터만 반환
-                if data.get('type') == 'myAsset':
-                    yield data
+                # JSON_LIST 형식 처리 (배열의 모든 요소를 순회)
+                if isinstance(data, list):
+                    for item in data:
+                        if item.get('type') == 'myAsset':
+                            yield item
+                else:
+                    # DEFAULT 형식 (단일 객체)
+                    if data.get('type') == 'myAsset':
+                        yield data
 
         except websockets.exceptions.ConnectionClosed as e:
             logger.warning(f"⚠️ MyAsset WebSocket 연결 끊김 (close_code={e.code if hasattr(e, 'code') else 'unknown'}, reason={e.reason if hasattr(e, 'reason') else 'unknown'})")
