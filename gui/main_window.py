@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
         self.trading_worker = None  # Trading Engine 워커 스레드
         self.preparation_worker = None  # MyAsset 구독 준비 워커
         self.myasset_ready = False  # MyAsset 구독 준비 완료 여부
+        self.api_keys_validated = False  # 🔧 API 키 검증 완료 플래그 (Step 1 성공 시 True)
         self._shutdown_timer = None  # 비동기 종료 타이머
         self._shutdown_elapsed = 0  # 종료 대기 시간
 
@@ -950,28 +951,31 @@ class MainWindow(QMainWindow):
             self._add_log("⏳ 이전 엔진이 종료되는 중입니다. 잠시만 기다려주세요...")
             return
 
-        # 🔧 API 키 검증 (실제 연결 테스트)
-        self._add_log("🔑 API 키 검증 중...")
-        self.statusbar.showMessage("API 키 검증 중...")
+        # 🔧 API 키 검증 (초기화 시 이미 검증되었으면 스킵)
+        if self.api_keys_validated:
+            self._add_log("✅ API 키 검증 완료 (초기화 시 확인됨)")
+        else:
+            self._add_log("🔑 API 키 검증 중...")
+            self.statusbar.showMessage("API 키 검증 중...")
 
-        if not self.config_manager.validate_upbit_keys():
-            self._add_log("❌ API 키 검증 실패")
-            QMessageBox.warning(
-                self,
-                "설정 오류",
-                "Upbit API 키가 설정되지 않았거나 유효하지 않습니다.\n\n"
-                "가능한 원인:\n"
-                "• API 키가 잘못 입력되었습니다\n"
-                "• API 키가 만료되었습니다\n"
-                "• 네트워크 연결에 문제가 있습니다\n\n"
-                "설정 메뉴에서 API 키를 다시 확인하세요."
-            )
+            if not self.config_manager.validate_upbit_keys():
+                self._add_log("❌ API 키 검증 실패")
+                QMessageBox.warning(
+                    self,
+                    "설정 오류",
+                    "Upbit API 키가 설정되지 않았거나 유효하지 않습니다.\n\n"
+                    "가능한 원인:\n"
+                    "• API 키가 잘못 입력되었습니다\n"
+                    "• API 키가 만료되었습니다\n"
+                    "• 네트워크 연결에 문제가 있습니다\n\n"
+                    "설정 메뉴에서 API 키를 다시 확인하세요."
+                )
+                self.statusbar.showMessage("준비")
+                self._open_settings()
+                return
+
+            self._add_log("✅ API 키 검증 성공")
             self.statusbar.showMessage("준비")
-            self._open_settings()
-            return
-
-        self._add_log("✅ API 키 검증 성공")
-        self.statusbar.showMessage("준비")
 
         # Telegram 검증 (선택사항)
         if not self.config_manager.validate_telegram_config():
@@ -2069,6 +2073,10 @@ class MainWindow(QMainWindow):
             logger.info(f"✅ [Step 1] 예수금 조회 완료: {krw:,.0f}원")
             self._add_log(f"✅ 예수금 조회 완료: {krw:,.0f}원")
             # balance_label은 GUI에 없으므로 로그로만 표시
+
+            # 🔧 API 키 검증 완료 플래그 설정
+            self.api_keys_validated = True
+            logger.info("✅ [Step 1] API 키 검증 완료 (플래그 설정)")
 
         # 단계 2로 진행
         logger.info("🔄 [Step 1] 완료 → 단계 2로 진행")
