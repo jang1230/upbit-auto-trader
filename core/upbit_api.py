@@ -49,30 +49,36 @@ class UpbitAPI:
     
     def _generate_jwt_token(self, query: Optional[Dict] = None) -> str:
         """
-        JWT 토큰 생성
-        
+        JWT 토큰 생성 (Upbit 공식 스펙)
+
+        공식 Upbit JWT 스펙:
+        - 기본 payload: access_key, nonce (timestamp 없음)
+        - 파라미터 있을 때: query_hash, query_hash_alg 추가
+        - algorithm: HS512
+
         Args:
             query: API 요청 파라미터
-            
+
         Returns:
-            str: JWT 토큰
+            str: JWT 토큰 (Bearer 포함)
         """
+        # 🔧 공식 Upbit JWT 스펙에 맞춤 (timestamp 제거)
         payload = {
             'access_key': self.access_key,
-            'nonce': str(uuid.uuid4()),
-            'timestamp': round(time.time() * 1000)
+            'nonce': str(uuid.uuid4())
         }
-        
+
         if query:
             query_string = unquote(urlencode(query, doseq=True)).encode("utf-8")
             m = hashlib.sha512()
             m.update(query_string)
             query_hash = m.hexdigest()
-            
+
             payload['query_hash'] = query_hash
             payload['query_hash_alg'] = 'SHA512'
-        
-        jwt_token = jwt.encode(payload, self.secret_key, algorithm='HS256')
+
+        # 🔧 공식 스펙: HS512 사용
+        jwt_token = jwt.encode(payload, self.secret_key, algorithm='HS512')
         return f'Bearer {jwt_token}'
     
     def _request(self, method: str, endpoint: str, query: Optional[Dict] = None, body: Optional[Dict] = None) -> Dict:

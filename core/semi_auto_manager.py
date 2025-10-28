@@ -93,7 +93,9 @@ class SemiAutoManager:
         upbit_api: UpbitAPI,
         order_manager: OrderManager,
         dca_config: AdvancedDcaConfig,
-        scan_interval: int = 10,  # 스캔 주기 (초)
+        access_key: str,  # 🔧 MyAsset WebSocket 인증용
+        secret_key: str,  # 🔧 MyAsset WebSocket 인증용
+        scan_interval: int = 60,  # 🔧 fallback 스캔 주기 (초) - 10→60으로 변경
         notification_callback: Optional[Callable] = None,
         position_callback: Optional[Callable] = None,  # 🔧 포지션 업데이트 콜백
         balance_update_callback: Optional[Callable] = None  # 🔧 잔고 갱신 콜백
@@ -103,7 +105,9 @@ class SemiAutoManager:
             upbit_api: Upbit API 클라이언트
             order_manager: 주문 관리자
             dca_config: DCA 설정
-            scan_interval: 포지션 스캔 주기 (초)
+            access_key: Upbit Access Key (MyAsset WebSocket 인증용)
+            secret_key: Upbit Secret Key (MyAsset WebSocket 인증용)
+            scan_interval: Fallback 스캔 주기 (초, MyAsset WebSocket 실패 시 사용)
             notification_callback: 알림 콜백 함수
             position_callback: 포지션 업데이트 콜백 함수 (새 포지션 감지, 업데이트 시 호출)
             balance_update_callback: 잔고 갱신 콜백 함수 (수동 매수 감지 시 호출)
@@ -111,87 +115,147 @@ class SemiAutoManager:
         self.api = upbit_api
         self.order_manager = order_manager
         self.dca_config = dca_config
+        self.access_key = access_key
+        self.secret_key = secret_key
         self.scan_interval = scan_interval
         self.notification_callback = notification_callback
         self.position_callback = position_callback  # 🔧 저장
         self.balance_update_callback = balance_update_callback  # 🔧 저장
-        
+
         # PositionDetector 초기화
         self.detector = PositionDetector(upbit_api)
-        
+
         # 관리 중인 포지션 (symbol -> ManagedPosition)
         self.managed_positions: Dict[str, ManagedPosition] = {}
-        
-        # 🔧 WebSocket 실시간 가격 수신
+
+        # 🔧 WebSocket 실시간 가격 수신 (ticker)
         self.websocket = UpbitWebSocket()
+
+        # 🔧 MyAsset WebSocket 실시간 자산 변동 감지
+        from core.upbit_websocket import MyAssetWebSocket
+        self.myasset_websocket = MyAssetWebSocket(access_key, secret_key)
+
         self.last_prices: Dict[str, float] = {}  # {symbol: last_price}
         self.last_check_time: Dict[str, float] = {}  # {symbol: timestamp} DCA/익절/손절 체크
         self.last_gui_update: Dict[str, float] = {}  # {symbol: timestamp} GUI 업데이트
-        
+
         # 실행 상태
         self.is_running = False
-        self._scan_task = None  # PositionDetector 스캔 태스크
-        self._websocket_task = None  # WebSocket 리스닝 태스크
-        
-        logger.info(f"SemiAutoManager 초기화 완료 (스캔 주기: {scan_interval}초)")
+        self._scan_task = None  # PositionDetector 스캔 태스크 (fallback)
+        self._websocket_task = None  # Ticker WebSocket 리스닝 태스크
+        self._myasset_task = None  # 🔧 MyAsset WebSocket 리스닝 태스크
+
+        logger.info(f"SemiAutoManager 초기화 완료 (fallback 스캔: {scan_interval}초)")
     
     async def start(self):
         """매니저 시작"""
         if self.is_running:
             logger.warning("SemiAutoManager가 이미 실행 중입니다")
             return
-        
+
         self.is_running = True
         logger.info("🚀 SemiAutoManager 시작")
-        
-        # 🔧 1. WebSocket 연결
-        connected = await self.websocket.connect()
-        if not connected:
-            logger.warning("⚠️ WebSocket 연결 실패, REST API fallback 사용")
-        
-        # 🔧 2. 초기 스캔 (수동 매수 감지)
+
+        # 🔧 1. Ticker WebSocket 연결
+        ticker_connected = await self.websocket.connect()
+        if not ticker_connected:
+            logger.warning("⚠️ Ticker WebSocket 연결 실패")
+
+        # 🔧 2. MyAsset WebSocket 연결 (자산 변동 실시간 감지)
+        myasset_connected = await self.myasset_websocket.connect()
+        if myasset_connected:
+            try:
+                await self.myasset_websocket.subscribe_myasset()
+                logger.info("✅ MyAsset WebSocket 활성화 - 실시간 자산 변동 감지")
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"⚠️ MyAsset WebSocket 구독 실패: {e} - fallback polling 사용")
+                myasset_connected = False  # 구독 실패 시 연결 상태 False로 변경
+        else:
+            logger.warning("⚠️ MyAsset WebSocket 연결 실패 - fallback polling 사용")
+
+        # 🔧 3. 초기 스캔 (수동 매수 감지)
         await self._scan_and_process()
-        
-        # 🔧 3. 관리 중인 포지션이 있으면 WebSocket 구독
-        if self.managed_positions and connected:
+
+        # 🔧 4. 관리 중인 포지션이 있으면 Ticker WebSocket 구독
+        if self.managed_positions and ticker_connected:
             symbols = list(self.managed_positions.keys())
-            await self.websocket.subscribe_ticker(symbols)
-            logger.info(f"📊 WebSocket ticker 구독: {symbols}")
-        
-        # 🔧 4. PositionDetector 스캔 태스크 (10초마다 수동 매수 감지)
+            try:
+                await self.websocket.subscribe_ticker(symbols)
+                logger.info(f"📊 WebSocket ticker 구독 완료: {len(symbols)}개 종목")
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"⚠️ WebSocket 구독 실패: {e}")
+                ticker_connected = False  # 구독 실패 시 연결 상태 False로 변경
+
+        # 🔧 5. MyAsset WebSocket 리스닝 태스크 (실시간 자산 변동 감지)
+        if myasset_connected:
+            self._myasset_task = asyncio.create_task(self._listen_myasset())
+
+        # 🔧 6. Fallback 스캔 태스크 (MyAsset 실패 시 또는 보조용)
+        if not myasset_connected:
+            logger.info(f"⏰ Fallback polling 시작 ({self.scan_interval}초)")
+        else:
+            logger.info(f"⏰ Fallback polling 활성 ({self.scan_interval}초, 보조용)")
         self._scan_task = asyncio.create_task(self._run_scan_loop())
-        
-        # 🔧 5. WebSocket 리스닝 태스크 (실시간 가격 수신)
-        if connected:
+
+        # 🔧 7. Ticker WebSocket 리스닝 태스크 (실시간 가격 수신)
+        if ticker_connected:
             self._websocket_task = asyncio.create_task(self._listen_websocket())
     
     async def stop(self):
         """매니저 종료"""
         if not self.is_running:
             return
-        
+
+        logger.info("🛑 SemiAutoManager 종료 시작...")
         self.is_running = False
-        
-        # 🔧 1. 스캔 태스크 취소
-        if self._scan_task:
+
+        # 🔧 1. 스캔 태스크 취소 (1초 타임아웃)
+        if self._scan_task and not self._scan_task.done():
             self._scan_task.cancel()
             try:
-                await self._scan_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(self._scan_task), timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-        
-        # 🔧 2. WebSocket 태스크 취소
-        if self._websocket_task:
+            except Exception as e:
+                logger.debug(f"스캔 태스크 종료 중 에러: {e}")
+
+        # 🔧 2. MyAsset WebSocket 연결 종료
+        try:
+            await asyncio.wait_for(self.myasset_websocket.disconnect(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ MyAsset WebSocket 종료 타임아웃")
+        except Exception as e:
+            logger.debug(f"MyAsset WebSocket 종료 중 에러: {e}")
+
+        # 🔧 3. MyAsset WebSocket 태스크 취소
+        if self._myasset_task and not self._myasset_task.done():
+            self._myasset_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(self._myasset_task), timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception as e:
+                logger.debug(f"MyAsset 태스크 종료 중 에러: {e}")
+
+        # 🔧 4. Ticker WebSocket 연결 종료
+        try:
+            await asyncio.wait_for(self.websocket.disconnect(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ Ticker WebSocket 종료 타임아웃")
+        except Exception as e:
+            logger.debug(f"Ticker WebSocket 종료 중 에러: {e}")
+
+        # 🔧 5. Ticker WebSocket 태스크 취소
+        if self._websocket_task and not self._websocket_task.done():
             self._websocket_task.cancel()
             try:
-                await self._websocket_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(self._websocket_task), timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-        
-        # 🔧 3. WebSocket 연결 종료
-        await self.websocket.disconnect()
-        
-        logger.info("🛑 SemiAutoManager 종료")
+            except Exception as e:
+                logger.debug(f"Ticker WebSocket 태스크 종료 중 에러: {e}")
+
+        logger.info("✅ SemiAutoManager 종료 완료")
     
     async def _run_scan_loop(self):
         """🔧 PositionDetector 스캔 루프 (수동 매수 감지 전용)"""
@@ -217,14 +281,23 @@ class SemiAutoManager:
                 
                 symbol = data['code']  # "KRW-BTC"
                 price = data['trade_price']
-                
+
+                # 🔍 디버깅: 가격 수신 로그 (심볼별 처음 3회만)
+                if not hasattr(self, '_debug_price_count'):
+                    self._debug_price_count = {}
+                if symbol not in self._debug_price_count:
+                    self._debug_price_count[symbol] = 0
+                if self._debug_price_count[symbol] < 3:
+                    logger.info(f"🔍 WebSocket 가격 수신: {symbol} = {price:,.0f}원")
+                    self._debug_price_count[symbol] += 1
+
                 # 가격 캐시 업데이트
                 self.last_prices[symbol] = price
-                
-                # 1. GUI 업데이트 (100ms throttling)
+
+                # 1. GUI 업데이트
                 await self._update_gui_if_needed(symbol, price)
-                
-                # 2. DCA/익절/손절 체크 (500ms throttling)
+
+                # 2. DCA/익절/손절 체크
                 await self._check_trading_conditions(symbol, price)
                 
         except asyncio.CancelledError:
@@ -241,17 +314,80 @@ class SemiAutoManager:
                         await self.websocket.subscribe_ticker(symbols)
                         # 재귀 호출로 리스닝 재개
                         await self._listen_websocket()
-    
+
+    async def _listen_myasset(self):
+        """🔧 MyAsset WebSocket 실시간 자산 변동 감지 루프"""
+        try:
+            logger.info("💰 MyAsset WebSocket 리스닝 시작 - 자산 변동 실시간 감지")
+
+            async for data in self.myasset_websocket.listen():
+                if not self.is_running:
+                    break
+
+                # myAsset 데이터 파싱 (공식 문서 구조)
+                # {
+                #   "type": "myAsset",
+                #   "assets": [
+                #     {"currency": "BTC", "balance": 0.00011834, "locked": 0}
+                #   ]
+                # }
+
+                # 🔧 전체 메시지 로그 (디버깅용)
+                logger.info(f"📨 MyAsset 메시지 수신: {data}")
+
+                assets = data.get('assets', [])
+
+                # 각 자산의 변동 로그
+                asset_changes = []
+                has_coin_change = False
+                has_krw_change = False
+
+                for asset in assets:
+                    currency = asset.get('currency')  # 'KRW', 'BTC', 'XRP' 등
+                    balance = asset.get('balance', 0)  # 보유 수량
+                    locked = asset.get('locked', 0)  # 주문 중 수량
+
+                    if currency == 'KRW':
+                        logger.info(f"💰 자산 변동 감지: {currency} - 잔액: {balance:,.0f}원, 주문중: {locked:,.0f}원")
+                        has_krw_change = True
+                    else:
+                        logger.info(f"💰 자산 변동 감지: {currency} - 잔액: {balance:.8f}, 주문중: {locked:.8f}")
+                        if balance > 0:
+                            has_coin_change = True
+
+                    asset_changes.append(currency)
+
+                # 🔧 개선: KRW 변동 또는 코인 변동 모두 스캔 트리거
+                # - KRW 감소 = 매수 발생 가능
+                # - KRW 증가 = 매도 발생 가능
+                # - 코인 변동 = 매수/매도 발생
+                if has_krw_change or has_coin_change:
+                    logger.info(f"🔍 자산 변동 감지 ({', '.join(asset_changes)}) → 즉시 포지션 스캔")
+                    await self._scan_and_process()
+
+        except asyncio.CancelledError:
+            logger.info("MyAsset WebSocket 리스닝 종료")
+        except Exception as e:
+            logger.error(f"MyAsset WebSocket 리스닝 에러: {e}", exc_info=True)
+            # 에러 발생 시 재연결 시도
+            if self.is_running:
+                logger.info("MyAsset WebSocket 재연결 시도 중...")
+                await asyncio.sleep(5)
+                if await self.myasset_websocket.connect():
+                    await self.myasset_websocket.subscribe_myasset()
+                    # 재귀 호출로 리스닝 재개
+                    await self._listen_myasset()
+
     async def _update_gui_if_needed(self, symbol: str, price: float):
-        """🔧 GUI 업데이트 (1000ms throttling)"""
+        """🔧 GUI 업데이트 (500ms throttling)"""
         if not self.position_callback:
             return
 
         now = time.time()
         last_update = self.last_gui_update.get(symbol, 0)
 
-        # 1000ms = 1초마다 업데이트 (초당 1회) - GUI 과부하 방지
-        if now - last_update < 1.0:
+        # 500ms = 0.5초마다 업데이트 (초당 2회) - GUI 과부하 방지하면서 더 빠른 업데이트
+        if now - last_update < 0.5:
             return
         
         # 관리 중인 포지션만 업데이트
@@ -273,9 +409,9 @@ class SemiAutoManager:
             'entry_time': managed.created_at.isoformat()
         }
         
-        # GUI 업데이트 콜백 호출
-        await self.position_callback(position_data)
-        
+        # GUI 업데이트 콜백 호출 (fire-and-forget, non-blocking)
+        asyncio.create_task(self.position_callback(position_data))
+
         # 마지막 업데이트 시간 기록
         self.last_gui_update[symbol] = now
     
@@ -314,42 +450,90 @@ class SemiAutoManager:
             # scan_positions()는 동기 blocking 함수 (requests.get 사용)
             # asyncio.to_thread()로 별도 스레드에서 실행
             result = await asyncio.to_thread(self.detector.scan_positions)
-            
+
             # 2. 새로운 수동 매수 처리
-            for position in result['new_manual']:
-                await self._on_new_manual_buy(position)
-            
+            new_manual_count = len(result['new_manual'])
+            if new_manual_count > 0:
+                logger.info(f"🔔 새로운 수동 매수 감지: {new_manual_count}개 종목 처리 중...")
+
+                # 🔧 배치 GUI 업데이트를 위한 리스트
+                batch_position_updates = []
+
+                for position in result['new_manual']:
+                    # WebSocket 재구독, 잔고 갱신, GUI 콜백 모두 건너뛰고 포지션만 등록
+                    position_data = await self._on_new_manual_buy(
+                        position,
+                        skip_websocket_resubscribe=True,
+                        skip_balance_update=True,
+                        skip_position_callback=True  # GUI 콜백도 건너뛰기
+                    )
+
+                    # GUI 업데이트 데이터 수집 (None이 아니면)
+                    if position_data:
+                        batch_position_updates.append(position_data)
+
+                # 🔧 모든 종목 처리 후 GUI 업데이트 (배치로 한 번에, fire-and-forget)
+                if batch_position_updates and self.position_callback:
+                    for position_data in batch_position_updates:
+                        asyncio.create_task(self.position_callback(position_data))
+
+                # 🔧 모든 종목 처리 후 WebSocket 재구독 (한 번만)
+                if self.websocket.is_connected and self.managed_positions:
+                    try:
+                        all_symbols = list(self.managed_positions.keys())
+                        await self.websocket.subscribe_ticker(all_symbols)
+                        logger.info(f"📊 WebSocket ticker 구독 완료: {len(all_symbols)}개 종목")
+                    except Exception as e:
+                        logger.warning(f"⚠️ WebSocket 구독 실패: {e}")
+
+                # 🔧 모든 종목 처리 후 잔고 갱신 (한 번만)
+                if self.balance_update_callback:
+                    try:
+                        if asyncio.iscoroutinefunction(self.balance_update_callback):
+                            await self.balance_update_callback()
+                        else:
+                            self.balance_update_callback()
+                        logger.info(f"✅ {new_manual_count}개 종목 등록 완료, 잔고 갱신 완료")
+                    except Exception as e:
+                        logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
+
             # 3. 관리 중인 포지션 업데이트
             for position in result['managed']:
                 await self._update_managed_position(position)
-            
+
             # 4. 현재 가격 조회 및 DCA/익절/손절 체크
             await self._check_all_positions()
-            
+
         except Exception as e:
             logger.error(f"포지션 스캔 중 에러: {e}", exc_info=True)
     
-    async def _on_new_manual_buy(self, position: Position):
-        """새로운 수동 매수 감지 시 처리"""
+    async def _on_new_manual_buy(self, position: Position, skip_websocket_resubscribe: bool = False, skip_balance_update: bool = False, skip_position_callback: bool = False):
+        """
+        새로운 수동 매수 감지 시 처리
+
+        Args:
+            position: 포지션 정보
+            skip_websocket_resubscribe: WebSocket 재구독 건너뛰기 (일괄 처리 시)
+            skip_balance_update: 잔고 갱신 건너뛰기 (일괄 처리 시)
+            skip_position_callback: GUI 콜백 건너뛰기 (배치 처리 시)
+
+        Returns:
+            position_data (dict): GUI 업데이트용 데이터 (skip_position_callback=True 시에만 반환)
+        """
         symbol = position.symbol
-        
-        logger.info(
-            f"🔔 새로운 수동 매수 감지: {symbol} "
-            f"수량={position.balance:.6f} 평단가={position.avg_buy_price:,.0f}원"
-        )
-        
+
         # 평단가 0원인 포지션은 제외 (에어드랍 코인 등)
         if position.avg_buy_price == 0:
             logger.warning(f"⚠️ 평단가 0원 포지션 제외: {symbol} (에어드랍 또는 이벤트 지급)")
-            return
-        
+            return None
+
         # 현재 가격 조회
         current_price = await self._get_current_price(symbol)
-        
+
         if current_price is None:
             logger.warning(f"현재 가격 조회 실패: {symbol}")
-            return
-        
+            return None
+
         # ManagedPosition 생성
         # ⭐ signal_price를 평단가로 설정 (사용자가 매수한 가격 기준)
         managed = ManagedPosition(
@@ -357,38 +541,38 @@ class SemiAutoManager:
             dca_config=self.dca_config,
             initial_signal_price=position.avg_buy_price  # 평단가 기준
         )
-        
+
         self.managed_positions[symbol] = managed
-        
+
         # PositionDetector에 관리 포지션 등록
         self.detector.register_managed_position(symbol, position)
-        
-        # 알림
-        if self.notification_callback:
-            await self.notification_callback(
-                f"🔔 수동 매수 감지\n"
-                f"심볼: {symbol}\n"
-                f"수량: {position.balance:.6f}\n"
-                f"평단가: {position.avg_buy_price:,.0f}원\n"
-                f"현재가: {current_price:,.0f}원\n"
-                f"자동 관리 시작!"
-            )
-        
-        # 🔧 포지션 업데이트 콜백 (GUI 업데이트용)
-        if self.position_callback:
-            position_data = {
-                'symbol': symbol,
-                'position': position.balance,
-                'entry_price': position.avg_buy_price,
-                'current_price': current_price,
-                'profit_loss': (current_price - position.avg_buy_price) * position.balance,
-                'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
-                'entry_time': managed.created_at.isoformat()
-            }
-            await self.position_callback(position_data)
-        
-        # 🔧 WebSocket에 모든 관리 심볼 재구독 (기존 구독 유지)
-        if self.websocket.is_connected:
+
+        logger.info(
+            f"  ✅ {symbol}: 수량={position.balance:.6f}, "
+            f"평단가={position.avg_buy_price:,.0f}원, "
+            f"현재가={current_price:,.0f}원 "
+            f"({((current_price - position.avg_buy_price) / position.avg_buy_price) * 100:+.2f}%)"
+        )
+
+        # GUI 업데이트 데이터 생성
+        position_data = {
+            'symbol': symbol,
+            'position': position.balance,
+            'entry_price': position.avg_buy_price,
+            'current_price': current_price,
+            'profit_loss': (current_price - position.avg_buy_price) * position.balance,
+            'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
+            'entry_time': managed.created_at.isoformat()
+        }
+
+        # 🔧 포지션 업데이트 콜백 (GUI 업데이트용, fire-and-forget)
+        if not skip_position_callback and self.position_callback:
+            # 개별 처리 시 즉시 GUI 업데이트 (non-blocking)
+            asyncio.create_task(self.position_callback(position_data))
+        # skip_position_callback=True 시에는 데이터만 반환 (배치 처리용)
+
+        # 🔧 WebSocket 재구독 (skip 플래그가 False일 때만 - 개별 감지 시)
+        if not skip_websocket_resubscribe and self.websocket.is_connected:
             try:
                 all_symbols = list(self.managed_positions.keys())
                 await self.websocket.subscribe_ticker(all_symbols)
@@ -396,8 +580,8 @@ class SemiAutoManager:
             except Exception as e:
                 logger.warning(f"⚠️ WebSocket 구독 실패: {e}")
 
-        # 🔧 잔고 갱신 콜백 호출 (반자동 수동 매수 감지 시)
-        if self.balance_update_callback:
+        # 🔧 잔고 갱신 (skip 플래그가 False일 때만 - 개별 감지 시)
+        if not skip_balance_update and self.balance_update_callback:
             try:
                 if asyncio.iscoroutinefunction(self.balance_update_callback):
                     await self.balance_update_callback()
@@ -407,7 +591,8 @@ class SemiAutoManager:
             except Exception as e:
                 logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
 
-        logger.info(f"✅ 관리 포지션 등록: {managed}")
+        # 배치 처리용 데이터 반환
+        return position_data if skip_position_callback else None
     
     async def _update_managed_position(self, position: Position):
         """관리 중인 포지션 정보 업데이트"""
@@ -416,7 +601,7 @@ class SemiAutoManager:
         if symbol in self.managed_positions:
             self.managed_positions[symbol].update_position(position)
             
-            # 🔧 포지션 업데이트 콜백 (GUI 실시간 업데이트용)
+            # 🔧 포지션 업데이트 콜백 (GUI 실시간 업데이트용, fire-and-forget)
             if self.position_callback:
                 current_price = await self._get_current_price(symbol)
                 if current_price:
@@ -429,7 +614,7 @@ class SemiAutoManager:
                         'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
                         'entry_time': self.managed_positions[symbol].created_at.isoformat()
                     }
-                    await self.position_callback(position_data)
+                    asyncio.create_task(self.position_callback(position_data))
     
     async def _check_all_positions(self):
         """모든 관리 포지션에 대해 DCA/익절/손절 체크"""
@@ -484,40 +669,94 @@ class SemiAutoManager:
                 managed.executed_dca_levels.add(level)
     
     async def _check_take_profit(self, managed: ManagedPosition, current_price: float):
-        """익절 체크"""
+        """익절 체크 (다단계 익절 지원)"""
         if not self.dca_config.enabled:
             return
-        
+
         avg_price = managed.avg_entry_price
-        
+
         # 평단가 0 방지
         if avg_price == 0:
             return
-        
+
         profit_pct = ((current_price - avg_price) / avg_price) * 100
-        
-        # 익절 조건
-        if profit_pct >= self.dca_config.take_profit_pct:
-            await self._execute_take_profit(managed, current_price, profit_pct)
+
+        # 🔍 디버깅: 익절 체크 로그 (심볼별 처음 1회만)
+        symbol = managed.position.symbol
+        if not hasattr(self, '_debug_profit_check'):
+            self._debug_profit_check = set()
+        if symbol not in self._debug_profit_check:
+            logger.info(
+                f"🔍 익절 체크 시작: {symbol}\n"
+                f"   평단가: {avg_price:,.0f}원\n"
+                f"   현재가: {current_price:,.0f}원\n"
+                f"   수익률: {profit_pct:.2f}%\n"
+                f"   다단계 익절 설정: {len(self.dca_config.take_profit_levels) if self.dca_config.take_profit_levels else 0}개"
+            )
+            self._debug_profit_check.add(symbol)
+
+        # 다단계 익절 체크
+        if self.dca_config.take_profit_levels and len(self.dca_config.take_profit_levels) > 0:
+            # 다단계 익절: 각 레벨별로 체크
+            for tp_level in self.dca_config.take_profit_levels:
+                level = tp_level.level
+                target_pct = tp_level.profit_pct
+                sell_ratio = tp_level.sell_ratio
+
+                # 이미 실행된 레벨은 건너뜀
+                if hasattr(managed, 'executed_tp_levels') and level in managed.executed_tp_levels:
+                    continue
+
+                # 익절 조건 충족 시
+                if profit_pct >= target_pct:
+                    await self._execute_take_profit_level(managed, current_price, profit_pct, tp_level)
+                    # 실행된 레벨 기록
+                    if not hasattr(managed, 'executed_tp_levels'):
+                        managed.executed_tp_levels = set()
+                    managed.executed_tp_levels.add(level)
+        else:
+            # 단일 익절: 기존 로직
+            if profit_pct >= self.dca_config.take_profit_pct:
+                await self._execute_take_profit(managed, current_price, profit_pct)
     
     async def _check_stop_loss(self, managed: ManagedPosition, current_price: float):
-        """손절 체크"""
+        """손절 체크 (다단계 손절 지원)"""
         if not self.dca_config.enabled:
             return
-        
+
         avg_price = managed.avg_entry_price
-        
+
         # 평단가 0 방지
         if avg_price == 0:
             return
-        
+
         loss_pct = ((current_price - avg_price) / avg_price) * 100
-        
-        # 손절 조건 (설정값이 양수로 저장되어 있으므로 음수로 변환하여 비교)
-        # 예: loss_pct = -10%, stop_loss_pct = 20% → -10 <= -20 (손절 안 함)
-        #     loss_pct = -25%, stop_loss_pct = 20% → -25 <= -20 (손절 실행)
-        if loss_pct <= -self.dca_config.stop_loss_pct:
-            await self._execute_stop_loss(managed, current_price, loss_pct)
+
+        # 다단계 손절 체크
+        if self.dca_config.stop_loss_levels and len(self.dca_config.stop_loss_levels) > 0:
+            # 다단계 손절: 각 레벨별로 체크
+            for sl_level in self.dca_config.stop_loss_levels:
+                level = sl_level.level
+                target_pct = sl_level.loss_pct
+                sell_ratio = sl_level.sell_ratio
+
+                # 이미 실행된 레벨은 건너뜀
+                if hasattr(managed, 'executed_sl_levels') and level in managed.executed_sl_levels:
+                    continue
+
+                # 손절 조건 충족 시 (손실률이 음수이므로 -를 붙여서 비교)
+                if loss_pct <= -target_pct:
+                    await self._execute_stop_loss_level(managed, current_price, loss_pct, sl_level)
+                    # 실행된 레벨 기록
+                    if not hasattr(managed, 'executed_sl_levels'):
+                        managed.executed_sl_levels = set()
+                    managed.executed_sl_levels.add(level)
+        else:
+            # 단일 손절: 기존 로직
+            # 예: loss_pct = -10%, stop_loss_pct = 20% → -10 <= -20 (손절 안 함)
+            #     loss_pct = -25%, stop_loss_pct = 20% → -25 <= -20 (손절 실행)
+            if loss_pct <= -self.dca_config.stop_loss_pct:
+                await self._execute_stop_loss(managed, current_price, loss_pct)
     
     async def _execute_dca_buy(self, managed: ManagedPosition, level_config, price: float):
         """DCA 추가 매수 실행"""
@@ -534,11 +773,11 @@ class SemiAutoManager:
             f"   하락률: {level_config.drop_pct}%"
         )
         
-        # 주문 실행 (dry_run 모드)
+        # 주문 실행 (실거래 모드)
         order_result = await self.order_manager.execute_buy(
             symbol=symbol,
             amount=buy_amount,
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
         
         if order_result and order_result.get('success'):
@@ -556,8 +795,81 @@ class SemiAutoManager:
         else:
             logger.error(f"❌ DCA 추가 매수 실패: {symbol} Level {level}")
     
+    async def _execute_take_profit_level(self, managed: ManagedPosition, price: float, profit_pct: float, tp_level):
+        """다단계 익절 실행 (일부 매도)"""
+        symbol = managed.position.symbol
+        balance = managed.total_balance
+        sell_ratio = tp_level.sell_ratio / 100.0  # 퍼센트를 비율로 변환
+        sell_volume = balance * sell_ratio
+
+        # ⚠️ 최소 주문 금액 체크 (Upbit: 5,000원)
+        MIN_ORDER_AMOUNT = 5000
+        estimated_amount = sell_volume * price
+
+        adjusted = False
+        if estimated_amount < MIN_ORDER_AMOUNT:
+            # 5,100원(여유분 포함)이 되도록 수량 조정
+            target_amount = MIN_ORDER_AMOUNT + 100
+            adjusted_volume = target_amount / price
+
+            # 보유 수량을 초과하지 않도록 체크
+            if adjusted_volume <= balance:
+                sell_volume = adjusted_volume
+                estimated_amount = sell_volume * price
+                adjusted = True
+                logger.info(
+                    f"⚙️ 최소 주문 금액 조정: {symbol}\n"
+                    f"   원래 금액: {estimated_amount - (target_amount - estimated_amount):,.0f}원 → 조정 후: {estimated_amount:,.0f}원\n"
+                    f"   조정 수량: {balance * sell_ratio:.6f}개 → {sell_volume:.6f}개"
+                )
+            else:
+                # 전량 매도해도 5,000원 미만이면 건너뛰기
+                logger.warning(
+                    f"⚠️ 최소 주문 금액 미달로 익절 건너뜀: {symbol} Level {tp_level.level}\n"
+                    f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {balance * price:,.0f}원 < 5,000원"
+                )
+                return
+
+        logger.info(
+            f"🎯 익절 실행 (Level {tp_level.level}): {symbol}\n"
+            f"   목표 수익률: {tp_level.profit_pct:.2f}%\n"
+            f"   현재 수익률: {profit_pct:.2f}%\n"
+            f"   현재가: {price:,.0f}원\n"
+            f"   매도 비율: {tp_level.sell_ratio:.0f}%{' (수량 조정됨)' if adjusted else ''}\n"
+            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}\n"
+            f"   예상 금액: {estimated_amount:,.0f}원"
+        )
+
+        # 일부 매도 (실거래 모드)
+        order_result = await self.order_manager.execute_sell(
+            symbol=symbol,
+            volume=sell_volume,
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
+        )
+
+        if order_result and order_result.get('success'):
+            # 알림
+            if self.notification_callback:
+                await self.notification_callback(
+                    f"🎯 익절 완료 (Level {tp_level.level})!\n"
+                    f"심볼: {symbol}\n"
+                    f"수익률: {profit_pct:.2f}%\n"
+                    f"매도 비율: {tp_level.sell_ratio:.0f}%\n"
+                    f"매도가: {price:,.0f}원"
+                )
+
+            logger.info(f"✅ 익절 완료: {symbol} Level {tp_level.level}")
+
+            # 100% 매도한 경우 포지션 제거
+            if tp_level.sell_ratio >= 100.0:
+                del self.managed_positions[symbol]
+                self.detector.unregister_managed_position(symbol)
+                logger.info(f"✅ 포지션 제거: {symbol} (전량 익절)")
+        else:
+            logger.error(f"❌ 익절 실패: {symbol} Level {tp_level.level}")
+
     async def _execute_take_profit(self, managed: ManagedPosition, price: float, profit_pct: float):
-        """익절 실행"""
+        """익절 실행 (단일 익절, 전량 매도)"""
         symbol = managed.position.symbol
         balance = managed.total_balance
         
@@ -568,11 +880,11 @@ class SemiAutoManager:
             f"   수량: {balance:.6f}"
         )
         
-        # 전량 매도 (dry_run 모드)
+        # 전량 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
             volume=balance,  # ⭐ 파라미터 이름: volume (수량)
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
         
         if order_result and order_result.get('success'):
@@ -593,8 +905,81 @@ class SemiAutoManager:
         else:
             logger.error(f"❌ 익절 실패: {symbol}")
     
+    async def _execute_stop_loss_level(self, managed: ManagedPosition, price: float, loss_pct: float, sl_level):
+        """다단계 손절 실행 (일부 매도)"""
+        symbol = managed.position.symbol
+        balance = managed.total_balance
+        sell_ratio = sl_level.sell_ratio / 100.0  # 퍼센트를 비율로 변환
+        sell_volume = balance * sell_ratio
+
+        # ⚠️ 최소 주문 금액 체크 (Upbit: 5,000원)
+        MIN_ORDER_AMOUNT = 5000
+        estimated_amount = sell_volume * price
+
+        adjusted = False
+        if estimated_amount < MIN_ORDER_AMOUNT:
+            # 5,100원(여유분 포함)이 되도록 수량 조정
+            target_amount = MIN_ORDER_AMOUNT + 100
+            adjusted_volume = target_amount / price
+
+            # 보유 수량을 초과하지 않도록 체크
+            if adjusted_volume <= balance:
+                sell_volume = adjusted_volume
+                estimated_amount = sell_volume * price
+                adjusted = True
+                logger.info(
+                    f"⚙️ 최소 주문 금액 조정: {symbol}\n"
+                    f"   원래 금액: {estimated_amount - (target_amount - estimated_amount):,.0f}원 → 조정 후: {estimated_amount:,.0f}원\n"
+                    f"   조정 수량: {balance * sell_ratio:.6f}개 → {sell_volume:.6f}개"
+                )
+            else:
+                # 전량 매도해도 5,000원 미만이면 건너뛰기
+                logger.warning(
+                    f"⚠️ 최소 주문 금액 미달로 손절 건너뜀: {symbol} Level {sl_level.level}\n"
+                    f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {balance * price:,.0f}원 < 5,000원"
+                )
+                return
+
+        logger.info(
+            f"🚨 손절 실행 (Level {sl_level.level}): {symbol}\n"
+            f"   목표 손실률: -{sl_level.loss_pct:.2f}%\n"
+            f"   현재 손실률: {loss_pct:.2f}%\n"
+            f"   현재가: {price:,.0f}원\n"
+            f"   매도 비율: {sl_level.sell_ratio:.0f}%{' (수량 조정됨)' if adjusted else ''}\n"
+            f"   매도 수량: {sell_volume:.6f} / {balance:.6f}\n"
+            f"   예상 금액: {estimated_amount:,.0f}원"
+        )
+
+        # 일부 매도 (실거래 모드)
+        order_result = await self.order_manager.execute_sell(
+            symbol=symbol,
+            volume=sell_volume,
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
+        )
+
+        if order_result and order_result.get('success'):
+            # 알림
+            if self.notification_callback:
+                await self.notification_callback(
+                    f"🚨 손절 완료 (Level {sl_level.level})\n"
+                    f"심볼: {symbol}\n"
+                    f"손실률: {loss_pct:.2f}%\n"
+                    f"매도 비율: {sl_level.sell_ratio:.0f}%\n"
+                    f"매도가: {price:,.0f}원"
+                )
+
+            logger.info(f"✅ 손절 완료: {symbol} Level {sl_level.level}")
+
+            # 100% 매도한 경우 포지션 제거
+            if sl_level.sell_ratio >= 100.0:
+                del self.managed_positions[symbol]
+                self.detector.unregister_managed_position(symbol)
+                logger.info(f"✅ 포지션 제거: {symbol} (전량 손절)")
+        else:
+            logger.error(f"❌ 손절 실패: {symbol} Level {sl_level.level}")
+
     async def _execute_stop_loss(self, managed: ManagedPosition, price: float, loss_pct: float):
-        """손절 실행"""
+        """손절 실행 (단일 손절, 전량 매도)"""
         symbol = managed.position.symbol
         balance = managed.total_balance
         
@@ -605,11 +990,11 @@ class SemiAutoManager:
             f"   수량: {balance:.6f}"
         )
         
-        # 전량 매도 (dry_run 모드)
+        # 전량 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
             volume=balance,  # ⭐ 파라미터 이름: volume (수량)
-            dry_run=True  # ⭐ Dry-run 모드 (실제 주문 안 보냄)
+            dry_run=False  # ⚠️ 실거래 모드 (실제 주문 실행!)
         )
         
         if order_result and order_result.get('success'):
@@ -651,18 +1036,132 @@ class SemiAutoManager:
         return None
     
     def get_status(self) -> Dict:
-        """현재 상태 조회"""
+        """
+        현재 상태 조회 (포트폴리오 수익률 포함)
+
+        Returns:
+            dict:
+                - is_running: 실행 중 여부
+                - managed_count: 관리 중인 포지션 수
+                - total_invested: 총 투자금액 (KRW)
+                - total_value: 총 평가금액 (KRW)
+                - total_profit: 총 수익금액 (KRW)
+                - total_return_pct: 총 수익률 (%)
+                - positions: 포지션 리스트
+        """
+        total_invested = 0.0  # 총 투자금액
+        total_value = 0.0     # 총 평가금액
+
+        positions_data = []
+
+        for symbol, pos in self.managed_positions.items():
+            # 투자금액 = 평균 진입가 × 보유량
+            invested = pos.avg_entry_price * pos.total_balance
+            total_invested += invested
+
+            # 평가금액 = 현재가 × 보유량
+            current_price = self.last_prices.get(symbol, pos.avg_entry_price)  # 가격 없으면 진입가 사용
+            value = current_price * pos.total_balance
+            total_value += value
+
+            # 포지션 정보
+            positions_data.append({
+                'symbol': pos.position.symbol,
+                'balance': pos.total_balance,
+                'avg_price': pos.avg_entry_price,
+                'current_price': current_price,
+                'invested': invested,
+                'value': value,
+                'profit': value - invested,
+                'return_pct': ((value - invested) / invested * 100) if invested > 0 else 0,
+                'dca_levels': len(pos.executed_dca_levels),
+                'signal_price': pos.signal_price,
+            })
+
+        # 전체 수익/손실 계산
+        total_profit = total_value - total_invested
+        total_return_pct = (total_profit / total_invested * 100) if total_invested > 0 else 0
+
         return {
             'is_running': self.is_running,
             'managed_count': len(self.managed_positions),
-            'positions': [
-                {
-                    'symbol': pos.position.symbol,
-                    'balance': pos.total_balance,
-                    'avg_price': pos.avg_entry_price,
-                    'dca_levels': len(pos.executed_dca_levels),
-                    'signal_price': pos.signal_price,
-                }
-                for pos in self.managed_positions.values()
-            ]
+            'total_invested': total_invested,      # 총 투자금액
+            'total_value': total_value,            # 총 평가금액
+            'total_profit': total_profit,          # 총 수익금액
+            'total_return_pct': total_return_pct,  # 총 수익률 (%)
+            'positions': positions_data
         }
+
+    async def update_dca_config(self, dca_config: AdvancedDcaConfig):
+        """
+        DCA 설정 실시간 업데이트
+
+        설정 변경 시 모든 관리 중인 포지션에 새 설정을 적용하고,
+        즉시 익절/손절 조건을 재체크하여 변경된 레벨에 도달한 포지션은 자동 매도합니다.
+
+        Args:
+            dca_config: 새로운 DCA 설정
+        """
+        logger.info("🔄 DCA 설정 업데이트 시작...")
+
+        # 1. 매니저의 DCA 설정 업데이트
+        old_config = self.dca_config
+        self.dca_config = dca_config
+
+        # 2. 모든 ManagedPosition의 DCA 설정 업데이트
+        for symbol, managed in self.managed_positions.items():
+            managed.dca_config = dca_config
+
+        # 3. 설정 변경 로그
+        logger.info(f"  📊 관리 중인 포지션: {len(self.managed_positions)}개")
+
+        # 익절 설정 변경 로그
+        if old_config.is_multi_level_tp_enabled() or dca_config.is_multi_level_tp_enabled():
+            if dca_config.is_multi_level_tp_enabled():
+                logger.info(f"  🎯 익절: 다단계 ({len(dca_config.take_profit_levels)}레벨)")
+                for tp in dca_config.take_profit_levels:
+                    logger.info(f"     Level {tp.level}: +{tp.profit_pct}% → {tp.sell_ratio}% 매도")
+            else:
+                logger.info(f"  🎯 익절: 단일 레벨 (+{dca_config.take_profit_pct}%)")
+        else:
+            logger.info(f"  🎯 익절: +{dca_config.take_profit_pct}%")
+
+        # 손절 설정 변경 로그
+        if old_config.is_multi_level_sl_enabled() or dca_config.is_multi_level_sl_enabled():
+            if dca_config.is_multi_level_sl_enabled():
+                logger.info(f"  🛑 손절: 다단계 ({len(dca_config.stop_loss_levels)}레벨)")
+                for sl in dca_config.stop_loss_levels:
+                    logger.info(f"     Level {sl.level}: -{sl.loss_pct}% → {sl.sell_ratio}% 매도")
+            else:
+                logger.info(f"  🛑 손절: 단일 레벨 (-{dca_config.stop_loss_pct}%)")
+        else:
+            logger.info(f"  🛑 손절: -{dca_config.stop_loss_pct}%")
+
+        # 4. 즉시 모든 포지션 재체크 (익절/손절 레벨 변경 시 즉시 실행)
+        if self.managed_positions:
+            logger.info("🔍 변경된 설정으로 모든 포지션 재체크 중...")
+
+            for symbol, managed in self.managed_positions.items():
+                # 현재 가격 가져오기
+                current_price = await self._get_current_price(symbol)
+
+                if current_price is None:
+                    logger.warning(f"  ⚠️ {symbol}: 현재 가격 조회 실패, 스킵")
+                    continue
+
+                # 수익률 계산
+                avg_price = managed.avg_entry_price
+                if avg_price == 0:
+                    continue
+
+                profit_pct = ((current_price - avg_price) / avg_price) * 100
+
+                logger.info(
+                    f"  📊 {symbol}: 현재 수익률 {profit_pct:+.2f}% "
+                    f"(평단가 {avg_price:,.0f}원 → 현재가 {current_price:,.0f}원)"
+                )
+
+                # 익절/손절/DCA 체크 (변경된 설정으로)
+                await self._check_trading_conditions(symbol, current_price)
+
+        logger.info("✅ DCA 설정 업데이트 완료")
