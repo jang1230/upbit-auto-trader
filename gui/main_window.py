@@ -2041,9 +2041,10 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger(__name__)
 
         logger.info("🔄 [Step 1] 예수금 조회 시작")
-        config = self.config_manager.get_all_config()
-        access_key = config.get('upbit_access_key', '')
-        secret_key = config.get('upbit_secret_key', '')
+
+        # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
+        access_key = self.config_manager.get_upbit_access_key()
+        secret_key = self.config_manager.get_upbit_secret_key()
 
         if not access_key or not secret_key:
             logger.warning("⚠️ [Step 1] API 키 미설정 - 단계 2로 진행")
@@ -2091,9 +2092,9 @@ class MainWindow(QMainWindow):
         self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
         self._add_log("🔄 보유 종목 조회 중...")
 
-        config = self.config_manager.get_all_config()
-        access_key = config.get('upbit_access_key', '')
-        secret_key = config.get('upbit_secret_key', '')
+        # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
+        access_key = self.config_manager.get_upbit_access_key()
+        secret_key = self.config_manager.get_upbit_secret_key()
 
         if not access_key or not secret_key:
             logger.warning("⚠️ [Step 2] API 키 미설정 - 단계 3으로 진행")
