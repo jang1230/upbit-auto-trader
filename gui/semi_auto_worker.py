@@ -40,7 +40,7 @@ class SemiAutoWorker(QThread):
         secret_key: str,
         dca_config: AdvancedDcaConfig,
         dry_run: bool = True,
-        scan_interval: int = 10,
+        scan_interval: int = 60,  # 🔧 MyAsset WebSocket fallback용 (10→60초)
         balance_update_callback=None,  # 🔧 잔고 갱신 콜백
         parent=None
     ):
