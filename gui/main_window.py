@@ -2025,9 +2025,8 @@ class MainWindow(QMainWindow):
     def _start_myasset_preparation(self):
         """MyAsset WebSocket 구독 준비 시작 (백그라운드)"""
         # API 키 확인
-        config = self.config_manager.load()
-        access_key = config.get('access_key', '')
-        secret_key = config.get('secret_key', '')
+        access_key = self.config_manager.get_upbit_access_key()
+        secret_key = self.config_manager.get_upbit_secret_key()
 
         if not access_key or not secret_key:
             # API 키 없으면 준비 실패
