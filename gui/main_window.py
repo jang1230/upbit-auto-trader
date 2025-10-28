@@ -87,6 +87,61 @@ class BalanceWorker(QThread):
             self.error.emit(str(e))
 
 
+class MyAssetPreparationWorker(QThread):
+    """
+    MyAsset WebSocket 구독 준비 워커
+
+    프로그램 시작 시 백그라운드에서 MyAsset 구독을 수행하여
+    사용자가 시작 버튼을 누를 때 즉시 실시간 감지가 가능하도록 준비
+    """
+
+    # 시그널 정의
+    preparation_complete = Signal()  # 구독 준비 완료
+    preparation_failed = Signal(str)  # 구독 실패 (에러 메시지)
+    status_update = Signal(str)  # 상태 업데이트 메시지
+
+    def __init__(self, access_key: str, secret_key: str):
+        super().__init__()
+        self.access_key = access_key
+        self.secret_key = secret_key
+
+    def run(self):
+        """백그라운드에서 MyAsset 구독 실행"""
+        import asyncio
+
+        try:
+            self.status_update.emit("🔄 실시간 감지 준비 중...")
+
+            # asyncio 이벤트 루프 생성
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # MyAsset WebSocket 연결 및 구독
+            from core.upbit_websocket import MyAssetWebSocket
+
+            myasset_ws = MyAssetWebSocket(self.access_key, self.secret_key)
+
+            # 연결
+            connected = loop.run_until_complete(myasset_ws.connect())
+            if not connected:
+                self.preparation_failed.emit("MyAsset WebSocket 연결 실패")
+                return
+
+            # 구독
+            loop.run_until_complete(myasset_ws.subscribe_myasset())
+
+            # 연결 종료 (준비만 확인, 실제 사용은 start_trading에서)
+            loop.run_until_complete(myasset_ws.disconnect())
+
+            # 성공
+            self.preparation_complete.emit()
+            self.status_update.emit("✅ 실시간 감지 준비 완료!")
+
+        except Exception as e:
+            self.preparation_failed.emit(f"준비 실패: {str(e)}")
+            self.status_update.emit("⚠️ 실시간 감지 사용 불가 (Fallback 모드)")
+
+
 class MainWindow(QMainWindow):
     """
     메인 윈도우
@@ -109,6 +164,8 @@ class MainWindow(QMainWindow):
         self.is_running = False
         self.balance_worker = None  # 잔고 조회 워커 스레드
         self.trading_worker = None  # Trading Engine 워커 스레드
+        self.preparation_worker = None  # MyAsset 구독 준비 워커
+        self.myasset_ready = False  # MyAsset 구독 준비 완료 여부
         self._shutdown_timer = None  # 비동기 종료 타이머
         self._shutdown_elapsed = 0  # 종료 대기 시간
 
@@ -134,6 +191,9 @@ class MainWindow(QMainWindow):
 
         # 🔧 GUI 시작 시 자동으로 잔고 조회 (최초 1회만)
         QTimer.singleShot(500, self._refresh_balance)
+
+        # 🔧 MyAsset 구독 준비 시작 (백그라운드)
+        QTimer.singleShot(1000, self._start_myasset_preparation)
 
     def _init_ui(self):
         """UI 초기화 - Step 2: 좌측 사이드바 + 우측 메인 패널"""
@@ -363,9 +423,20 @@ class MainWindow(QMainWindow):
         advanced_dca_btn.clicked.connect(self._open_advanced_dca)
         button_layout.addWidget(advanced_dca_btn)
 
+        # 🔧 MyAsset 구독 상태 라벨
+        self.myasset_status_label = QLabel("🔄 실시간 감지 준비 중...")
+        self.myasset_status_label.setFont(QFont("맑은 고딕", 9))
+        self.myasset_status_label.setStyleSheet(
+            "padding: 8px; background-color: #FFF9C4; color: #F57F17; "
+            "border-radius: 3px; border: 1px solid #FBC02D;"
+        )
+        self.myasset_status_label.setWordWrap(True)
+        button_layout.addWidget(self.myasset_status_label)
+
         # 시작 버튼
         self.start_btn = QPushButton("▶ 전체 DCA 시작")
         self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
+        self.start_btn.setEnabled(False)  # 🔧 초기에 비활성화 (MyAsset 준비 완료까지)
         self.start_btn.clicked.connect(self._start_trading)
         button_layout.addWidget(self.start_btn)
 
@@ -1946,6 +2017,58 @@ class MainWindow(QMainWindow):
         # 자동 스크롤 (최신 로그로)
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    # ========================================
+    # MyAsset 구독 준비
+    # ========================================
+
+    def _start_myasset_preparation(self):
+        """MyAsset WebSocket 구독 준비 시작 (백그라운드)"""
+        # API 키 확인
+        config = self.config_manager.load()
+        access_key = config.get('access_key', '')
+        secret_key = config.get('secret_key', '')
+
+        if not access_key or not secret_key:
+            # API 키 없으면 준비 실패
+            self.myasset_status_label.setText("⚠️ API 키 미설정 (Fallback 모드)")
+            self.myasset_status_label.setStyleSheet(
+                "padding: 8px; background-color: #FFCDD2; color: #C62828; "
+                "border-radius: 3px; border: 1px solid #E53935;"
+            )
+            self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
+            return
+
+        # MyAsset 구독 준비 워커 시작
+        self.preparation_worker = MyAssetPreparationWorker(access_key, secret_key)
+        self.preparation_worker.preparation_complete.connect(self._on_myasset_preparation_complete)
+        self.preparation_worker.preparation_failed.connect(self._on_myasset_preparation_failed)
+        self.preparation_worker.status_update.connect(self._on_myasset_status_update)
+        self.preparation_worker.start()
+
+    def _on_myasset_preparation_complete(self):
+        """MyAsset 구독 준비 완료"""
+        self.myasset_ready = True
+        self.start_btn.setEnabled(True)  # 시작 버튼 활성화
+        self._add_log("✅ 실시간 감지 준비 완료! 이제 시작 버튼을 눌러주세요.")
+
+        # 상태 라벨 업데이트
+        self.myasset_status_label.setText("✅ 실시간 감지 준비 완료!")
+        self.myasset_status_label.setStyleSheet(
+            "padding: 8px; background-color: #C8E6C9; color: #2E7D32; "
+            "border-radius: 3px; border: 1px solid #4CAF50;"
+        )
+
+    def _on_myasset_preparation_failed(self, error_msg: str):
+        """MyAsset 구독 준비 실패"""
+        self.myasset_ready = False
+        self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
+        self._add_log(f"⚠️ 실시간 감지 준비 실패: {error_msg}")
+        self._add_log("   → Fallback polling 모드로 작동합니다 (60초마다 확인)")
+
+    def _on_myasset_status_update(self, status_msg: str):
+        """MyAsset 상태 업데이트"""
+        self.myasset_status_label.setText(status_msg)
 
     # ========================================
     # 종료 처리
