@@ -352,7 +352,8 @@ class MyAssetWebSocket:
         """
         self.access_key = access_key
         self.secret_key = secret_key
-        self.url = "wss://api.upbit.com/websocket/v1"
+        # 🔧 MyAsset은 Private 엔드포인트 사용 (공식 문서 명시)
+        self.url = "wss://api.upbit.com/websocket/v1/private"
         self.websocket = None
         self.is_connected = False
 
@@ -435,7 +436,7 @@ class MyAssetWebSocket:
         subscribe_fmt = [
             {"ticket": str(uuid.uuid4())},
             {"type": "myAsset"},
-            {"format": "DEFAULT"}
+            {"format": "JSON_LIST"}  # 🔧 공식 문서 권장 (효율적인 리스트 형식)
         ]
 
         await self.websocket.send(json.dumps(subscribe_fmt))
@@ -479,10 +480,17 @@ class MyAssetWebSocket:
                 try:
                     data = json.loads(message)
                     if message_count <= 3:
-                        logger.info(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
+                        if isinstance(data, list):
+                            logger.info(f"🔍 파싱 성공 (JSON_LIST): length={len(data)}, first_type={data[0].get('type') if data else None}")
+                        else:
+                            logger.info(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
                 except json.JSONDecodeError as je:
                     logger.error(f"❌ JSON 파싱 실패: {je}, 원본: {message[:100]}")
                     continue
+
+                # JSON_LIST 형식 처리 (배열로 온 경우 첫 번째 요소 추출)
+                if isinstance(data, list) and len(data) > 0:
+                    data = data[0]
 
                 # myAsset 데이터만 반환
                 if data.get('type') == 'myAsset':
