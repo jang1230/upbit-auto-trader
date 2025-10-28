@@ -2025,6 +2025,10 @@ class MainWindow(QMainWindow):
 
     def _start_sequential_initialization(self):
         """순차적 초기화 시작 (단계별 진행)"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🚀 [Init] 순차적 초기화 시작")
         self._add_log("🔄 초기화 시작...")
         self.myasset_status_label.setText("🔄 초기화 중... (1/3) 예수금 조회")
 
@@ -2033,16 +2037,22 @@ class MainWindow(QMainWindow):
 
     def _step1_load_balance(self):
         """단계 1: 예수금 조회"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🔄 [Step 1] 예수금 조회 시작")
         config = self.config_manager.get_all_config()
         access_key = config.get('upbit_access_key', '')
         secret_key = config.get('upbit_secret_key', '')
 
         if not access_key or not secret_key:
+            logger.warning("⚠️ [Step 1] API 키 미설정 - 단계 2로 진행")
             self._add_log("⚠️ API 키 미설정 - 단계 2로 진행")
             self._step2_load_positions()
             return
 
         # BalanceWorker 시작
+        logger.info("🔧 [Step 1] BalanceWorker 시작")
         self.balance_worker = BalanceWorker(access_key, secret_key)
         self.balance_worker.finished.connect(self._on_step1_complete)
         self.balance_worker.error.connect(self._on_step1_error)
@@ -2050,21 +2060,34 @@ class MainWindow(QMainWindow):
 
     def _on_step1_complete(self, result: dict):
         """단계 1 완료: 예수금 표시 → 단계 2로"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if result['success']:
             krw = result['krw']
+            logger.info(f"✅ [Step 1] 예수금 조회 완료: {krw:,.0f}원")
             self.balance_label.setText(f"💰 KRW: {krw:,.0f}원")
             self._add_log(f"✅ 예수금 조회 완료: {krw:,.0f}원")
 
         # 단계 2로 진행
+        logger.info("🔄 [Step 1] 완료 → 단계 2로 진행")
         self._step2_load_positions()
 
     def _on_step1_error(self, error_msg: str):
         """단계 1 실패: 에러 표시 → 단계 2로 계속"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.error(f"❌ [Step 1] 예수금 조회 실패: {error_msg}")
         self._add_log(f"⚠️ 예수금 조회 실패: {error_msg}")
         self._step2_load_positions()
 
     def _step2_load_positions(self):
         """단계 2: 보유 종목 조회 + 화면 표시"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🔄 [Step 2] 보유 종목 조회 시작")
         self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
         self._add_log("🔄 보유 종목 조회 중...")
 
@@ -2073,6 +2096,7 @@ class MainWindow(QMainWindow):
         secret_key = config.get('upbit_secret_key', '')
 
         if not access_key or not secret_key:
+            logger.warning("⚠️ [Step 2] API 키 미설정 - 단계 3으로 진행")
             self._add_log("⚠️ API 키 미설정 - 단계 3으로 진행")
             self._step3_prepare_myasset()
             return
@@ -2081,8 +2105,10 @@ class MainWindow(QMainWindow):
             from core.upbit_api import UpbitAPI
             from datetime import datetime
 
+            logger.info("🔍 [Step 2] UpbitAPI 초기화 및 계좌 조회 중...")
             api = UpbitAPI(access_key, secret_key)
             accounts = api.get_accounts()
+            logger.info(f"✅ [Step 2] 계좌 조회 완료: {len(accounts)}개 자산")
 
             # 🔧 코인 포지션 수집 및 GUI 업데이트
             positions_found = []
@@ -2094,6 +2120,7 @@ class MainWindow(QMainWindow):
 
                     if balance > 0:
                         symbol = f'KRW-{currency}'
+                        logger.info(f"💰 [Step 2] 포지션 발견: {symbol}, 수량={balance}, 평단가={avg_buy_price}")
 
                         # ✅ GUI 업데이트 (각 포지션마다 _on_coin_update 호출)
                         position_data = {
@@ -2108,23 +2135,36 @@ class MainWindow(QMainWindow):
                         }
 
                         # GUI 테이블 업데이트
+                        logger.info(f"🔧 [Step 2] _on_coin_update 호출: {symbol}")
                         self._on_coin_update(symbol, position_data)
+                        logger.info(f"✅ [Step 2] _on_coin_update 완료: {symbol}")
                         positions_found.append(currency)
 
             if positions_found:
+                logger.info(f"✅ [Step 2] 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
+                logger.info(f"✅ [Step 2] 활성 포지션 테이블에 표시 완료")
                 self._add_log(f"✅ 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
                 self._add_log(f"   → 활성 포지션 테이블에 표시 완료")
             else:
+                logger.info("📭 [Step 2] 보유 종목 없음")
                 self._add_log("📭 보유 종목 없음")
 
         except Exception as e:
+            import traceback
+            logger.error(f"❌ [Step 2] 보유 종목 조회 실패: {e}")
+            logger.error(f"❌ [Step 2] Traceback:\n{traceback.format_exc()}")
             self._add_log(f"⚠️ 보유 종목 조회 실패: {e}")
 
         # 단계 3으로 진행
+        logger.info("🔄 [Step 2] 완료 → 단계 3으로 진행")
         self._step3_prepare_myasset()
 
     def _step3_prepare_myasset(self):
         """단계 3: MyAsset WebSocket 구독 준비"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("🔄 [Step 3] 실시간 감지 준비 시작")
         self.myasset_status_label.setText("🔄 초기화 중... (3/3) 실시간 감지 준비")
         self._add_log("🔄 실시간 감지 준비 중...")
 
