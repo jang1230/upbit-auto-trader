@@ -74,6 +74,9 @@ class UpbitWebSocket:
             message: 수신 메시지 (bytes or str)
         """
         try:
+            # 🔍 디버깅: on_message 호출 확인
+            logger.info(f"🔍 [DEBUG] on_message 호출됨 (메시지 크기: {len(message) if isinstance(message, (str, bytes)) else 0})")
+
             # 바이너리 데이터 디코딩
             if isinstance(message, bytes):
                 message = message.decode('utf-8')
@@ -83,9 +86,10 @@ class UpbitWebSocket:
 
             # 메시지 큐에 추가 (asyncio에서 소비)
             self.message_queue.put(data)
+            logger.info(f"🔍 [DEBUG] 큐에 메시지 추가 완료 (큐 크기: {self.message_queue.qsize()})")
 
         except Exception as e:
-            logger.error(f"❌ 메시지 처리 오류: {e}")
+            logger.error(f"❌ 메시지 처리 오류: {e}", exc_info=True)
 
     def _on_error(self, ws, error):
         """
@@ -95,7 +99,8 @@ class UpbitWebSocket:
             ws: WebSocketApp 인스턴스
             error: 에러 객체
         """
-        logger.error(f"❌ WebSocket 에러: {error}")
+        logger.error(f"❌ WebSocket 에러: {error}", exc_info=True)
+        logger.error(f"🔍 [DEBUG] 에러 타입: {type(error)}, 내용: {str(error)}")
 
     def _on_close(self, ws, close_status_code, close_msg):
         """
@@ -107,7 +112,12 @@ class UpbitWebSocket:
             close_msg: 종료 메시지
         """
         self.is_connected = False
-        logger.warning(f"⚠️ WebSocket 연결 종료 (code={close_status_code}, msg={close_msg})")
+        logger.warning(
+            f"⚠️ WebSocket 연결 종료\n"
+            f"   - 상태 코드: {close_status_code}\n"
+            f"   - 메시지: {close_msg}\n"
+            f"   - 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
     def _on_open(self, ws):
         """
@@ -279,18 +289,40 @@ class UpbitWebSocket:
         if not self.is_connected:
             raise ConnectionError("웹소켓이 연결되지 않았습니다.")
 
+        # 🔍 디버깅: 주기적 상태 로깅
+        last_status_log = time.time()
+        status_log_interval = 30  # 30초마다 상태 로깅
+        empty_queue_count = 0
+
         while self.is_connected:
             try:
                 # 큐에서 메시지 가져오기 (non-blocking)
                 if not self.message_queue.empty():
                     data = self.message_queue.get_nowait()
+                    empty_queue_count = 0  # 메시지 받으면 카운터 리셋
                     yield data
                 else:
                     # 큐가 비어있으면 잠시 대기
+                    empty_queue_count += 1
                     await asyncio.sleep(0.01)
 
+                    # 🔍 주기적 상태 로깅 (30초마다)
+                    now = time.time()
+                    if now - last_status_log >= status_log_interval:
+                        thread_alive = self.ws_thread.is_alive() if self.ws_thread else False
+                        logger.warning(
+                            f"🔍 [DEBUG] WebSocket 상태 체크:\n"
+                            f"   - 연결 상태: {self.is_connected}\n"
+                            f"   - 스레드 살아있음: {thread_alive}\n"
+                            f"   - 큐 크기: {self.message_queue.qsize()}\n"
+                            f"   - 빈 큐 체크 횟수: {empty_queue_count} (30초간)\n"
+                            f"   - 구독 목록: {len(self.subscriptions)}개"
+                        )
+                        last_status_log = now
+                        empty_queue_count = 0  # 카운터 리셋
+
             except Exception as e:
-                logger.error(f"❌ 메시지 수신 오류: {e}")
+                logger.error(f"❌ 메시지 수신 오류: {e}", exc_info=True)
                 self.is_connected = False
                 break
 
