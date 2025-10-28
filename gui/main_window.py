@@ -2079,22 +2079,41 @@ class MainWindow(QMainWindow):
 
         try:
             from core.upbit_api import UpbitAPI
+            from datetime import datetime
 
             api = UpbitAPI(access_key, secret_key)
             accounts = api.get_accounts()
 
-            # 코인 자산만 필터 (KRW 제외)
-            coin_count = 0
+            # 🔧 코인 포지션 수집 및 GUI 업데이트
+            positions_found = []
             for account in accounts:
                 currency = account['currency']
                 if currency != 'KRW':
                     balance = float(account['balance'])
-                    if balance > 0:
-                        coin_count += 1
+                    avg_buy_price = float(account['avg_buy_price'])
 
-            if coin_count > 0:
-                self._add_log(f"✅ 보유 종목 {coin_count}개 발견")
-                # GUI에 표시될 것 (시작 버튼 클릭 시)
+                    if balance > 0:
+                        symbol = f'KRW-{currency}'
+
+                        # ✅ GUI 업데이트 (각 포지션마다 _on_coin_update 호출)
+                        position_data = {
+                            'symbol': symbol,
+                            'position': balance,
+                            'entry_price': avg_buy_price,
+                            'avg_entry_price': avg_buy_price,
+                            'current_price': avg_buy_price,  # 최초에는 진입가로 표시
+                            'profit_loss': 0,
+                            'return_pct': 0,
+                            'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+
+                        # GUI 테이블 업데이트
+                        self._on_coin_update(symbol, position_data)
+                        positions_found.append(currency)
+
+            if positions_found:
+                self._add_log(f"✅ 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
+                self._add_log(f"   → 활성 포지션 테이블에 표시 완료")
             else:
                 self._add_log("📭 보유 종목 없음")
 
@@ -2144,6 +2163,8 @@ class MainWindow(QMainWindow):
         self.myasset_ready = True
         self.start_btn.setEnabled(True)  # 시작 버튼 활성화
         self._add_log("✅ 실시간 감지 준비 완료! 이제 시작 버튼을 눌러주세요.")
+        self._add_log("ℹ️  참고: 프로그램 시작 직후 첫 매수는 1-3분 지연될 수 있습니다 (Upbit 정책)")
+        self._add_log("   이후 매수부터는 즉시 감지됩니다 (평균 15-30초 이내)")
 
         # 상태 라벨 업데이트
         self.myasset_status_label.setText("✅ 실시간 감지 준비 완료!")

@@ -331,22 +331,39 @@ class SemiAutoManager:
                 #     {"currency": "BTC", "balance": 0.00011834, "locked": 0}
                 #   ]
                 # }
+
+                # 🔧 전체 메시지 로그 (디버깅용)
+                logger.info(f"📨 MyAsset 메시지 수신: {data}")
+
                 assets = data.get('assets', [])
 
-                # assets 배열의 모든 자산을 순회
+                # 각 자산의 변동 로그
+                asset_changes = []
+                has_coin_change = False
+                has_krw_change = False
+
                 for asset in assets:
                     currency = asset.get('currency')  # 'KRW', 'BTC', 'XRP' 등
                     balance = asset.get('balance', 0)  # 보유 수량
                     locked = asset.get('locked', 0)  # 주문 중 수량
 
-                    logger.info(f"💰 자산 변동 감지: {currency} - 잔액: {balance:.8f}, 주문중: {locked:.8f}")
+                    if currency == 'KRW':
+                        logger.info(f"💰 자산 변동 감지: {currency} - 잔액: {balance:,.0f}원, 주문중: {locked:,.0f}원")
+                        has_krw_change = True
+                    else:
+                        logger.info(f"💰 자산 변동 감지: {currency} - 잔액: {balance:.8f}, 주문중: {locked:.8f}")
+                        if balance > 0:
+                            has_coin_change = True
 
-                    # KRW가 아닌 코인 자산만 처리 (매수/매도 시)
-                    if currency and currency != 'KRW' and balance > 0:
-                        # 즉시 전체 스캔 실행 (새 포지션 확인)
-                        logger.info(f"🔍 {currency} 자산 변동 → 즉시 포지션 스캔")
-                        await self._scan_and_process()
-                        break  # 한 번만 스캔 (여러 자산 변동 시 중복 방지)
+                    asset_changes.append(currency)
+
+                # 🔧 개선: KRW 변동 또는 코인 변동 모두 스캔 트리거
+                # - KRW 감소 = 매수 발생 가능
+                # - KRW 증가 = 매도 발생 가능
+                # - 코인 변동 = 매수/매도 발생
+                if has_krw_change or has_coin_change:
+                    logger.info(f"🔍 자산 변동 감지 ({', '.join(asset_changes)}) → 즉시 포지션 스캔")
+                    await self._scan_and_process()
 
         except asyncio.CancelledError:
             logger.info("MyAsset WebSocket 리스닝 종료")
