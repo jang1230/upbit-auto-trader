@@ -2067,8 +2067,8 @@ class MainWindow(QMainWindow):
         if result['success']:
             krw = result['krw']
             logger.info(f"✅ [Step 1] 예수금 조회 완료: {krw:,.0f}원")
-            self.balance_label.setText(f"💰 KRW: {krw:,.0f}원")
             self._add_log(f"✅ 예수금 조회 완료: {krw:,.0f}원")
+            # balance_label은 GUI에 없으므로 로그로만 표시
 
         # 단계 2로 진행
         logger.info("🔄 [Step 1] 완료 → 단계 2로 진행")
