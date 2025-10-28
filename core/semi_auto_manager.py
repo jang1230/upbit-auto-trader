@@ -164,8 +164,12 @@ class SemiAutoManager:
         # 🔧 2. MyAsset WebSocket 연결 (자산 변동 실시간 감지)
         myasset_connected = await self.myasset_websocket.connect()
         if myasset_connected:
-            await self.myasset_websocket.subscribe_myasset()
-            logger.info("✅ MyAsset WebSocket 활성화 - 실시간 자산 변동 감지")
+            try:
+                await self.myasset_websocket.subscribe_myasset()
+                logger.info("✅ MyAsset WebSocket 활성화 - 실시간 자산 변동 감지")
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"⚠️ MyAsset WebSocket 구독 실패: {e} - fallback polling 사용")
+                myasset_connected = False  # 구독 실패 시 연결 상태 False로 변경
         else:
             logger.warning("⚠️ MyAsset WebSocket 연결 실패 - fallback polling 사용")
 
@@ -175,8 +179,12 @@ class SemiAutoManager:
         # 🔧 4. 관리 중인 포지션이 있으면 Ticker WebSocket 구독
         if self.managed_positions and ticker_connected:
             symbols = list(self.managed_positions.keys())
-            await self.websocket.subscribe_ticker(symbols)
-            logger.info(f"📊 Ticker WebSocket 구독: {symbols}")
+            try:
+                await self.websocket.subscribe_ticker(symbols)
+                logger.info(f"📊 WebSocket ticker 구독 완료: {len(symbols)}개 종목")
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"⚠️ WebSocket 구독 실패: {e}")
+                ticker_connected = False  # 구독 실패 시 연결 상태 False로 변경
 
         # 🔧 5. MyAsset WebSocket 리스닝 태스크 (실시간 자산 변동 감지)
         if myasset_connected:
