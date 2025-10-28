@@ -409,9 +409,9 @@ class SemiAutoManager:
             'entry_time': managed.created_at.isoformat()
         }
         
-        # GUI 업데이트 콜백 호출
-        await self.position_callback(position_data)
-        
+        # GUI 업데이트 콜백 호출 (fire-and-forget, non-blocking)
+        asyncio.create_task(self.position_callback(position_data))
+
         # 마지막 업데이트 시간 기록
         self.last_gui_update[symbol] = now
     
@@ -472,10 +472,10 @@ class SemiAutoManager:
                     if position_data:
                         batch_position_updates.append(position_data)
 
-                # 🔧 모든 종목 처리 후 GUI 업데이트 (배치로 한 번에!)
+                # 🔧 모든 종목 처리 후 GUI 업데이트 (배치로 한 번에, fire-and-forget)
                 if batch_position_updates and self.position_callback:
                     for position_data in batch_position_updates:
-                        await self.position_callback(position_data)
+                        asyncio.create_task(self.position_callback(position_data))
 
                 # 🔧 모든 종목 처리 후 WebSocket 재구독 (한 번만)
                 if self.websocket.is_connected and self.managed_positions:
@@ -565,10 +565,10 @@ class SemiAutoManager:
             'entry_time': managed.created_at.isoformat()
         }
 
-        # 🔧 포지션 업데이트 콜백 (GUI 업데이트용)
+        # 🔧 포지션 업데이트 콜백 (GUI 업데이트용, fire-and-forget)
         if not skip_position_callback and self.position_callback:
-            # 개별 처리 시 즉시 GUI 업데이트
-            await self.position_callback(position_data)
+            # 개별 처리 시 즉시 GUI 업데이트 (non-blocking)
+            asyncio.create_task(self.position_callback(position_data))
         # skip_position_callback=True 시에는 데이터만 반환 (배치 처리용)
 
         # 🔧 WebSocket 재구독 (skip 플래그가 False일 때만 - 개별 감지 시)
@@ -601,7 +601,7 @@ class SemiAutoManager:
         if symbol in self.managed_positions:
             self.managed_positions[symbol].update_position(position)
             
-            # 🔧 포지션 업데이트 콜백 (GUI 실시간 업데이트용)
+            # 🔧 포지션 업데이트 콜백 (GUI 실시간 업데이트용, fire-and-forget)
             if self.position_callback:
                 current_price = await self._get_current_price(symbol)
                 if current_price:
@@ -614,7 +614,7 @@ class SemiAutoManager:
                         'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
                         'entry_time': self.managed_positions[symbol].created_at.isoformat()
                     }
-                    await self.position_callback(position_data)
+                    asyncio.create_task(self.position_callback(position_data))
     
     async def _check_all_positions(self):
         """모든 관리 포지션에 대해 DCA/익절/손절 체크"""
