@@ -1,12 +1,17 @@
 """
-Upbit WebSocket Client
-업비트 웹소켓 클라이언트
+Upbit WebSocket Client (Official Structure)
+업비트 웹소켓 클라이언트 (공식 예제 구조)
 
 실시간 시세 데이터 수신:
 - 현재가 (Ticker)
 - 체결 (Trade)
 - 호가 (Orderbook)
 - 분봉 캔들 (Candle)
+
+공식 Upbit 예제 구조 사용:
+- websocket-client 라이브러리
+- ping_interval=30, ping_timeout=10, reconnect=2
+- Callback 패턴 (on_message, on_open, on_error, on_close)
 
 Example:
     >>> ws = UpbitWebSocket()
@@ -21,30 +26,118 @@ import asyncio
 import logging
 import time
 import uuid
-import hashlib
+import threading
 import jwt as pyjwt
 from typing import List, Dict, Optional, Callable, AsyncIterator
+from queue import Queue
 from datetime import datetime
-from urllib.parse import urlencode, unquote
-import websockets
+
+# websocket-client 라이브러리 (공식 Upbit 예제 호환)
+import websocket
 
 logger = logging.getLogger(__name__)
 
 
 class UpbitWebSocket:
     """
-    업비트 웹소켓 클라이언트
+    업비트 웹소켓 클라이언트 (공식 예제 구조)
 
     실시간 시장 데이터를 수신합니다.
+
+    특징:
+    - websocket-client 라이브러리 사용 (Upbit 공식 예제)
+    - 자동 재연결 (reconnect=2)
+    - 자동 PING/PONG (ping_interval=30, ping_timeout=10)
+    - Thread 기반 (asyncio 통합)
     """
 
     def __init__(self):
         """웹소켓 클라이언트 초기화"""
         self.url = "wss://api.upbit.com/websocket/v1"
-        self.websocket = None
+        self.ws_app = None
+        self.ws_thread = None
         self.is_connected = False
         self.subscriptions = []
-        self.callbacks = {}
+
+        # 메시지 큐 (thread-safe)
+        self.message_queue = Queue()
+
+        # 종료 이벤트
+        self.stop_event = threading.Event()
+
+    def _on_message(self, ws, message):
+        """
+        메시지 수신 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            message: 수신 메시지 (bytes or str)
+        """
+        try:
+            # 바이너리 데이터 디코딩
+            if isinstance(message, bytes):
+                message = message.decode('utf-8')
+
+            # JSON 파싱
+            data = json.loads(message)
+
+            # 메시지 큐에 추가 (asyncio에서 소비)
+            self.message_queue.put(data)
+
+        except Exception as e:
+            logger.error(f"❌ 메시지 처리 오류: {e}")
+
+    def _on_error(self, ws, error):
+        """
+        에러 발생 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            error: 에러 객체
+        """
+        logger.error(f"❌ WebSocket 에러: {error}")
+
+    def _on_close(self, ws, close_status_code, close_msg):
+        """
+        연결 종료 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            close_status_code: 종료 상태 코드
+            close_msg: 종료 메시지
+        """
+        self.is_connected = False
+        logger.warning(f"⚠️ WebSocket 연결 종료 (code={close_status_code}, msg={close_msg})")
+
+    def _on_open(self, ws):
+        """
+        연결 성공 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+        """
+        self.is_connected = True
+        logger.info("✅ 업비트 WebSocket 연결 성공")
+
+    def _run_websocket(self):
+        """
+        WebSocket 실행 (별도 스레드에서 실행)
+
+        공식 Upbit 예제 설정:
+        - ping_interval=30: 30초마다 PING 전송
+        - ping_timeout=10: PONG 응답 10초 대기
+        - reconnect=2: 연결 끊김 시 2초 후 재연결
+        """
+        try:
+            self.ws_app.run_forever(
+                ping_interval=30,
+                ping_timeout=10,
+                reconnect=2
+            )
+        except Exception as e:
+            logger.error(f"❌ WebSocket 실행 오류: {e}")
+        finally:
+            self.is_connected = False
 
     async def connect(self) -> bool:
         """
@@ -54,36 +147,51 @@ class UpbitWebSocket:
             bool: 연결 성공 여부
         """
         try:
-            # 🔧 기본 keepalive 사용 (websockets 라이브러리가 자동 관리)
-            # ping_interval/ping_timeout 명시 설정 시 asyncio task 파괴 문제 발생
-            # recv() timeout으로 블로킹 방지는 이미 처리됨
-            self.websocket = await websockets.connect(self.url)
-            self.is_connected = True
-            logger.info("✅ 업비트 웹소켓 연결 성공")
-            return True
+            # WebSocketApp 생성
+            self.ws_app = websocket.WebSocketApp(
+                self.url,
+                on_open=self._on_open,
+                on_message=self._on_message,
+                on_error=self._on_error,
+                on_close=self._on_close
+            )
+
+            # 별도 스레드에서 WebSocket 실행
+            self.ws_thread = threading.Thread(
+                target=self._run_websocket,
+                daemon=True
+            )
+            self.ws_thread.start()
+
+            # 연결 대기 (최대 5초)
+            for _ in range(50):
+                if self.is_connected:
+                    return True
+                await asyncio.sleep(0.1)
+
+            logger.error("❌ WebSocket 연결 타임아웃 (5초)")
+            return False
+
         except Exception as e:
-            logger.error(f"❌ 웹소켓 연결 실패: {e}")
+            logger.error(f"❌ WebSocket 연결 실패: {e}")
             self.is_connected = False
             return False
 
     async def disconnect(self):
         """웹소켓 연결 종료"""
         self.is_connected = False
-        if self.websocket:
+        self.stop_event.set()
+
+        if self.ws_app:
             try:
-                # 1초 타임아웃으로 graceful shutdown 시도
-                await asyncio.wait_for(self.websocket.close(), timeout=1.0)
-                logger.info("웹소켓 연결 종료")
-            except asyncio.TimeoutError:
-                # 타임아웃 시 강제 종료
-                logger.warning("⚠️ 웹소켓 graceful shutdown 타임아웃, 강제 종료")
-                # websocket close_timeout을 0으로 설정하여 즉시 종료
-                try:
-                    await asyncio.wait_for(self.websocket.close(), timeout=0.1)
-                except:
-                    pass
+                self.ws_app.close()
+                logger.info("WebSocket 연결 종료")
             except Exception as e:
-                logger.warning(f"⚠️ 웹소켓 종료 중 에러: {e}")
+                logger.warning(f"⚠️ WebSocket 종료 중 에러: {e}")
+
+        # 스레드 종료 대기 (최대 2초)
+        if self.ws_thread and self.ws_thread.is_alive():
+            self.ws_thread.join(timeout=2.0)
 
     async def subscribe_ticker(self, symbols: List[str]):
         """
@@ -153,16 +261,9 @@ class UpbitWebSocket:
             raise ConnectionError("웹소켓이 연결되지 않았습니다.")
 
         try:
-            # 🔧 타임아웃 5초 설정 (네트워크 문제 시 무한 대기 방지)
-            await asyncio.wait_for(
-                self.websocket.send(json.dumps(subscribe_fmt)),
-                timeout=5.0
-            )
+            # WebSocket send는 thread-safe
+            self.ws_app.send(json.dumps(subscribe_fmt))
             self.subscriptions.append(subscribe_fmt)
-        except asyncio.TimeoutError:
-            logger.error("❌ WebSocket 구독 타임아웃 (5초) - 연결 불안정")
-            self.is_connected = False
-            raise
         except Exception as e:
             logger.error(f"❌ WebSocket 구독 실패: {e}")
             self.is_connected = False
@@ -178,36 +279,20 @@ class UpbitWebSocket:
         if not self.is_connected:
             raise ConnectionError("웹소켓이 연결되지 않았습니다.")
 
-        try:
-            while self.is_connected:
-                # 🔧 타임아웃 추가: 30초마다 루프 재진입 (블로킹 방지)
-                try:
-                    message = await asyncio.wait_for(
-                        self.websocket.recv(),
-                        timeout=30.0  # 30초 타임아웃 (Ticker는 메시지가 자주 옴)
-                    )
-                except asyncio.TimeoutError:
-                    # 타임아웃 발생 - 메시지가 30초 동안 없었음
-                    # 정상적인 경우 Ticker는 수초 내 메시지가 옴
-                    # 30초 타임아웃 = 연결 문제 가능성
-                    logger.warning("⚠️ Ticker WebSocket 30초 타임아웃 - 연결 상태 확인 필요")
-                    continue
+        while self.is_connected:
+            try:
+                # 큐에서 메시지 가져오기 (non-blocking)
+                if not self.message_queue.empty():
+                    data = self.message_queue.get_nowait()
+                    yield data
+                else:
+                    # 큐가 비어있으면 잠시 대기
+                    await asyncio.sleep(0.01)
 
-                # 바이너리 데이터 디코딩
-                if isinstance(message, bytes):
-                    message = message.decode('utf-8')
-
-                # JSON 파싱
-                data = json.loads(message)
-
-                yield data
-
-        except websockets.exceptions.ConnectionClosed:
-            logger.warning("⚠️ 웹소켓 연결 끊김")
-            self.is_connected = False
-        except Exception as e:
-            logger.error(f"❌ 메시지 수신 오류: {e}")
-            self.is_connected = False
+            except Exception as e:
+                logger.error(f"❌ 메시지 수신 오류: {e}")
+                self.is_connected = False
+                break
 
     async def listen_with_callback(self, callback: Callable):
         """
@@ -225,6 +310,9 @@ class UpbitWebSocket:
     async def reconnect(self, max_retries: int = 5):
         """
         웹소켓 자동 재연결
+
+        Note: websocket-client의 reconnect=2 설정으로 자동 재연결됨
+        이 메서드는 수동 재연결이 필요한 경우에만 사용
 
         Args:
             max_retries: 최대 재시도 횟수
@@ -323,7 +411,7 @@ class CandleWebSocket(UpbitWebSocket):
                             yield candle_data
                             consecutive_errors = 0  # 성공 시 에러 카운터 리셋
 
-                # 🔧 다음 캔들까지 대기 (취소 가능하도록 작은 단위로 체크)
+                # 다음 캔들까지 대기 (취소 가능하도록 작은 단위로 체크)
                 elapsed = 0
                 sleep_interval = 0.5  # 0.5초마다 체크
                 while elapsed < self.interval_seconds and self.is_running:
@@ -341,7 +429,7 @@ class CandleWebSocket(UpbitWebSocket):
                 else:
                     wait_time = 2
 
-                # 🔧 에러 재시도 대기 (취소 가능하도록 작은 단위로 체크)
+                # 에러 재시도 대기 (취소 가능하도록 작은 단위로 체크)
                 elapsed = 0
                 sleep_interval = 0.5
                 while elapsed < wait_time and self.is_running:
@@ -361,6 +449,10 @@ class MyAssetWebSocket:
     - API 호출 불필요
     - JWT 인증 필요
 
+    공식 Upbit 예제 구조 사용:
+    - websocket-client 라이브러리
+    - ping_interval=30, ping_timeout=10, reconnect=2
+
     Example:
         >>> ws = MyAssetWebSocket(access_key, secret_key)
         >>> await ws.connect()
@@ -379,10 +471,16 @@ class MyAssetWebSocket:
         """
         self.access_key = access_key
         self.secret_key = secret_key
-        # 🔧 MyAsset은 Private 엔드포인트 사용 (공식 문서 명시)
         self.url = "wss://api.upbit.com/websocket/v1/private"
-        self.websocket = None
+        self.ws_app = None
+        self.ws_thread = None
         self.is_connected = False
+
+        # 메시지 큐 (thread-safe)
+        self.message_queue = Queue()
+
+        # 종료 이벤트
+        self.stop_event = threading.Event()
 
     def _generate_jwt_token(self) -> str:
         """
@@ -400,6 +498,91 @@ class MyAssetWebSocket:
         jwt_token = pyjwt.encode(payload, self.secret_key, algorithm='HS256')
         return jwt_token
 
+    def _on_message(self, ws, message):
+        """
+        메시지 수신 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            message: 수신 메시지 (bytes or str)
+        """
+        try:
+            # 바이너리 데이터 디코딩
+            if isinstance(message, bytes):
+                message = message.decode('utf-8')
+
+            # JSON 파싱
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError as je:
+                logger.error(f"❌ JSON 파싱 실패: {je}, 원본: {message[:100]}")
+                return
+
+            # JSON_LIST 형식 처리 (배열의 모든 요소를 순회)
+            if isinstance(data, list):
+                for item in data:
+                    if item.get('type') == 'myAsset':
+                        self.message_queue.put(item)
+            else:
+                # DEFAULT 형식 (단일 객체)
+                if data.get('type') == 'myAsset':
+                    self.message_queue.put(data)
+
+        except Exception as e:
+            logger.error(f"❌ MyAsset 메시지 처리 오류: {e}")
+
+    def _on_error(self, ws, error):
+        """
+        에러 발생 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            error: 에러 객체
+        """
+        logger.error(f"❌ MyAsset WebSocket 에러: {error}")
+
+    def _on_close(self, ws, close_status_code, close_msg):
+        """
+        연결 종료 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            close_status_code: 종료 상태 코드
+            close_msg: 종료 메시지
+        """
+        self.is_connected = False
+        logger.warning(f"⚠️ MyAsset WebSocket 연결 종료 (code={close_status_code}, msg={close_msg})")
+
+    def _on_open(self, ws):
+        """
+        연결 성공 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+        """
+        self.is_connected = True
+        logger.info("✅ MyAsset WebSocket 연결 성공 (인증 완료)")
+
+    def _run_websocket(self):
+        """
+        WebSocket 실행 (별도 스레드에서 실행)
+
+        공식 Upbit 예제 설정:
+        - ping_interval=30: 30초마다 PING 전송
+        - ping_timeout=10: PONG 응답 10초 대기
+        - reconnect=2: 연결 끊김 시 2초 후 재연결
+        """
+        try:
+            self.ws_app.run_forever(
+                ping_interval=30,
+                ping_timeout=10,
+                reconnect=2
+            )
+        except Exception as e:
+            logger.error(f"❌ MyAsset WebSocket 실행 오류: {e}")
+        finally:
+            self.is_connected = False
+
     async def connect(self) -> bool:
         """
         WebSocket 연결 (JWT 인증 포함)
@@ -411,20 +594,33 @@ class MyAssetWebSocket:
             # JWT 토큰 생성
             token = self._generate_jwt_token()
 
-            # Authorization 헤더와 함께 연결
-            # 🔧 additional_headers 사용 (websockets 10.0+)
-            # 🔧 기본 keepalive 사용 (명시적 ping_interval/ping_timeout은 asyncio task 파괴 문제 유발)
-            # 🔧 recv() timeout(60s)으로 블로킹 방지는 이미 처리됨
-            self.websocket = await websockets.connect(
+            # WebSocketApp 생성 (Authorization 헤더 포함)
+            self.ws_app = websocket.WebSocketApp(
                 self.url,
-                additional_headers={
+                header={
                     "Authorization": f"Bearer {token}"
-                }
+                },
+                on_open=self._on_open,
+                on_message=self._on_message,
+                on_error=self._on_error,
+                on_close=self._on_close
             )
 
-            self.is_connected = True
-            logger.info("✅ MyAsset WebSocket 연결 성공 (인증 완료)")
-            return True
+            # 별도 스레드에서 WebSocket 실행
+            self.ws_thread = threading.Thread(
+                target=self._run_websocket,
+                daemon=True
+            )
+            self.ws_thread.start()
+
+            # 연결 대기 (최대 5초)
+            for _ in range(50):
+                if self.is_connected:
+                    return True
+                await asyncio.sleep(0.1)
+
+            logger.error("❌ MyAsset WebSocket 연결 타임아웃 (5초)")
+            return False
 
         except Exception as e:
             logger.error(f"❌ MyAsset WebSocket 연결 실패: {e}")
@@ -434,18 +630,18 @@ class MyAssetWebSocket:
     async def disconnect(self):
         """WebSocket 연결 종료"""
         self.is_connected = False
-        if self.websocket:
+        self.stop_event.set()
+
+        if self.ws_app:
             try:
-                await asyncio.wait_for(self.websocket.close(), timeout=1.0)
+                self.ws_app.close()
                 logger.info("MyAsset WebSocket 연결 종료")
-            except asyncio.TimeoutError:
-                logger.warning("⚠️ MyAsset WebSocket graceful shutdown 타임아웃")
-                try:
-                    await asyncio.wait_for(self.websocket.close(), timeout=0.1)
-                except:
-                    pass
             except Exception as e:
                 logger.warning(f"⚠️ MyAsset WebSocket 종료 중 에러: {e}")
+
+        # 스레드 종료 대기 (최대 2초)
+        if self.ws_thread and self.ws_thread.is_alive():
+            self.ws_thread.join(timeout=2.0)
 
     async def subscribe_myasset(self):
         """
@@ -465,20 +661,13 @@ class MyAssetWebSocket:
         subscribe_fmt = [
             {"ticket": str(uuid.uuid4())},
             {"type": "myAsset"},
-            {"format": "JSON_LIST"}  # 🔧 공식 문서 권장 (효율적인 리스트 형식)
+            {"format": "JSON_LIST"}  # 공식 문서 권장 (효율적인 리스트 형식)
         ]
 
         try:
-            # 🔧 타임아웃 5초 설정 (네트워크 문제 시 무한 대기 방지)
-            await asyncio.wait_for(
-                self.websocket.send(json.dumps(subscribe_fmt)),
-                timeout=5.0
-            )
+            # WebSocket send는 thread-safe
+            self.ws_app.send(json.dumps(subscribe_fmt))
             logger.info("💰 MyAsset 구독 완료 - 자산 변동 실시간 감지 시작")
-        except asyncio.TimeoutError:
-            logger.error("❌ MyAsset 구독 타임아웃 (5초) - WebSocket 연결 불안정")
-            self.is_connected = False
-            raise
         except Exception as e:
             logger.error(f"❌ MyAsset 구독 실패: {e}")
             self.is_connected = False
@@ -500,62 +689,29 @@ class MyAssetWebSocket:
         if not self.is_connected:
             raise ConnectionError("WebSocket이 연결되지 않았습니다.")
 
-        try:
-            message_count = 0
-            while self.is_connected:
-                # 🔧 타임아웃 추가: 60초마다 루프 재진입 (블로킹 방지)
-                # 메시지가 없어도 60초마다 제어권 반환 → 다른 비동기 작업 가능
-                try:
-                    message = await asyncio.wait_for(
-                        self.websocket.recv(),
-                        timeout=60.0  # 60초 타임아웃
-                    )
-                except asyncio.TimeoutError:
-                    # 타임아웃 발생 (정상) - 메시지가 없었음
-                    # 루프 계속 진행하여 is_connected 체크 및 다른 작업 가능
-                    continue
+        message_count = 0
 
-                # 🔍 디버깅: 처음 3개 메시지 로깅
-                message_count += 1
-                if message_count <= 3:
-                    logger.info(f"🔍 MyAsset 메시지 #{message_count} 수신 (길이: {len(message) if isinstance(message, (str, bytes)) else 0})")
-                    if isinstance(message, bytes):
-                        logger.info(f"🔍 원본 (bytes): {message[:200]}")
-                    else:
-                        logger.info(f"🔍 원본 (str): {message[:200]}")
+        while self.is_connected:
+            try:
+                # 큐에서 메시지 가져오기 (non-blocking)
+                if not self.message_queue.empty():
+                    data = self.message_queue.get_nowait()
 
-                # 바이너리 데이터 디코딩
-                if isinstance(message, bytes):
-                    message = message.decode('utf-8')
-
-                # JSON 파싱
-                try:
-                    data = json.loads(message)
+                    # 디버깅: 처음 3개 메시지 로깅
+                    message_count += 1
                     if message_count <= 3:
-                        if isinstance(data, list):
-                            logger.info(f"🔍 파싱 성공 (JSON_LIST): length={len(data)}, first_type={data[0].get('type') if data else None}")
-                        else:
-                            logger.info(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
-                except json.JSONDecodeError as je:
-                    logger.error(f"❌ JSON 파싱 실패: {je}, 원본: {message[:100]}")
-                    continue
+                        logger.info(f"🔍 MyAsset 메시지 #{message_count} 수신")
+                        logger.info(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
 
-                # JSON_LIST 형식 처리 (배열의 모든 요소를 순회)
-                if isinstance(data, list):
-                    for item in data:
-                        if item.get('type') == 'myAsset':
-                            yield item
+                    yield data
                 else:
-                    # DEFAULT 형식 (단일 객체)
-                    if data.get('type') == 'myAsset':
-                        yield data
+                    # 큐가 비어있으면 잠시 대기
+                    await asyncio.sleep(0.01)
 
-        except websockets.exceptions.ConnectionClosed as e:
-            logger.warning(f"⚠️ MyAsset WebSocket 연결 끊김 (close_code={e.code if hasattr(e, 'code') else 'unknown'}, reason={e.reason if hasattr(e, 'reason') else 'unknown'})")
-            self.is_connected = False
-        except Exception as e:
-            logger.error(f"❌ MyAsset 메시지 수신 오류: {e}", exc_info=True)
-            self.is_connected = False
+            except Exception as e:
+                logger.error(f"❌ MyAsset 메시지 수신 오류: {e}", exc_info=True)
+                self.is_connected = False
+                break
 
     async def listen_with_callback(self, callback: Callable):
         """
