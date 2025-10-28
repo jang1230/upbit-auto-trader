@@ -177,7 +177,18 @@ class UpbitWebSocket:
 
         try:
             while self.is_connected:
-                message = await self.websocket.recv()
+                # 🔧 타임아웃 추가: 30초마다 루프 재진입 (블로킹 방지)
+                try:
+                    message = await asyncio.wait_for(
+                        self.websocket.recv(),
+                        timeout=30.0  # 30초 타임아웃 (Ticker는 메시지가 자주 옴)
+                    )
+                except asyncio.TimeoutError:
+                    # 타임아웃 발생 - 메시지가 30초 동안 없었음
+                    # 정상적인 경우 Ticker는 수초 내 메시지가 옴
+                    # 30초 타임아웃 = 연결 문제 가능성
+                    logger.warning("⚠️ Ticker WebSocket 30초 타임아웃 - 연결 상태 확인 필요")
+                    continue
 
                 # 바이너리 데이터 디코딩
                 if isinstance(message, bytes):
@@ -487,7 +498,17 @@ class MyAssetWebSocket:
         try:
             message_count = 0
             while self.is_connected:
-                message = await self.websocket.recv()
+                # 🔧 타임아웃 추가: 60초마다 루프 재진입 (블로킹 방지)
+                # 메시지가 없어도 60초마다 제어권 반환 → 다른 비동기 작업 가능
+                try:
+                    message = await asyncio.wait_for(
+                        self.websocket.recv(),
+                        timeout=60.0  # 60초 타임아웃
+                    )
+                except asyncio.TimeoutError:
+                    # 타임아웃 발생 (정상) - 메시지가 없었음
+                    # 루프 계속 진행하여 is_connected 체크 및 다른 작업 가능
+                    continue
 
                 # 🔍 디버깅: 처음 3개 메시지 로깅
                 message_count += 1
