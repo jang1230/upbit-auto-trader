@@ -458,25 +458,41 @@ class MyAssetWebSocket:
             raise ConnectionError("WebSocket이 연결되지 않았습니다.")
 
         try:
+            message_count = 0
             while self.is_connected:
                 message = await self.websocket.recv()
+
+                # 🔍 디버깅: 처음 3개 메시지 로깅
+                message_count += 1
+                if message_count <= 3:
+                    logger.info(f"🔍 MyAsset 메시지 #{message_count} 수신 (길이: {len(message) if isinstance(message, (str, bytes)) else 0})")
+                    if isinstance(message, bytes):
+                        logger.info(f"🔍 원본 (bytes): {message[:200]}")
+                    else:
+                        logger.info(f"🔍 원본 (str): {message[:200]}")
 
                 # 바이너리 데이터 디코딩
                 if isinstance(message, bytes):
                     message = message.decode('utf-8')
 
                 # JSON 파싱
-                data = json.loads(message)
+                try:
+                    data = json.loads(message)
+                    if message_count <= 3:
+                        logger.info(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
+                except json.JSONDecodeError as je:
+                    logger.error(f"❌ JSON 파싱 실패: {je}, 원본: {message[:100]}")
+                    continue
 
                 # myAsset 데이터만 반환
                 if data.get('type') == 'myAsset':
                     yield data
 
-        except websockets.exceptions.ConnectionClosed:
-            logger.warning("⚠️ MyAsset WebSocket 연결 끊김")
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.warning(f"⚠️ MyAsset WebSocket 연결 끊김 (close_code={e.code if hasattr(e, 'code') else 'unknown'}, reason={e.reason if hasattr(e, 'reason') else 'unknown'})")
             self.is_connected = False
         except Exception as e:
-            logger.error(f"❌ MyAsset 메시지 수신 오류: {e}")
+            logger.error(f"❌ MyAsset 메시지 수신 오류: {e}", exc_info=True)
             self.is_connected = False
 
     async def listen_with_callback(self, callback: Callable):
