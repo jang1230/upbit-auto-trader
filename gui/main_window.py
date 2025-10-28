@@ -127,15 +127,19 @@ class MyAssetPreparationWorker(QThread):
                 self.preparation_failed.emit("MyAsset WebSocket 연결 실패")
                 return
 
-            # 구독
+            # 구독 (연결 유지, start_trading에서 재사용)
             loop.run_until_complete(myasset_ws.subscribe_myasset())
 
-            # 연결 종료 (준비만 확인, 실제 사용은 start_trading에서)
-            loop.run_until_complete(myasset_ws.disconnect())
+            # 🔧 disconnect() 제거! (23초 블로킹 문제 해결)
+            # - 연결은 유지됨 (Worker 종료 시 자동 정리)
+            # - 구독 가능 여부만 확인하면 됨
 
             # 성공
             self.preparation_complete.emit()
             self.status_update.emit("✅ 실시간 감지 준비 완료!")
+
+            # 이벤트 루프 정리 (연결은 유지하되 루프는 종료)
+            loop.close()
 
         except Exception as e:
             self.preparation_failed.emit(f"준비 실패: {str(e)}")
@@ -189,11 +193,8 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._update_status()
 
-        # 🔧 GUI 시작 시 자동으로 잔고 조회 (최초 1회만)
-        QTimer.singleShot(500, self._refresh_balance)
-
-        # 🔧 MyAsset 구독 준비 시작 (백그라운드)
-        QTimer.singleShot(1000, self._start_myasset_preparation)
+        # 🔧 순차적 초기화 시작 (500ms 후)
+        QTimer.singleShot(500, self._start_sequential_initialization)
 
     def _init_ui(self):
         """UI 초기화 - Step 2: 좌측 사이드바 + 우측 메인 패널"""
@@ -2017,6 +2018,99 @@ class MainWindow(QMainWindow):
         # 자동 스크롤 (최신 로그로)
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    # ========================================
+    # 순차적 초기화 시스템
+    # ========================================
+
+    def _start_sequential_initialization(self):
+        """순차적 초기화 시작 (단계별 진행)"""
+        self._add_log("🔄 초기화 시작...")
+        self.myasset_status_label.setText("🔄 초기화 중... (1/3) 예수금 조회")
+
+        # 단계 1: 예수금 조회
+        self._step1_load_balance()
+
+    def _step1_load_balance(self):
+        """단계 1: 예수금 조회"""
+        config = self.config_manager.get_all_config()
+        access_key = config.get('upbit_access_key', '')
+        secret_key = config.get('upbit_secret_key', '')
+
+        if not access_key or not secret_key:
+            self._add_log("⚠️ API 키 미설정 - 단계 2로 진행")
+            self._step2_load_positions()
+            return
+
+        # BalanceWorker 시작
+        self.balance_worker = BalanceWorker(access_key, secret_key)
+        self.balance_worker.finished.connect(self._on_step1_complete)
+        self.balance_worker.error.connect(self._on_step1_error)
+        self.balance_worker.start()
+
+    def _on_step1_complete(self, result: dict):
+        """단계 1 완료: 예수금 표시 → 단계 2로"""
+        if result['success']:
+            krw = result['krw']
+            self.balance_label.setText(f"💰 KRW: {krw:,.0f}원")
+            self._add_log(f"✅ 예수금 조회 완료: {krw:,.0f}원")
+
+        # 단계 2로 진행
+        self._step2_load_positions()
+
+    def _on_step1_error(self, error_msg: str):
+        """단계 1 실패: 에러 표시 → 단계 2로 계속"""
+        self._add_log(f"⚠️ 예수금 조회 실패: {error_msg}")
+        self._step2_load_positions()
+
+    def _step2_load_positions(self):
+        """단계 2: 보유 종목 조회 + 화면 표시"""
+        self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
+        self._add_log("🔄 보유 종목 조회 중...")
+
+        config = self.config_manager.get_all_config()
+        access_key = config.get('upbit_access_key', '')
+        secret_key = config.get('upbit_secret_key', '')
+
+        if not access_key or not secret_key:
+            self._add_log("⚠️ API 키 미설정 - 단계 3으로 진행")
+            self._step3_prepare_myasset()
+            return
+
+        try:
+            from core.upbit_api import UpbitAPI
+
+            api = UpbitAPI(access_key, secret_key)
+            accounts = api.get_accounts()
+
+            # 코인 자산만 필터 (KRW 제외)
+            coin_count = 0
+            for account in accounts:
+                currency = account['currency']
+                if currency != 'KRW':
+                    balance = float(account['balance'])
+                    if balance > 0:
+                        coin_count += 1
+
+            if coin_count > 0:
+                self._add_log(f"✅ 보유 종목 {coin_count}개 발견")
+                # GUI에 표시될 것 (시작 버튼 클릭 시)
+            else:
+                self._add_log("📭 보유 종목 없음")
+
+        except Exception as e:
+            self._add_log(f"⚠️ 보유 종목 조회 실패: {e}")
+
+        # 단계 3으로 진행
+        self._step3_prepare_myasset()
+
+    def _step3_prepare_myasset(self):
+        """단계 3: MyAsset WebSocket 구독 준비"""
+        self.myasset_status_label.setText("🔄 초기화 중... (3/3) 실시간 감지 준비")
+        self._add_log("🔄 실시간 감지 준비 중...")
+
+        # 기존 _start_myasset_preparation() 로직 호출
+        self._start_myasset_preparation()
 
     # ========================================
     # MyAsset 구독 준비
