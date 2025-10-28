@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         # 🔧 트레이딩 모드 및 완전 자동 설정
         self.trading_mode = "semi_auto"  # "semi_auto" | "full_auto"
         self.auto_trading_config = AutoTradingConfig.from_file('auto_trading_config.json')  # 완전 자동 설정
-        self.scan_interval = 10  # 반자동 모드 포지션 스캔 주기 (초)
+        self.scan_interval = 60  # 🔧 반자동 모드 fallback 스캔 주기 (초, MyAsset WebSocket 보조용)
         
         self.is_running = False
         self.balance_worker = None  # 잔고 조회 워커 스레드

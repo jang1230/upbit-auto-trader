@@ -384,9 +384,10 @@ class MyAssetWebSocket:
             token = self._generate_jwt_token()
 
             # Authorization 헤더와 함께 연결
+            # 🔧 additional_headers 사용 (websockets 10.0+)
             self.websocket = await websockets.connect(
                 self.url,
-                extra_headers={
+                additional_headers={
                     "Authorization": f"Bearer {token}"
                 }
             )
