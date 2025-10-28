@@ -149,8 +149,21 @@ class UpbitWebSocket:
         if not self.is_connected:
             raise ConnectionError("웹소켓이 연결되지 않았습니다.")
 
-        await self.websocket.send(json.dumps(subscribe_fmt))
-        self.subscriptions.append(subscribe_fmt)
+        try:
+            # 🔧 타임아웃 5초 설정 (네트워크 문제 시 무한 대기 방지)
+            await asyncio.wait_for(
+                self.websocket.send(json.dumps(subscribe_fmt)),
+                timeout=5.0
+            )
+            self.subscriptions.append(subscribe_fmt)
+        except asyncio.TimeoutError:
+            logger.error("❌ WebSocket 구독 타임아웃 (5초) - 연결 불안정")
+            self.is_connected = False
+            raise
+        except Exception as e:
+            logger.error(f"❌ WebSocket 구독 실패: {e}")
+            self.is_connected = False
+            raise
 
     async def listen(self) -> AsyncIterator[Dict]:
         """
@@ -439,8 +452,21 @@ class MyAssetWebSocket:
             {"format": "JSON_LIST"}  # 🔧 공식 문서 권장 (효율적인 리스트 형식)
         ]
 
-        await self.websocket.send(json.dumps(subscribe_fmt))
-        logger.info("💰 MyAsset 구독 완료 - 자산 변동 실시간 감지 시작")
+        try:
+            # 🔧 타임아웃 5초 설정 (네트워크 문제 시 무한 대기 방지)
+            await asyncio.wait_for(
+                self.websocket.send(json.dumps(subscribe_fmt)),
+                timeout=5.0
+            )
+            logger.info("💰 MyAsset 구독 완료 - 자산 변동 실시간 감지 시작")
+        except asyncio.TimeoutError:
+            logger.error("❌ MyAsset 구독 타임아웃 (5초) - WebSocket 연결 불안정")
+            self.is_connected = False
+            raise
+        except Exception as e:
+            logger.error(f"❌ MyAsset 구독 실패: {e}")
+            self.is_connected = False
+            raise
 
     async def listen(self) -> AsyncIterator[Dict]:
         """
