@@ -527,18 +527,18 @@ class MyAssetWebSocket:
 
         공식 Upbit JWT 스펙:
         - payload: access_key, nonce (timestamp 없음)
-        - algorithm: HS512
+        - algorithm: HS256 (공식 문서 명시)
 
         Returns:
             str: JWT 토큰 (Bearer 제외)
         """
-        # 🔧 공식 Upbit JWT 스펙에 맞춤 (timestamp 제거, HS512 사용)
+        # 🔧 공식 Upbit JWT 스펙에 맞춤 (HS256 사용)
         payload = {
             'access_key': self.access_key,
             'nonce': str(uuid.uuid4())
         }
 
-        jwt_token = pyjwt.encode(payload, self.secret_key, algorithm='HS512')
+        jwt_token = pyjwt.encode(payload, self.secret_key, algorithm='HS256')
         return jwt_token
 
     def _on_message(self, ws, message):

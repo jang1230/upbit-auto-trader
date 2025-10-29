@@ -77,8 +77,8 @@ class UpbitAPI:
             payload['query_hash'] = query_hash
             payload['query_hash_alg'] = 'SHA512'
 
-        # 🔧 공식 스펙: HS512 사용
-        jwt_token = jwt.encode(payload, self.secret_key, algorithm='HS512')
+        # 🔧 공식 Upbit 스펙: HS256 사용 (공식 문서 명시)
+        jwt_token = jwt.encode(payload, self.secret_key, algorithm='HS256')
         return f'Bearer {jwt_token}'
     
     def _request(self, method: str, endpoint: str, query: Optional[Dict] = None, body: Optional[Dict] = None) -> Dict:
