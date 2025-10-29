@@ -737,17 +737,24 @@ class SemiAutoManager:
                 target_pct = tp_level.profit_pct
                 sell_ratio = tp_level.sell_ratio
 
+                # 🔧 executed_tp_levels 초기화 (없으면)
+                if not hasattr(managed, 'executed_tp_levels'):
+                    managed.executed_tp_levels = set()
+
                 # 이미 실행된 레벨은 건너뜀
-                if hasattr(managed, 'executed_tp_levels') and level in managed.executed_tp_levels:
+                if level in managed.executed_tp_levels:
                     continue
 
                 # 익절 조건 충족 시
                 if profit_pct >= target_pct:
-                    await self._execute_take_profit_level(managed, current_price, profit_pct, tp_level)
-                    # 실행된 레벨 기록
-                    if not hasattr(managed, 'executed_tp_levels'):
-                        managed.executed_tp_levels = set()
+                    # 🔧 중복 실행 방지: 실행 **전**에 레벨 기록
                     managed.executed_tp_levels.add(level)
+
+                    # 익절 실행
+                    await self._execute_take_profit_level(managed, current_price, profit_pct, tp_level)
+
+                    # 🔧 한 번이라도 익절 실행 시 나머지 레벨 체크 중단
+                    break
         else:
             # 단일 익절: 기존 로직
             if profit_pct >= self.dca_config.take_profit_pct:
@@ -774,17 +781,24 @@ class SemiAutoManager:
                 target_pct = sl_level.loss_pct
                 sell_ratio = sl_level.sell_ratio
 
+                # 🔧 executed_sl_levels 초기화 (없으면)
+                if not hasattr(managed, 'executed_sl_levels'):
+                    managed.executed_sl_levels = set()
+
                 # 이미 실행된 레벨은 건너뜀
-                if hasattr(managed, 'executed_sl_levels') and level in managed.executed_sl_levels:
+                if level in managed.executed_sl_levels:
                     continue
 
                 # 손절 조건 충족 시 (손실률이 음수이므로 -를 붙여서 비교)
                 if loss_pct <= -target_pct:
-                    await self._execute_stop_loss_level(managed, current_price, loss_pct, sl_level)
-                    # 실행된 레벨 기록
-                    if not hasattr(managed, 'executed_sl_levels'):
-                        managed.executed_sl_levels = set()
+                    # 🔧 중복 실행 방지: 실행 **전**에 레벨 기록
                     managed.executed_sl_levels.add(level)
+
+                    # 손절 실행
+                    await self._execute_stop_loss_level(managed, current_price, loss_pct, sl_level)
+
+                    # 🔧 한 번이라도 손절 실행 시 나머지 레벨 체크 중단
+                    break
         else:
             # 단일 손절: 기존 로직
             # 예: loss_pct = -10%, stop_loss_pct = 20% → -10 <= -20 (손절 안 함)

@@ -192,4 +192,4 @@ class SemiAutoWorker(QThread):
         """거래 완료 콜백 (OrderManager에서 호출)"""
         # GUI 거래 내역 기록을 위해 trade_signal emit
         self.trade_signal.emit(trade_data)
-        logger.debug(f"거래 내역 시그널 발송: {trade_data['symbol']} {trade_data['side']}")
+        logger.debug(f"거래 내역 시그널 발송: {trade_data['symbol']} {trade_data.get('trade_type', 'unknown')}")
