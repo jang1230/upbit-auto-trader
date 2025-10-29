@@ -1392,15 +1392,17 @@ class MainWindow(QMainWindow):
                 self._add_log(f"{emoji} {symbol_short} {trade_type}: {trade.price:,.0f}원 × {trade.quantity:.8f} = {trade.amount:,.0f}원")
 
                 # 🔧 매수 발생 시 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
-                if self.trading_worker:
+                # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
+                if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
                     coin_status = self.trading_worker.get_coin_status(trade.symbol)
                     if coin_status:
                         self._on_coin_update(trade.symbol, coin_status)
             else:
                 self._add_log(f"{emoji} {symbol_short} {trade_type}: {trade.price:,.0f}원 × {trade.quantity:.8f} = {trade.amount:,.0f}원 | 손익: {trade.profit:+,.0f}원 ({trade.profit_pct:+.2f}%)")
-                
+
                 # 🔧 매도 발생 시에도 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
-                if self.trading_worker:
+                # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
+                if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
                     coin_status = self.trading_worker.get_coin_status(trade.symbol)
                     if coin_status:
                         self._on_coin_update(trade.symbol, coin_status)
