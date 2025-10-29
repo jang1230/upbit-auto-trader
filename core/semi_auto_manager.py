@@ -349,7 +349,7 @@ class SemiAutoManager:
 
                 assets = data.get('assets', [])
 
-                # 각 자산의 변동 로그
+                # 각 자산의 변동 로그 및 수동 매도 감지
                 asset_changes = []
                 has_coin_change = False
                 has_krw_change = False
@@ -366,6 +366,26 @@ class SemiAutoManager:
                         logger.info(f"💰 자산 변동 감지: {currency} - 잔액: {balance:.8f}, 주문중: {locked:.8f}")
                         if balance > 0:
                             has_coin_change = True
+
+                        # 🔧 수동 매도 감지: 관리 중인 코인의 잔액 감소 확인
+                        symbol = f"KRW-{currency}"
+                        if symbol in self.managed_positions:
+                            managed = self.managed_positions[symbol]
+                            old_balance = managed.position.balance
+                            new_balance = balance
+
+                            # 잔액 감소 감지 → _update_managed_position 호출
+                            if new_balance < old_balance:
+                                logger.info(f"🔍 잔액 감소 감지: {symbol} ({old_balance:.8f} → {new_balance:.8f})")
+                                # Position 객체 생성하여 _update_managed_position 호출
+                                from core.position_detector import Position
+                                updated_position = Position(
+                                    symbol=symbol,
+                                    balance=new_balance,
+                                    avg_buy_price=managed.position.avg_buy_price,
+                                    locked=locked
+                                )
+                                await self._update_managed_position(updated_position)
 
                     asset_changes.append(currency)
 
