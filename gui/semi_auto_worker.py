@@ -185,14 +185,8 @@ class SemiAutoWorker(QThread):
 
     async def _position_callback(self, position_data: dict):
         """포지션 업데이트 콜백 (SemiAutoManager에서 호출)"""
-        # 🔍 디버깅: 콜백 호출 확인
-        symbol = position_data.get('symbol', 'UNKNOWN')
-        logger.info(f"🔍 [Worker] position_callback 호출됨: {symbol}")
-
         # GUI 업데이트를 위해 position_update_signal emit
         self.position_update_signal.emit(position_data)
-
-        logger.info(f"✅ [Worker] position_update_signal.emit 완료: {symbol}")
 
     async def _trade_callback(self, trade_data: dict):
         """거래 완료 콜백 (OrderManager에서 호출)"""
