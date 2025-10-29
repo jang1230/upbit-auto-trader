@@ -33,10 +33,9 @@ class AdvancedDcaDialog(QDialog):
     # 설정 변경 시그널
     config_changed = Signal(AdvancedDcaConfig)
     
-    def __init__(self, parent=None, current_price: float = 100000000):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        
-        self.current_price = current_price  # 현재가
+
         self.config_manager = DcaConfigManager()
         self.config = self.config_manager.load()
         
@@ -51,12 +50,8 @@ class AdvancedDcaDialog(QDialog):
         """UI 초기화"""
         main_layout = QVBoxLayout(self)
 
-        # 상단: 현재가 표시
+        # 상단: DCA 활성화 체크박스
         header_layout = QHBoxLayout()
-
-        current_price_label = QLabel(f"📈 현재가: {self.current_price:,.0f}원")
-        current_price_label.setFont(QFont("Consolas", 12, QFont.Bold))
-        header_layout.addWidget(current_price_label)
 
         header_layout.addStretch()
 
@@ -1027,7 +1022,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    dialog = AdvancedDcaDialog(current_price=100000000)
+    dialog = AdvancedDcaDialog()
     dialog.exec()
 
     sys.exit(app.exec())
