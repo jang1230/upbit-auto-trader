@@ -483,6 +483,17 @@ class SemiAutoManager:
                         except Exception as e:
                             logger.error(f"❌ GUI 포지션 업데이트 실패 ({position_data.get('symbol', 'UNKNOWN')}): {e}", exc_info=True)
 
+                # 🔧 배치 처리 완료 알림 (GUI 로그)
+                if batch_position_updates and self.notification_callback:
+                    try:
+                        coin_names = [data['symbol'].replace('KRW-', '') for data in batch_position_updates]
+                        await self.notification_callback(
+                            f"💰 수동 매수 감지: {new_manual_count}개 종목\n"
+                            f"   종목: {', '.join(coin_names)}"
+                        )
+                    except Exception as e:
+                        logger.error(f"배치 알림 실패: {e}")
+
                 # 🔧 모든 종목 처리 후 WebSocket 재구독 (한 번만)
                 if self.websocket.is_connected and self.managed_positions:
                     try:
@@ -578,6 +589,20 @@ class SemiAutoManager:
                 await self.position_callback(position_data)
             except Exception as e:
                 logger.error(f"❌ GUI 포지션 업데이트 실패 ({symbol}): {e}", exc_info=True)
+
+        # 🔧 GUI 로그 알림 (개별 처리 시)
+        if not skip_position_callback and self.notification_callback:
+            try:
+                coin_name = symbol.replace('KRW-', '')
+                profit_pct = ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100
+                await self.notification_callback(
+                    f"💰 수동 매수 감지: {coin_name}\n"
+                    f"   수량: {position.balance:.6f}개\n"
+                    f"   평단가: {position.avg_buy_price:,.0f}원\n"
+                    f"   현재 수익률: {profit_pct:+.2f}%"
+                )
+            except Exception as e:
+                logger.error(f"GUI 알림 실패: {e}")
         # skip_position_callback=True 시에는 데이터만 반환 (배치 처리용)
 
         # 🔧 WebSocket 재구독 (skip 플래그가 False일 때만 - 개별 감지 시)
@@ -792,12 +817,10 @@ class SemiAutoManager:
         if order_result and order_result.get('success'):
             # 알림
             if self.notification_callback:
+                coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
-                    f"💰 DCA 추가 매수 (Level {level})\n"
-                    f"심볼: {symbol}\n"
-                    f"가격: {price:,.0f}원\n"
-                    f"금액: {buy_amount:,.0f}원\n"
-                    f"하락률: {level_config.drop_pct}%"
+                    f"💰 DCA 추가 매수 완료 (Level {level}): {coin_name}\n"
+                    f"   가격: {price:,.0f}원 | 금액: {buy_amount:,.0f}원 | 하락률: -{level_config.drop_pct}%"
                 )
             
             logger.info(f"✅ DCA 추가 매수 완료: {symbol} Level {level}")
@@ -859,12 +882,10 @@ class SemiAutoManager:
         if order_result and order_result.get('success'):
             # 알림
             if self.notification_callback:
+                coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
-                    f"🎯 익절 완료 (Level {tp_level.level})!\n"
-                    f"심볼: {symbol}\n"
-                    f"수익률: {profit_pct:.2f}%\n"
-                    f"매도 비율: {tp_level.sell_ratio:.0f}%\n"
-                    f"매도가: {price:,.0f}원"
+                    f"🎯 익절 완료 (Level {tp_level.level}): {coin_name}\n"
+                    f"   수익률: +{profit_pct:.2f}% | 매도: {tp_level.sell_ratio:.0f}% | 가격: {price:,.0f}원"
                 )
 
             logger.info(f"✅ 익절 완료: {symbol} Level {tp_level.level}")
@@ -900,14 +921,13 @@ class SemiAutoManager:
             # 포지션 제거
             del self.managed_positions[symbol]
             self.detector.unregister_managed_position(symbol)
-            
+
             # 알림
             if self.notification_callback:
+                coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
-                    f"🎯 익절 완료!\n"
-                    f"심볼: {symbol}\n"
-                    f"수익률: {profit_pct:.2f}%\n"
-                    f"매도가: {price:,.0f}원"
+                    f"🎯 익절 완료: {coin_name}\n"
+                    f"   수익률: +{profit_pct:.2f}% | 매도가: {price:,.0f}원"
                 )
             
             logger.info(f"✅ 익절 완료: {symbol} (+{profit_pct:.2f}%)")
@@ -969,12 +989,10 @@ class SemiAutoManager:
         if order_result and order_result.get('success'):
             # 알림
             if self.notification_callback:
+                coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
-                    f"🚨 손절 완료 (Level {sl_level.level})\n"
-                    f"심볼: {symbol}\n"
-                    f"손실률: {loss_pct:.2f}%\n"
-                    f"매도 비율: {sl_level.sell_ratio:.0f}%\n"
-                    f"매도가: {price:,.0f}원"
+                    f"🚨 손절 완료 (Level {sl_level.level}): {coin_name}\n"
+                    f"   손실률: {loss_pct:.2f}% | 매도: {sl_level.sell_ratio:.0f}% | 가격: {price:,.0f}원"
                 )
 
             logger.info(f"✅ 손절 완료: {symbol} Level {sl_level.level}")
@@ -1013,11 +1031,10 @@ class SemiAutoManager:
             
             # 알림
             if self.notification_callback:
+                coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
-                    f"🚨 손절 완료\n"
-                    f"심볼: {symbol}\n"
-                    f"손실률: {loss_pct:.2f}%\n"
-                    f"매도가: {price:,.0f}원"
+                    f"🚨 손절 완료: {coin_name}\n"
+                    f"   손실률: {loss_pct:.2f}% | 매도가: {price:,.0f}원"
                 )
             
             logger.info(f"✅ 손절 완료: {symbol} ({loss_pct:.2f}%)")
