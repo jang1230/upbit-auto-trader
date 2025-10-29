@@ -1309,12 +1309,8 @@ class MainWindow(QMainWindow):
         krw_balance = result['krw']
         btc_balance = result['btc']
 
-        # UI 업데이트
+        # UI 업데이트 (로그 출력 제거 - 잔고 갱신마다 반복되므로)
         self.total_asset_label.setText(f"총 자산: {krw_balance:,.0f}원")
-        self._add_log(f"✅ 총 자산: {krw_balance:,.0f}원")
-
-        if btc_balance > 0:
-            self._add_log(f"   BTC: {btc_balance:.8f}")
 
     def _on_balance_error(self, error_msg: str):
         """잔고 조회 실패"""
