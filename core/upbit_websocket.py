@@ -10,12 +10,12 @@ Upbit WebSocket Client (Official Structure)
 
 공식 Upbit 예제 구조 사용:
 - websocket-client 라이브러리
-- ping/pong 비활성화 (Upbit 서버가 표준 ping/pong을 지원하지 않음)
+- PING/PONG 활성화 (ping_interval=30, ping_timeout=10)
 - reconnect=5 (자동 재연결)
 - Callback 패턴 (on_message, on_open, on_error, on_close)
 
-NOTE: Upbit WebSocket은 표준 WebSocket ping/pong 프레임을 응답하지 않으므로
-      ping_interval=None, ping_timeout=None으로 설정합니다.
+NOTE: Upbit WebSocket은 120초 Idle Timeout을 적용하므로
+      30초마다 PING을 전송하여 연결을 유지합니다.
 
 Example:
     >>> ws = UpbitWebSocket()
@@ -51,7 +51,7 @@ class UpbitWebSocket:
     특징:
     - websocket-client 라이브러리 사용 (Upbit 공식 예제)
     - 자동 재연결 (reconnect=5)
-    - PING/PONG 비활성화 (Upbit 서버가 응답하지 않음)
+    - PING/PONG 활성화 (ping_interval=30, ping_timeout=10)
     - Thread 기반 (asyncio 통합)
     """
 
@@ -134,18 +134,18 @@ class UpbitWebSocket:
         WebSocket 실행 (별도 스레드에서 실행)
 
         Upbit WebSocket 설정:
-        - ping_interval=None: PING/PONG 비활성화 (Upbit 서버가 응답하지 않음)
-        - ping_timeout=None: 타임아웃 비활성화
+        - ping_interval=30: 30초마다 PING 전송 (120초 Idle Timeout 방지)
+        - ping_timeout=10: PONG 응답 10초 대기
         - reconnect=5: 연결 끊김 시 5초 후 재연결
 
-        NOTE: Upbit WebSocket은 표준 ping/pong을 지원하지 않으므로
-              메시지 수신 여부로 연결 상태를 확인합니다.
+        NOTE: Upbit WebSocket은 120초간 데이터가 없으면 연결을 종료합니다.
+              PING을 주기적으로 전송하여 연결을 유지합니다.
         """
         try:
             self.ws_app.run_forever(
-                ping_interval=None,  # ❌ PING/PONG 비활성화
-                ping_timeout=None,   # ❌ 타임아웃 비활성화
-                reconnect=5          # ✅ 재연결 대기 시간 증가
+                ping_interval=30,    # ✅ 30초마다 PING (Idle Timeout 방지)
+                ping_timeout=10,     # ✅ PONG 응답 10초 대기
+                reconnect=5          # ✅ 재연결 대기 시간
             )
         except Exception as e:
             logger.error(f"❌ WebSocket 실행 오류: {e}")
@@ -486,7 +486,8 @@ class MyAssetWebSocket:
 
     공식 Upbit 예제 구조 사용:
     - websocket-client 라이브러리
-    - PING/PONG 비활성화, reconnect=5
+    - PING/PONG 활성화 (ping_interval=30, ping_timeout=10)
+    - reconnect=5 (자동 재연결)
 
     Example:
         >>> ws = MyAssetWebSocket(access_key, secret_key)
@@ -607,18 +608,18 @@ class MyAssetWebSocket:
         WebSocket 실행 (별도 스레드에서 실행)
 
         Upbit WebSocket 설정:
-        - ping_interval=None: PING/PONG 비활성화 (Upbit 서버가 응답하지 않음)
-        - ping_timeout=None: 타임아웃 비활성화
+        - ping_interval=30: 30초마다 PING 전송 (120초 Idle Timeout 방지)
+        - ping_timeout=10: PONG 응답 10초 대기
         - reconnect=5: 연결 끊김 시 5초 후 재연결
 
-        NOTE: Upbit WebSocket은 표준 ping/pong을 지원하지 않으므로
-              메시지 수신 여부로 연결 상태를 확인합니다.
+        NOTE: Upbit WebSocket은 120초간 데이터가 없으면 연결을 종료합니다.
+              PING을 주기적으로 전송하여 연결을 유지합니다.
         """
         try:
             self.ws_app.run_forever(
-                ping_interval=None,  # ❌ PING/PONG 비활성화
-                ping_timeout=None,   # ❌ 타임아웃 비활성화
-                reconnect=5          # ✅ 재연결 대기 시간 증가
+                ping_interval=30,    # ✅ 30초마다 PING (Idle Timeout 방지)
+                ping_timeout=10,     # ✅ PONG 응답 10초 대기
+                reconnect=5          # ✅ 재연결 대기 시간
             )
         except Exception as e:
             logger.error(f"❌ MyAsset WebSocket 실행 오류: {e}")
