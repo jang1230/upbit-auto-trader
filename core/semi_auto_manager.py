@@ -282,13 +282,13 @@ class SemiAutoManager:
                 symbol = data['code']  # "KRW-BTC"
                 price = data['trade_price']
 
-                # 🔍 디버깅: 가격 수신 로그 (심볼별 처음 3회만)
+                # 🔍 디버깅: 가격 수신 로그 (심볼별 처음 3회만, logger.debug)
                 if not hasattr(self, '_debug_price_count'):
                     self._debug_price_count = {}
                 if symbol not in self._debug_price_count:
                     self._debug_price_count[symbol] = 0
                 if self._debug_price_count[symbol] < 3:
-                    logger.info(f"🔍 WebSocket 가격 수신: {symbol} = {price:,.0f}원")
+                    logger.debug(f"🔍 WebSocket 가격 수신: {symbol} = {price:,.0f}원")
                     self._debug_price_count[symbol] += 1
 
                 # 가격 캐시 업데이트
@@ -332,8 +332,8 @@ class SemiAutoManager:
                 #   ]
                 # }
 
-                # 🔧 전체 메시지 로그 (디버깅용)
-                logger.info(f"📨 MyAsset 메시지 수신: {data}")
+                # 🔧 전체 메시지 로그 (디버깅용, logger.debug)
+                logger.debug(f"📨 MyAsset 메시지 수신: {data}")
 
                 assets = data.get('assets', [])
 
