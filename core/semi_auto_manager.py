@@ -142,6 +142,10 @@ class SemiAutoManager:
         self.last_check_time: Dict[str, float] = {}  # {symbol: timestamp} DCA/익절/손절 체크
         self.last_gui_update: Dict[str, float] = {}  # {symbol: timestamp} GUI 업데이트
 
+        # 🔧 자동 매도 추적 (수동 매도 vs 자동 매도 구분용)
+        # {symbol: {'quantity': 20.0, 'timestamp': 1234567890.123}}
+        self._recent_auto_sells: Dict[str, Dict] = {}
+
         # 실행 상태
         self.is_running = False
         self._scan_task = None  # PositionDetector 스캔 태스크 (fallback)
@@ -663,22 +667,89 @@ class SemiAutoManager:
     async def _update_managed_position(self, position: Position):
         """관리 중인 포지션 정보 업데이트"""
         symbol = position.symbol
-        
+
         if symbol in self.managed_positions:
-            self.managed_positions[symbol].update_position(position)
-            
-            # 🔧 포지션 업데이트 콜백 (GUI 실시간 업데이트용, fire-and-forget)
+            managed = self.managed_positions[symbol]
+            old_balance = managed.position.balance
+            new_balance = position.balance
+
+            # 🔧 수량 감소 감지 (매도 발생)
+            if new_balance < old_balance:
+                sold_amount = old_balance - new_balance
+
+                # 🔍 최근 5초 이내 자동 매도 확인
+                is_auto_sell = False
+                if symbol in self._recent_auto_sells:
+                    recent = self._recent_auto_sells[symbol]
+                    time_diff = time.time() - recent['timestamp']
+
+                    if time_diff < 5.0:  # 5초 이내
+                        # ✅ 자동 매도 (익절/손절/DCA)
+                        is_auto_sell = True
+                        logger.info(
+                            f"✅ 자동 매도 확인: {symbol}\n"
+                            f"   타입: {recent['type']}\n"
+                            f"   수량: {sold_amount:.6f}개\n"
+                            f"   경과: {time_diff:.1f}초"
+                        )
+                        # 사용 완료, 삭제
+                        del self._recent_auto_sells[symbol]
+
+                # ⚠️ 수동 매도 감지
+                if not is_auto_sell:
+                    current_price = await self._get_current_price(symbol)
+                    entry_price = managed.avg_entry_price
+
+                    # 손익 계산
+                    profit_loss = (current_price - entry_price) * sold_amount if current_price else 0
+                    profit_pct = ((current_price - entry_price) / entry_price * 100) if (current_price and entry_price > 0) else 0
+
+                    logger.warning(
+                        f"⚠️ 수동 매도 감지: {symbol}\n"
+                        f"   매도 수량: {sold_amount:.6f}개 ({old_balance:.6f} → {new_balance:.6f})\n"
+                        f"   매도가: {current_price:,.0f}원\n"
+                        f"   진입가: {entry_price:,.0f}원\n"
+                        f"   손익: {profit_loss:+,.0f}원 ({profit_pct:+.2f}%)"
+                    )
+
+                    # GUI 알림 (선택)
+                    if self.notification_callback:
+                        coin_name = symbol.replace('KRW-', '')
+                        try:
+                            await self.notification_callback(
+                                f"⚠️ 수동 매도 감지: {coin_name}\n"
+                                f"   수량: {sold_amount:.6f}개\n"
+                                f"   손익: {profit_loss:+,.0f}원 ({profit_pct:+.2f}%)"
+                            )
+                        except Exception as e:
+                            logger.error(f"수동 매도 알림 실패: {e}")
+
+                # 🔧 전량 매도 시 포지션 제거
+                if new_balance == 0:
+                    del self.managed_positions[symbol]
+                    self.detector.unregister_managed_position(symbol)
+                    sell_type = "자동" if is_auto_sell else "수동"
+                    logger.info(f"✅ 포지션 제거: {symbol} (전량 {sell_type} 매도)")
+                    return  # GUI 업데이트 불필요 (포지션 없음)
+
+            # 포지션 업데이트
+            managed.update_position(position)
+
+            # 🔧 포지션 업데이트 콜백 (GUI 실시간 업데이트용)
             if self.position_callback:
                 current_price = await self._get_current_price(symbol)
                 if current_price:
+                    # 🔧 고정된 진입가 사용 (managed.avg_entry_price)
+                    entry_price = managed.avg_entry_price
+
                     position_data = {
                         'symbol': symbol,
                         'position': position.balance,
-                        'entry_price': position.avg_buy_price,
+                        'entry_price': entry_price,  # 🔧 초기 진입가 (고정)
                         'current_price': current_price,
-                        'profit_loss': (current_price - position.avg_buy_price) * position.balance,
-                        'return_pct': ((current_price - position.avg_buy_price) / position.avg_buy_price) * 100,
-                        'entry_time': self.managed_positions[symbol].created_at.isoformat()
+                        'profit_loss': (current_price - entry_price) * position.balance,
+                        'return_pct': ((current_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0,
+                        'entry_time': managed.created_at.isoformat()
                     }
                     asyncio.create_task(self.position_callback(position_data))
     
@@ -918,6 +989,13 @@ class SemiAutoManager:
             f"   예상 금액: {estimated_amount:,.0f}원"
         )
 
+        # 🔧 자동 매도 기록 (수동 매도와 구분용)
+        self._recent_auto_sells[symbol] = {
+            'quantity': sell_volume,
+            'timestamp': time.time(),
+            'type': f'익절 L{tp_level.level}'
+        }
+
         # 일부 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
@@ -955,7 +1033,14 @@ class SemiAutoManager:
             f"   현재가: {price:,.0f}원\n"
             f"   수량: {balance:.6f}"
         )
-        
+
+        # 🔧 자동 매도 기록 (수동 매도와 구분용)
+        self._recent_auto_sells[symbol] = {
+            'quantity': balance,
+            'timestamp': time.time(),
+            'type': '익절 (단일)'
+        }
+
         # 전량 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
@@ -1025,6 +1110,13 @@ class SemiAutoManager:
             f"   예상 금액: {estimated_amount:,.0f}원"
         )
 
+        # 🔧 자동 매도 기록 (수동 매도와 구분용)
+        self._recent_auto_sells[symbol] = {
+            'quantity': sell_volume,
+            'timestamp': time.time(),
+            'type': f'손절 L{sl_level.level}'
+        }
+
         # 일부 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
@@ -1062,7 +1154,14 @@ class SemiAutoManager:
             f"   현재가: {price:,.0f}원\n"
             f"   수량: {balance:.6f}"
         )
-        
+
+        # 🔧 자동 매도 기록 (수동 매도와 구분용)
+        self._recent_auto_sells[symbol] = {
+            'quantity': balance,
+            'timestamp': time.time(),
+            'type': '손절 (단일)'
+        }
+
         # 전량 매도 (실거래 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
