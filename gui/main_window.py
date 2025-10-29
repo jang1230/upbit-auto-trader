@@ -492,9 +492,9 @@ class MainWindow(QMainWindow):
 
         # 포지션 테이블 생성
         self.position_table = QTableWidget()
-        self.position_table.setColumnCount(7)  # 🔧 진입시각 컬럼 제거 (8 → 7)
+        self.position_table.setColumnCount(8)  # 🔧 매수금액 컬럼 추가 (7 → 8)
         self.position_table.setHorizontalHeaderLabels([
-            "심볼", "상태", "진입가", "현재가", "수량", "평가손익", "손익률(%)"  # 🔧 "진입시각" 제거
+            "심볼", "상태", "진입가", "현재가", "수량", "매수금액", "평가손익", "손익률(%)"  # 🔧 "매수금액" 추가
         ])
 
         # 테이블 스타일 설정
@@ -1544,6 +1544,13 @@ class MainWindow(QMainWindow):
             qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.position_table.setItem(row_index, 4, qty_item)
 
+            # 매수금액 (진입가 × 수량)
+            purchase_amount = entry_price * position
+            purchase_amount_item = QTableWidgetItem(f"{purchase_amount:,.0f}원")
+            purchase_amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            purchase_amount_item.setForeground(Qt.darkGray)  # 회색 (중립)
+            self.position_table.setItem(row_index, 5, purchase_amount_item)
+
             # 평가손익 (색상: 수익=빨강, 손실=파랑, 0=검은색)
             profit_loss_item = QTableWidgetItem(f"{profit_loss:+,.0f}원")
             profit_loss_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -1555,7 +1562,7 @@ class MainWindow(QMainWindow):
                 profit_loss_item.setFont(QFont("Consolas", 10, QFont.Bold))
             else:
                 profit_loss_item.setForeground(Qt.black)  # ⚫ 검은색 (0)
-            self.position_table.setItem(row_index, 5, profit_loss_item)
+            self.position_table.setItem(row_index, 6, profit_loss_item)
 
             # 손익률 (색상: 수익=빨강, 손실=파랑, 0=검은색)
             return_pct_item = QTableWidgetItem(f"{return_pct:+.2f}%")
@@ -1568,7 +1575,7 @@ class MainWindow(QMainWindow):
                 return_pct_item.setFont(QFont("Consolas", 10, QFont.Bold))
             else:
                 return_pct_item.setForeground(Qt.black)  # ⚫ 검은색 (0)
-            self.position_table.setItem(row_index, 6, return_pct_item)
+            self.position_table.setItem(row_index, 7, return_pct_item)
 
             # 🔧 포지션 요약 정보 업데이트 (throttled - 500ms)
             self._update_position_summary_throttled()
@@ -1605,7 +1612,7 @@ class MainWindow(QMainWindow):
             # 테이블의 모든 행에서 평가손익 및 투자금액 합산
             for row in range(position_count):
                 # 평가손익 추출
-                profit_item = self.position_table.item(row, 5)  # 평가손익 컬럼
+                profit_item = self.position_table.item(row, 6)  # 평가손익 컬럼 (5 → 6 매수금액 추가로 변경)
                 if profit_item:
                     # "+1,500원" → 1500 변환
                     profit_text = profit_item.text().replace('원', '').replace(',', '').replace('+', '').replace(' ', '')
