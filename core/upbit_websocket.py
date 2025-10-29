@@ -78,9 +78,6 @@ class UpbitWebSocket:
             message: 수신 메시지 (bytes or str)
         """
         try:
-            # 🔍 디버깅: on_message 호출 확인
-            logger.info(f"🔍 [DEBUG] on_message 호출됨 (메시지 크기: {len(message) if isinstance(message, (str, bytes)) else 0})")
-
             # 바이너리 데이터 디코딩
             if isinstance(message, bytes):
                 message = message.decode('utf-8')
@@ -90,7 +87,6 @@ class UpbitWebSocket:
 
             # 메시지 큐에 추가 (asyncio에서 소비)
             self.message_queue.put(data)
-            logger.info(f"🔍 [DEBUG] 큐에 메시지 추가 완료 (큐 크기: {self.message_queue.qsize()})")
 
         except Exception as e:
             logger.error(f"❌ 메시지 처리 오류: {e}", exc_info=True)
@@ -743,11 +739,11 @@ class MyAssetWebSocket:
                 if not self.message_queue.empty():
                     data = self.message_queue.get_nowait()
 
-                    # 디버깅: 처음 3개 메시지 로깅
+                    # 디버깅: 처음 3개 메시지만 로깅 (logger.debug)
                     message_count += 1
                     if message_count <= 3:
-                        logger.info(f"🔍 MyAsset 메시지 #{message_count} 수신")
-                        logger.info(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
+                        logger.debug(f"🔍 MyAsset 메시지 #{message_count} 수신")
+                        logger.debug(f"🔍 파싱 성공: type={data.get('type')}, keys={list(data.keys())}")
 
                     yield data
                 else:
