@@ -6,6 +6,10 @@ Upbit DCA Trader GUI 메인 윈도우
 import sys
 import os
 import time
+import logging
+
+# 🔧 로거 초기화
+logger = logging.getLogger(__name__)
 
 # 🔧 프로젝트 루트를 Python 경로에 추가 (gui 폴더에서도 실행 가능)
 if __name__ == "__main__":
