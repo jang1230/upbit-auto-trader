@@ -1123,7 +1123,7 @@ class MainWindow(QMainWindow):
                 self.trading_worker.error_signal.connect(self._on_trading_error)
                 self.trading_worker.status_signal.connect(self._on_auto_trading_status)
                 self.trading_worker.position_update_signal.connect(self._on_position_update)
-                self.trading_worker.trade_signal.connect(self._on_auto_trade_executed)
+                self.trading_worker.trade_signal.connect(self._on_trade_executed)  # 🔧 거래 내역 기록
                 
                 # ===================================================================
                 # 📦 보존된 코드: MultiCoinTradingWorker (Bollinger Bands 전략)

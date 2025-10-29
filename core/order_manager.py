@@ -37,7 +37,8 @@ class OrderManager:
         min_order_amount: float = 5000.0,
         order_timeout: int = 30,
         dry_run: bool = False,
-        balance_update_callback: Optional[Callable] = None  # 🔧 잔고 갱신 콜백
+        balance_update_callback: Optional[Callable] = None,  # 🔧 잔고 갱신 콜백
+        trade_callback: Optional[Callable] = None  # 🔧 거래 내역 기록 콜백
     ):
         """
         주문 관리자 초기화
@@ -48,12 +49,14 @@ class OrderManager:
             order_timeout: 주문 완료 대기 시간 (초)
             dry_run: True이면 실제 주문 없이 시뮬레이션 (기본값)
             balance_update_callback: 주문 완료 시 호출할 잔고 갱신 콜백
+            trade_callback: 거래 완료 시 호출할 거래 내역 기록 콜백
         """
         self.api = upbit_api
         self.min_order_amount = min_order_amount
         self.order_timeout = order_timeout
         self.dry_run = dry_run
         self.balance_update_callback = balance_update_callback  # 🔧 저장
+        self.trade_callback = trade_callback  # 🔧 저장
 
         # 주문 기록
         self.order_history = []
@@ -181,6 +184,26 @@ class OrderManager:
                     except Exception as e:
                         logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
 
+                # 🔧 거래 내역 기록 콜백 호출 (매수 완료 시)
+                if self.trade_callback:
+                    try:
+                        trade_data = {
+                            'symbol': symbol,
+                            'trade_type': 'buy',
+                            'price': avg_price,
+                            'quantity': executed_volume,
+                            'amount': executed_funds,
+                            'timestamp': datetime.now(),
+                            'reason': '수동 매수' if not dry_run else 'DRY RUN 매수'
+                        }
+                        if asyncio.iscoroutinefunction(self.trade_callback):
+                            await self.trade_callback(trade_data)
+                        else:
+                            self.trade_callback(trade_data)
+                        logger.debug("✅ 거래 내역 콜백 호출 완료 (매수)")
+                    except Exception as e:
+                        logger.error(f"❌ 거래 내역 콜백 실패: {e}")
+
                 return result
             else:
                 error_msg = f"주문 미체결: state={final_order['state']}"
@@ -304,6 +327,26 @@ class OrderManager:
                         logger.debug("✅ 잔고 갱신 콜백 호출 완료 (매도)")
                     except Exception as e:
                         logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
+
+                # 🔧 거래 내역 기록 콜백 호출 (매도 완료 시)
+                if self.trade_callback:
+                    try:
+                        trade_data = {
+                            'symbol': symbol,
+                            'trade_type': 'sell',
+                            'price': avg_price,
+                            'quantity': executed_volume,
+                            'amount': executed_funds,
+                            'timestamp': datetime.now(),
+                            'reason': '수동 매도' if not dry_run else 'DRY RUN 매도'
+                        }
+                        if asyncio.iscoroutinefunction(self.trade_callback):
+                            await self.trade_callback(trade_data)
+                        else:
+                            self.trade_callback(trade_data)
+                        logger.debug("✅ 거래 내역 콜백 호출 완료 (매도)")
+                    except Exception as e:
+                        logger.error(f"❌ 거래 내역 콜백 실패: {e}")
 
                 return result
             else:
