@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QMessageBox, QCheckBox, QTabWidget
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QFont
 
 from gui.dca_config import (
     DcaConfigManager, AdvancedDcaConfig, DcaLevelConfig,
@@ -39,16 +39,11 @@ class AdvancedDcaDialog(QDialog):
         self.config_manager = DcaConfigManager()
         self.config = self.config_manager.load()
 
-        # 🔧 시뮬레이터 계산용 기본 가격 (BTC 기준, 사용자가 시뮬레이터에서 변경 가능)
-        # UI에는 표시하지 않음 (이전 요청에 따라 "현재가" 라벨 제거)
-        self.current_price = 100000000  # 1억원 (BTC 기준)
-
         self.setWindowTitle("⚙️ 고급 DCA 전략 설정")
         self.setMinimumSize(900, 700)
 
         self._init_ui()
         self._load_config_to_ui()
-        self._update_simulation()
     
     def _init_ui(self):
         """UI 초기화"""
@@ -80,24 +75,6 @@ class AdvancedDcaDialog(QDialog):
 
         main_layout.addWidget(tab_widget)
 
-        # 하단: 시뮬레이션 결과
-        result_group = QGroupBox("📊 시뮬레이션 결과")
-        result_layout = QVBoxLayout()
-        
-        self.result_label = QLabel()
-        self.result_label.setFont(QFont("Consolas", 11))
-        self.result_label.setWordWrap(True)
-        self.result_label.setStyleSheet("""
-            background-color: #f0f0f0;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #ccc;
-        """)
-        result_layout.addWidget(self.result_label)
-        
-        result_group.setLayout(result_layout)
-        main_layout.addWidget(result_group)
-        
         # 버튼
         button_layout = QHBoxLayout()
         
@@ -170,9 +147,9 @@ class AdvancedDcaDialog(QDialog):
 
         self.dca_table = QTableWidget()
         self.dca_table.setRowCount(len(self.config.levels))
-        self.dca_table.setColumnCount(6)
+        self.dca_table.setColumnCount(4)
         self.dca_table.setHorizontalHeaderLabels([
-            "레벨", "하락률 (%)", "매수 비중 (%)", "주문 금액 (원)", "진입가 (원)", "예상 수량"
+            "레벨", "하락률 (%)", "매수 비중 (%)", "주문 금액 (원)"
         ])
 
         # 컬럼 크기 조정
@@ -318,22 +295,6 @@ class AdvancedDcaDialog(QDialog):
             amount_item.setTextAlignment(Qt.AlignCenter)
             self.dca_table.setItem(i, 3, amount_item)
 
-            # 진입가 (계산, 읽기 전용)
-            entry_price = self.current_price * (1 - level_config.drop_pct / 100)
-            entry_item = QTableWidgetItem(f"{entry_price:,.0f}")
-            entry_item.setFlags(entry_item.flags() & ~Qt.ItemIsEditable)
-            entry_item.setTextAlignment(Qt.AlignCenter)
-            entry_item.setForeground(QColor(0, 100, 200))
-            self.dca_table.setItem(i, 4, entry_item)
-
-            # 예상 수량 (계산, 읽기 전용)
-            quantity = level_config.order_amount / entry_price
-            quantity_item = QTableWidgetItem(f"{quantity:.8f}")
-            quantity_item.setFlags(quantity_item.flags() & ~Qt.ItemIsEditable)
-            quantity_item.setTextAlignment(Qt.AlignCenter)
-            quantity_item.setForeground(QColor(0, 150, 0))
-            self.dca_table.setItem(i, 5, quantity_item)
-
         self.dca_table.blockSignals(False)
 
         # 익절 테이블 로드
@@ -383,64 +344,13 @@ class AdvancedDcaDialog(QDialog):
                 weight_item = self.dca_table.item(row, 2)
                 weight_item.setText(f"{calculated_weight:.1f}")
 
-            # 진입가/수량 재계산
-            self._update_calculated_columns(row)
-            self._update_simulation()
-
             # 시그널 재활성화
             self.dca_table.blockSignals(False)
 
         except ValueError:
             self.dca_table.blockSignals(False)
             pass
-    
-    def _update_calculated_columns(self, row: int):
-        """진입가/수량 컬럼 재계산"""
-        level_config = self.config.levels[row]
-        
-        # 진입가
-        entry_price = self.current_price * (1 - level_config.drop_pct / 100)
-        entry_item = self.dca_table.item(row, 4)
-        entry_item.setText(f"{entry_price:,.0f}")
-        
-        # 수량
-        quantity = level_config.order_amount / entry_price
-        quantity_item = self.dca_table.item(row, 5)
-        quantity_item.setText(f"{quantity:.8f}")
-    
-    def _update_simulation(self):
-        """시뮬레이션 결과 업데이트"""
-        # 목표가 계산
-        targets = self.config.calculate_targets(self.current_price)
 
-        # 총 비중 합계 계산
-        total_weight = sum(level.weight_pct for level in self.config.levels)
-
-        # 결과 표시
-        result_text = f"""
-📊 DCA 전략 시뮬레이션
-
-💰 총 자산:        {self.config.total_capital:,.0f}원
-💸 총 투자금:      {targets['total_invested']:,.0f}원
-📊 총 비중:        {total_weight:.1f}%"""
-
-        # 비중 초과 경고
-        if total_weight > 100:
-            result_text += f" ⚠️ (초과!)"
-
-        result_text += f"""
-
-📈 총 매수 수량:   {targets['total_quantity']:.8f} BTC
-💵 평균 단가:      {targets['avg_price']:,.0f}원
-
-🎯 익절:           {"다단계" if self.config.is_multi_level_tp_enabled() else f"{self.config.take_profit_pct}%"}
-🛑 손절:           {"다단계" if self.config.is_multi_level_sl_enabled() else f"{self.config.stop_loss_pct}%"}
-
-📉 최대 하락:      -{self.config.levels[-1].drop_pct}%
-        """.strip()
-
-        self.result_label.setText(result_text)
-    
     def _on_level_count_changed(self, count: int):
         """레벨 개수 변경 시"""
         current_count = len(self.config.levels)
@@ -478,7 +388,6 @@ class AdvancedDcaDialog(QDialog):
 
         # UI 재로드
         self._load_config_to_ui()
-        self._update_simulation()
 
     def _on_total_capital_changed(self, value: int):
         """총 자산 변경 시 모든 금액 재계산"""
@@ -504,7 +413,6 @@ class AdvancedDcaDialog(QDialog):
         self.dca_table.blockSignals(False)
 
         # 시뮬레이션 업데이트
-        self._update_simulation()
 
     def _on_enabled_changed(self, state: int):
         """DCA 활성화 체크박스 변경"""
@@ -528,7 +436,6 @@ class AdvancedDcaDialog(QDialog):
 
         self.config.levels = levels
         self._load_config_to_ui()
-        self._update_simulation()
 
         # 총 비중 합계
         total_weight = sum(level.weight_pct for level in levels)
@@ -629,8 +536,7 @@ class AdvancedDcaDialog(QDialog):
             self.config = self.config_manager.create_default_config()
             self.enabled_checkbox.setChecked(self.config.enabled)
             self._load_config_to_ui()
-            self._update_simulation()
-    
+        
     def _save_config(self):
         """설정 저장"""
         # 테이블에서 최신 값 읽기 (현재 레벨 개수만큼)
@@ -815,13 +721,11 @@ class AdvancedDcaDialog(QDialog):
         """익절 테이블 변경 시"""
         if col not in [1, 2]:  # 수익률, 매도비율만 편집 가능
             return
-        self._update_simulation()
 
     def _on_sl_table_changed(self, row: int, col: int):
         """손절 테이블 변경 시"""
         if col not in [1, 2]:  # 손실률, 매도비율만 편집 가능
             return
-        self._update_simulation()
 
     def _add_tp_level(self):
         """익절 레벨 추가"""
@@ -902,7 +806,6 @@ class AdvancedDcaDialog(QDialog):
             self.tp_table.setItem(i, 2, ratio_item)
 
         self.tp_table.blockSignals(False)
-        self._update_simulation()
 
         QMessageBox.information(self, "프리셋 적용", "✅ 익절 프리셋이 적용되었습니다.\n\n레벨1: +5% (남은 수량의 30%)\n레벨2: +10% (남은 수량의 50%)\n레벨3: +15% (남은 수량의 100%, 전량 청산)")
 
@@ -932,7 +835,6 @@ class AdvancedDcaDialog(QDialog):
             self.sl_table.setItem(i, 2, ratio_item)
 
         self.sl_table.blockSignals(False)
-        self._update_simulation()
 
         QMessageBox.information(self, "프리셋 적용", "✅ 손절 프리셋이 적용되었습니다.\n\n레벨1: -10% (남은 수량의 50%)\n레벨2: -20% (남은 수량의 100%, 전량 청산)")
 
@@ -975,8 +877,7 @@ class AdvancedDcaDialog(QDialog):
                 self.tp_table.setItem(0, 2, ratio_item)
 
                 self.tp_table.blockSignals(False)
-                self._update_simulation()
-
+        
     def _toggle_sl_single_mode(self):
         """손절 단일/다단계 모드 전환"""
         if self.sl_table.rowCount() == 1:
@@ -1016,8 +917,7 @@ class AdvancedDcaDialog(QDialog):
                 self.sl_table.setItem(0, 2, ratio_item)
 
                 self.sl_table.blockSignals(False)
-                self._update_simulation()
-
+        
 
 # 테스트 코드
 if __name__ == "__main__":
