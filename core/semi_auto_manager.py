@@ -147,6 +147,7 @@ class SemiAutoManager:
         self._scan_task = None  # PositionDetector 스캔 태스크 (fallback)
         self._websocket_task = None  # Ticker WebSocket 리스닝 태스크
         self._myasset_task = None  # 🔧 MyAsset WebSocket 리스닝 태스크
+        self._is_initial_scan = True  # 🔧 초기 스캔 플래그 (기존 보유 vs 신규 매수 구분)
 
         logger.info(f"SemiAutoManager 초기화 완료 (fallback 스캔: {scan_interval}초)")
     
@@ -178,6 +179,10 @@ class SemiAutoManager:
 
         # 🔧 3. 초기 스캔 (수동 매수 감지)
         await self._scan_and_process()
+
+        # 🔧 3-1. 초기 스캔 완료 - 이후 감지는 실시간 매수로 간주
+        self._is_initial_scan = False
+        logger.info("✅ 초기 스캔 완료 - 실시간 매수 감지 모드로 전환")
 
         # 🔧 4. 관리 중인 포지션이 있으면 Ticker WebSocket 구독
         if self.managed_positions and ticker_connected:
@@ -554,14 +559,34 @@ class SemiAutoManager:
             logger.warning(f"현재 가격 조회 실패: {symbol}")
             return None
 
+        # 🔧 진입가 결정 로직 (초기 스캔 vs 실시간 매수 구분)
+        # - 초기 스캔 (프로그램 시작 시): API 평단가 사용 (실제 매수가)
+        # - 실시간 매수 감지: 현재 시장가 사용 (감지 시점 가격)
+        if self._is_initial_scan:
+            # 초기 스캔: 기존 보유 종목 → Upbit API 평단가 사용
+            entry_price = position.avg_buy_price
+            logger.info(
+                f"  📊 {symbol}: 기존 보유 종목 감지\n"
+                f"     진입가: {entry_price:,.0f}원 (API 평단가)\n"
+                f"     현재가: {current_price:,.0f}원\n"
+                f"     수익률: {((current_price - entry_price) / entry_price * 100):+.2f}%"
+            )
+        else:
+            # 실시간 감지: 신규 매수 → 현재 시장가 사용
+            entry_price = current_price
+            # API 평단가와 차이가 1% 이상 나면 로그 출력 (이전 보유분 있음)
+            if abs(position.avg_buy_price - current_price) > current_price * 0.01:
+                logger.info(
+                    f"  💰 {symbol}: 신규 매수 감지 (이전 보유분 있음)\n"
+                    f"     진입가: {entry_price:,.0f}원 (시장가 기준)\n"
+                    f"     API평단가: {position.avg_buy_price:,.0f}원 (이전보유분 포함)"
+                )
+
         # ManagedPosition 생성
-        # 🔧 signal_price를 실시간 시장가로 설정 (수동 매수 감지 시점의 가격)
-        # - Upbit API avg_buy_price는 이전 보유분 포함한 평균가라 부정확
-        # - current_price는 감지 시점의 실제 시장가로 더 정확함
         managed = ManagedPosition(
             position=position,
             dca_config=self.dca_config,
-            initial_signal_price=current_price  # 실시간 시장가 기준
+            initial_signal_price=entry_price
         )
 
         self.managed_positions[symbol] = managed
@@ -569,28 +594,24 @@ class SemiAutoManager:
         # PositionDetector에 관리 포지션 등록
         self.detector.register_managed_position(symbol, position)
 
-        # 🔧 로그: Upbit API 평단가와 실시간 시장가 모두 표시
-        profit_pct = ((current_price - current_price) / current_price) * 100  # 감지 직후라 0%
-        if abs(position.avg_buy_price - current_price) > current_price * 0.01:  # 1% 이상 차이
-            logger.info(
-                f"  ✅ {symbol}: 수량={position.balance:.6f}, "
-                f"진입가={current_price:,.0f}원 (시장가 기준), "
-                f"API평단가={position.avg_buy_price:,.0f}원 (이전보유분 포함)"
-            )
-        else:
-            logger.info(
-                f"  ✅ {symbol}: 수량={position.balance:.6f}, "
-                f"진입가={current_price:,.0f}원"
-            )
+        # 🔧 포지션 등록 확인 로그
+        profit_loss = (current_price - entry_price) * position.balance
+        profit_pct = ((current_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+
+        logger.info(
+            f"  ✅ {symbol}: 수량={position.balance:.6f}, "
+            f"진입가={entry_price:,.0f}원, "
+            f"수익률={profit_pct:+.2f}%"
+        )
 
         # GUI 업데이트 데이터 생성
         position_data = {
             'symbol': symbol,
             'position': position.balance,
-            'entry_price': current_price,  # 🔧 실시간 시장가 사용
+            'entry_price': entry_price,  # 🔧 초기 스캔: API 평단가 / 실시간: 시장가
             'current_price': current_price,
-            'profit_loss': 0.0,  # 🔧 감지 직후라 손익 0
-            'return_pct': 0.0,   # 🔧 감지 직후라 수익률 0%
+            'profit_loss': profit_loss,
+            'return_pct': profit_pct,
             'entry_time': managed.created_at.isoformat()
         }
 
@@ -609,7 +630,8 @@ class SemiAutoManager:
                 await self.notification_callback(
                     f"💰 수동 매수 감지: {coin_name}\n"
                     f"   수량: {position.balance:.6f}개\n"
-                    f"   진입가: {current_price:,.0f}원"
+                    f"   진입가: {entry_price:,.0f}원\n"
+                    f"   수익률: {profit_pct:+.2f}%"
                 )
             except Exception as e:
                 logger.error(f"GUI 알림 실패: {e}")
