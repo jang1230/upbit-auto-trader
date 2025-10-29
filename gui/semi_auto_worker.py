@@ -94,7 +94,8 @@ class SemiAutoWorker(QThread):
                 upbit_api=self.api,
                 min_order_amount=5000.0,
                 dry_run=self.dry_run,
-                balance_update_callback=self.balance_update_callback  # 🔧 잔고 갱신 콜백 전달
+                balance_update_callback=self.balance_update_callback,  # 🔧 잔고 갱신 콜백 전달
+                trade_callback=self._trade_callback  # 🔧 거래 내역 기록 콜백 전달
             )
             self.log_signal.emit(f"✅ OrderManager 초기화 (dry_run={self.dry_run})")
 
@@ -186,3 +187,9 @@ class SemiAutoWorker(QThread):
         """포지션 업데이트 콜백 (SemiAutoManager에서 호출)"""
         # GUI 업데이트를 위해 position_update_signal emit
         self.position_update_signal.emit(position_data)
+
+    async def _trade_callback(self, trade_data: dict):
+        """거래 완료 콜백 (OrderManager에서 호출)"""
+        # GUI 거래 내역 기록을 위해 trade_signal emit
+        self.trade_signal.emit(trade_data)
+        logger.debug(f"거래 내역 시그널 발송: {trade_data['symbol']} {trade_data['side']}")
