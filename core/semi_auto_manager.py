@@ -409,8 +409,11 @@ class SemiAutoManager:
             'entry_time': managed.created_at.isoformat()
         }
         
-        # GUI 업데이트 콜백 호출 (fire-and-forget, non-blocking)
-        asyncio.create_task(self.position_callback(position_data))
+        # GUI 업데이트 콜백 호출
+        try:
+            await self.position_callback(position_data)
+        except Exception as e:
+            logger.error(f"❌ GUI 업데이트 실패 ({symbol}): {e}")
 
         # 마지막 업데이트 시간 기록
         self.last_gui_update[symbol] = now
@@ -472,10 +475,14 @@ class SemiAutoManager:
                     if position_data:
                         batch_position_updates.append(position_data)
 
-                # 🔧 모든 종목 처리 후 GUI 업데이트 (배치로 한 번에, fire-and-forget)
+                # 🔧 모든 종목 처리 후 GUI 업데이트 (순차 호출)
                 if batch_position_updates and self.position_callback:
                     for position_data in batch_position_updates:
-                        asyncio.create_task(self.position_callback(position_data))
+                        try:
+                            await self.position_callback(position_data)
+                            logger.debug(f"✅ GUI 포지션 업데이트: {position_data['symbol']}")
+                        except Exception as e:
+                            logger.error(f"❌ GUI 포지션 업데이트 실패: {e}")
 
                 # 🔧 모든 종목 처리 후 WebSocket 재구독 (한 번만)
                 if self.websocket.is_connected and self.managed_positions:
@@ -565,10 +572,14 @@ class SemiAutoManager:
             'entry_time': managed.created_at.isoformat()
         }
 
-        # 🔧 포지션 업데이트 콜백 (GUI 업데이트용, fire-and-forget)
+        # 🔧 포지션 업데이트 콜백 (GUI 업데이트용)
         if not skip_position_callback and self.position_callback:
-            # 개별 처리 시 즉시 GUI 업데이트 (non-blocking)
-            asyncio.create_task(self.position_callback(position_data))
+            # 개별 처리 시 즉시 GUI 업데이트
+            try:
+                await self.position_callback(position_data)
+                logger.debug(f"✅ GUI 포지션 업데이트: {symbol}")
+            except Exception as e:
+                logger.error(f"❌ GUI 포지션 업데이트 실패 ({symbol}): {e}")
         # skip_position_callback=True 시에는 데이터만 반환 (배치 처리용)
 
         # 🔧 WebSocket 재구독 (skip 플래그가 False일 때만 - 개별 감지 시)
