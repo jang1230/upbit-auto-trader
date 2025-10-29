@@ -38,10 +38,14 @@ class AdvancedDcaDialog(QDialog):
 
         self.config_manager = DcaConfigManager()
         self.config = self.config_manager.load()
-        
+
+        # 🔧 시뮬레이터 계산용 기본 가격 (BTC 기준, 사용자가 시뮬레이터에서 변경 가능)
+        # UI에는 표시하지 않음 (이전 요청에 따라 "현재가" 라벨 제거)
+        self.current_price = 100000000  # 1억원 (BTC 기준)
+
         self.setWindowTitle("⚙️ 고급 DCA 전략 설정")
         self.setMinimumSize(900, 700)
-        
+
         self._init_ui()
         self._load_config_to_ui()
         self._update_simulation()
