@@ -795,21 +795,15 @@ class MainWindow(QMainWindow):
 
     def _open_dca_simulator(self):
         """DCA 시뮬레이터 열기"""
-        # 현재 DOGE 가격 가져오기 (가능하면)
-        try:
-            import pyupbit
-            current_price = pyupbit.get_current_price("KRW-DOGE")
-            if not current_price:
-                current_price = 200  # 기본값: 200원 (DOGE 평균가)
-        except:
-            current_price = 200  # 기본값: 200원
-
         # DCA Simulator 다이얼로그 열기 (첫 번째 레벨 금액 사용)
         first_level_amount = self.dca_config.levels[0].order_amount if self.dca_config.levels else 10000
 
+        # 기본 시뮬레이션 가격: 1억원 (BTC 기준, 사용자가 시뮬레이터에서 변경 가능)
+        default_price = 100000000
+
         dialog = DcaSimulatorDialog(
             self,
-            initial_price=int(current_price),
+            initial_price=default_price,
             order_amount=first_level_amount
         )
 
@@ -818,17 +812,8 @@ class MainWindow(QMainWindow):
     
     def _open_advanced_dca(self):
         """고급 DCA 설정 다이얼로그 열기"""
-        # 현재 DOGE 가격 가져오기
-        try:
-            import pyupbit
-            current_price = pyupbit.get_current_price("KRW-DOGE")
-            if not current_price:
-                current_price = 200  # 기본값: 200원 (DOGE 평균가)
-        except:
-            current_price = 200  # 기본값: 200원
-        
         # 고급 DCA 설정 다이얼로그 열기
-        dialog = AdvancedDcaDialog(self, current_price=int(current_price))
+        dialog = AdvancedDcaDialog(self)
         
         # 🔧 설정 변경 시그널 연결 (저장 버튼 누를 때마다 즉시 반영)
         dialog.config_changed.connect(self._on_dca_config_changed)
