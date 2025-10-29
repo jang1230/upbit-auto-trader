@@ -381,6 +381,7 @@ class SemiAutoManager:
                                 from core.position_detector import Position
                                 updated_position = Position(
                                     symbol=symbol,
+                                    currency=currency,  # ✅ currency 인자 추가
                                     balance=new_balance,
                                     avg_buy_price=managed.position.avg_buy_price,
                                     locked=locked
