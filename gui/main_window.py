@@ -1874,18 +1874,14 @@ class MainWindow(QMainWindow):
         """
         try:
             symbol = position_data.get('symbol', '')
-            logger.info(f"🔍 [GUI] _on_position_update 호출됨: {symbol}")
-
             # 기존 _on_coin_update와 동일한 로직 재사용
             self._on_coin_update(symbol, position_data)
-
-            logger.info(f"✅ [GUI] _on_coin_update 완료: {symbol}")
 
         except KeyboardInterrupt:
             # 프로그램 종료 시 발생하는 KeyboardInterrupt 무시
             pass
         except Exception as e:
-            logger.error(f"❌ [GUI] 포지션 업데이트 오류: {e}", exc_info=True)
+            logger.error(f"❌ [GUI] 포지션 업데이트 오류 ({symbol}): {e}", exc_info=True)
             self._add_log(f"⚠️ 포지션 업데이트 오류: {e}")
 
     def _on_auto_trade_executed(self, trade_data: dict):
