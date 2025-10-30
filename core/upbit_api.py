@@ -26,6 +26,108 @@ from urllib.parse import urlencode, unquote
 logger = logging.getLogger(__name__)
 
 
+class RateLimiter:
+    """
+    Upbit API Rate Limit 관리 클래스
+
+    Upbit REST API는 그룹별로 초당 최대 요청 수 제한 적용:
+    - order: 8 requests/1s
+    - order-cancel-all: 1 request/2s
+    - default: 30 requests/1s
+    - market, ticker, candles, orderbook: 10 requests/1s
+    """
+
+    def __init__(self):
+        # group -> (capacity, window_sec)
+        self.cfg = {
+            "market": (10, 1),
+            "ticker": (10, 1),
+            "trades": (10, 1),
+            "candles": (10, 1),
+            "orderbook": (10, 1),
+            "default": (30, 1),
+            "order": (8, 1),
+            "order-cancel-all": (1, 2),
+        }
+        # group -> (remaining, window_start_epoch)
+        self.state = {}
+
+    def _win_start(self, now_sec: int, win: int) -> int:
+        """현재 window 시작 시각 계산"""
+        return now_sec - (now_sec % win)
+
+    def acquire(self, group: str):
+        """
+        API 요청 전 잔여 토큰 확인 및 차감
+
+        토큰이 부족한 경우 다음 window까지 대기
+
+        Args:
+            group: Rate Limit 그룹 (order, ticker, default 등)
+        """
+        cap, win = self.cfg.get(group, (10, 1))
+        now = time.time()
+        now_sec = int(now)
+        win_start = self._win_start(now_sec, win)
+
+        remaining, cur_win_start = self.state.get(group, (cap, win_start))
+        if cur_win_start != win_start:
+            remaining, cur_win_start = cap, win_start
+
+        if remaining <= 0:
+            sleep_for = (cur_win_start + win) - now + 0.01
+            logger.debug(f"RateLimiter: group={group} exhausted, sleeping {sleep_for:.3f}s")
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+            now = time.time()
+            now_sec = int(now)
+            cur_win_start = self._win_start(now_sec, win)
+            remaining = cap
+
+        self.state[group] = (remaining - 1, cur_win_start)
+
+    def update_from_header(self, header_value: str):
+        """
+        응답 헤더의 'Remaining-Req'로 잔여 요청 수 갱신
+
+        Args:
+            header_value: 'Remaining-Req' 헤더 값
+                예: "group=default; min=1800; sec=29"
+        """
+        if not header_value:
+            return
+
+        g, sec = "default", None
+        try:
+            for p in [s.strip() for s in header_value.split(";")]:
+                if p.startswith("group="):
+                    g = p.split("=", 1)[1].strip()
+                elif p.startswith("sec="):
+                    sec = int(p.split("=", 1)[1].strip())
+        except Exception:
+            return
+
+        if g in self.cfg and sec is not None:
+            cap, win = self.cfg[g]
+            now_sec = int(time.time())
+            win_start = self._win_start(now_sec, win)
+            logger.debug(f"RateLimiter: update group={g} remaining={sec}")
+            self.state[g] = (min(cap, sec), win_start)
+
+    def mark_exhausted(self, group: str):
+        """
+        429 Too Many Requests 응답 시 잔여 요청 수를 0으로 초기화
+
+        Args:
+            group: Rate Limit 그룹
+        """
+        cap, win = self.cfg.get(group, (10, 1))
+        now_sec = int(time.time())
+        win_start = self._win_start(now_sec, win)
+        logger.warning(f"RateLimiter: mark exhausted for group={group}")
+        self.state[group] = (0, win_start)
+
+
 class UpbitAPI:
     """
     업비트 REST API 클라이언트
@@ -33,18 +135,20 @@ class UpbitAPI:
     실거래 주문 및 계좌 관리를 위한 API 클라이언트
     """
     
-    def __init__(self, access_key: str, secret_key: str):
+    def __init__(self, access_key: str, secret_key: str, limiter: Optional[RateLimiter] = None):
         """
         API 클라이언트 초기화
-        
+
         Args:
             access_key: 업비트 Access Key
             secret_key: 업비트 Secret Key
+            limiter: Rate Limiter (기본값: 새 인스턴스 생성)
         """
         self.access_key = access_key
         self.secret_key = secret_key
         self.base_url = "https://api.upbit.com/v1"
-        
+        self.limiter = limiter or RateLimiter()
+
         logger.info("✅ Upbit API 클라이언트 초기화 완료")
     
     def _generate_jwt_token(self, query: Optional[Dict] = None) -> str:
@@ -80,22 +184,51 @@ class UpbitAPI:
         # 🔧 공식 Upbit 스펙: HS256 사용 (공식 문서 명시)
         jwt_token = jwt.encode(payload, self.secret_key, algorithm='HS256')
         return f'Bearer {jwt_token}'
-    
+
+    def _group_for(self, method: str, endpoint: str) -> str:
+        """
+        API endpoint에서 Rate Limit 그룹 결정
+
+        Args:
+            method: HTTP 메서드
+            endpoint: API endpoint
+
+        Returns:
+            str: Rate Limit 그룹명
+        """
+        if endpoint.startswith("/market"):
+            return "market"
+        if endpoint.startswith("/ticker"):
+            return "ticker"
+        if endpoint.startswith("/trades"):
+            return "trades"
+        if endpoint.startswith("/candles"):
+            return "candles"
+        if endpoint.startswith("/orderbook"):
+            return "orderbook"
+        if endpoint.startswith("/orders/open") and method.upper() == "DELETE":
+            return "order-cancel-all"
+        if endpoint.startswith("/orders") and method.upper() == "POST":
+            return "order"
+        return "default"
+
     def _request(self, method: str, endpoint: str, query: Optional[Dict] = None, body: Optional[Dict] = None) -> Dict:
         """
-        API 요청 실행
-        
+        API 요청 실행 (Rate Limit 및 에러 처리 포함)
+
         Args:
             method: HTTP 메서드 (GET, POST, DELETE)
             endpoint: API 엔드포인트
             query: Query 파라미터
             body: Request Body
-            
+
         Returns:
-            Dict: API 응답
+            Dict: API 응답 또는 에러 정보
+                정상: API 응답 데이터
+                에러: {"status_code": int, "name": str, "message": str}
         """
         url = f"{self.base_url}{endpoint}"
-        
+
         # JWT 토큰 생성
         if body:
             auth_token = self._generate_jwt_token(body)
@@ -103,13 +236,20 @@ class UpbitAPI:
             auth_token = self._generate_jwt_token(query)
         else:
             auth_token = self._generate_jwt_token()
-        
+
         headers = {"Authorization": auth_token}
-        
+
+        # Rate Limit 그룹 결정 및 토큰 획득
+        group = self._group_for(method, endpoint)
+        self.limiter.acquire(group)
+
         try:
             # 🔧 timeout 설정 (GET: 10초, POST: 30초)
             timeout = 30 if method == "POST" else 10
-            
+
+            # HTTP 요청 실행
+            start_time = time.time()
+
             if method == "GET":
                 response = requests.get(url, headers=headers, params=query, timeout=timeout)
             elif method == "POST":
@@ -118,20 +258,65 @@ class UpbitAPI:
                 response = requests.delete(url, headers=headers, params=query, timeout=timeout)
             else:
                 raise ValueError(f"지원하지 않는 HTTP 메서드: {method}")
-            
-            response.raise_for_status()
-            return response.json()
-            
+
+            elapsed = time.time() - start_time
+
+            # 429 Too Many Requests 처리
+            if response.status_code == 429:
+                logger.warning(f"Rate limit exceeded for group={group}")
+                self.limiter.mark_exhausted(group)
+
+            # 응답 헤더에서 Rate Limit 정보 갱신
+            self.limiter.update_from_header(response.headers.get("Remaining-Req"))
+
+            # HTTP 상태 코드 기반 정상/에러 구분
+            if 200 <= response.status_code < 300:
+                # 정상 응답
+                logger.debug(f"HTTP {response.status_code} | {method} {endpoint} | {elapsed:.3f}s")
+                try:
+                    return response.json()
+                except ValueError:
+                    return response.text
+
+            # 에러 응답 파싱
+            logger.warning(f"HTTP {response.status_code} | {method} {endpoint} | {elapsed:.3f}s")
+            try:
+                ej = response.json()
+                if isinstance(ej, dict) and "error" in ej:
+                    e = ej["error"]
+                    error_dict = {
+                        "status_code": response.status_code,
+                        "name": e.get("name"),
+                        "message": e.get("message")
+                    }
+                    logger.error(f"API Error: {error_dict['name']} - {error_dict['message']}")
+                    return error_dict
+                return {
+                    "status_code": response.status_code,
+                    "name": None,
+                    "message": ej
+                }
+            except ValueError:
+                return {
+                    "status_code": response.status_code,
+                    "name": None,
+                    "message": response.text
+                }
+
         except requests.exceptions.Timeout:
             logger.error(f"❌ API 요청 시간 초과 ({timeout}초): {method} {endpoint}")
-            raise
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"❌ API 요청 실패: {e}")
-            logger.error(f"응답 내용: {e.response.text}")
-            raise
+            return {
+                "status_code": 0,
+                "name": "Timeout",
+                "message": f"API 요청 시간 초과 ({timeout}초)"
+            }
         except Exception as e:
             logger.error(f"❌ 예상치 못한 오류: {e}")
-            raise
+            return {
+                "status_code": 0,
+                "name": "Exception",
+                "message": str(e)
+            }
     
     def get_accounts(self) -> List[Dict]:
         """
@@ -297,11 +482,11 @@ class UpbitAPI:
     
     def get_ticker(self, symbol: str) -> Dict:
         """
-        현재가 조회 (시세 조회 API - 인증 불필요)
-        
+        현재가 조회 (시세 조회 API - 인증 불필요, Rate Limit 적용)
+
         Args:
             symbol: 마켓 코드 (예: 'KRW-BTC')
-            
+
         Returns:
             Dict: 현재가 정보
                 {
@@ -312,22 +497,33 @@ class UpbitAPI:
                     ...
                 }
         """
-        import requests
-        
+        # Rate Limit 적용 (ticker: 10 requests/1s)
+        self.limiter.acquire("ticker")
+
         url = "https://api.upbit.com/v1/ticker"
         params = {'markets': symbol}
-        
+
         try:
-            response = requests.get(url, params=params, timeout=10)  # 🔧 10초 timeout
-            response.raise_for_status()
-            
-            data = response.json()
-            if data and len(data) > 0:
-                return data[0]  # 첫 번째 결과 반환
+            start_time = time.time()
+            response = requests.get(url, params=params, timeout=10)
+            elapsed = time.time() - start_time
+
+            # 응답 헤더에서 Rate Limit 정보 갱신
+            self.limiter.update_from_header(response.headers.get("Remaining-Req"))
+
+            if 200 <= response.status_code < 300:
+                logger.debug(f"HTTP {response.status_code} | GET /ticker | {elapsed:.3f}s")
+                data = response.json()
+                if data and len(data) > 0:
+                    return data[0]  # 첫 번째 결과 반환
+                else:
+                    logger.warning(f"현재가 조회 결과 없음: {symbol}")
+                    return {}
             else:
-                logger.warning(f"현재가 조회 결과 없음: {symbol}")
+                logger.warning(f"HTTP {response.status_code} | GET /ticker | {elapsed:.3f}s")
+                logger.error(f"현재가 조회 실패 ({symbol}): {response.text}")
                 return {}
-        
+
         except requests.exceptions.Timeout:
             logger.error(f"현재가 조회 시간 초과 ({symbol}): 10초")
             return {}
