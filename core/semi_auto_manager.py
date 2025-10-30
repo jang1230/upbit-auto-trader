@@ -383,6 +383,10 @@ class SemiAutoManager:
                             old_total = managed.position.balance + managed.position.locked
                             new_total = balance + locked
 
+                            # WebSocket에서 받은 avg_buy_price와 avg_buy_price_modified 플래그
+                            new_avg_price = float(asset.get('avg_buy_price', 0))
+                            avg_modified = asset.get('avg_buy_price_modified', False)
+
                             # 총 보유량 감소 감지 → 실제 매도로 판단
                             if new_total < old_total:
                                 logger.info(f"🔍 총 보유량 감소 감지: {symbol} ({old_total:.8f} → {new_total:.8f})")
@@ -400,10 +404,6 @@ class SemiAutoManager:
                             # 🔧 총 보유량 증가 감지 → 추가매수 발생 (DCA 또는 수동)
                             elif new_total > old_total:
                                 added_amount = new_total - old_total
-
-                                # WebSocket에서 받은 새 평단가 적용
-                                new_avg_price = float(asset.get('avg_buy_price', 0))
-                                avg_modified = asset.get('avg_buy_price_modified', False)
 
                                 logger.info(
                                     f"💰 추가매수 감지: {symbol}\n"
@@ -477,6 +477,76 @@ class SemiAutoManager:
                                         )
                                     except Exception as e:
                                         logger.error(f"추가매수 알림 실패: {e}")
+
+                            # 🔧 평단가만 변경 (수량 변동 없음) → DCA 추가매수 후 REST 스캔으로 balance 이미 업데이트된 경우
+                            elif avg_modified and new_avg_price > 0:
+                                logger.info(
+                                    f"💰 평단가 변경 감지: {symbol}\n"
+                                    f"   수량: {new_total:.8f} (변동 없음)\n"
+                                    f"   평단가: {managed.position.avg_buy_price} → {new_avg_price} "
+                                    f"(WebSocket 플래그: avg_buy_price_modified=True)"
+                                )
+
+                                # 🔧 WebSocket avg_buy_price=0 문제 해결
+                                # 일부 코인(PENGU, DOOD, ENSO 등)은 WebSocket에서 avg_buy_price=0 반환
+                                # → REST API로 실제 평단가 조회
+                                if new_avg_price <= 0:
+                                    logger.warning(f"⚠️ WebSocket avg_buy_price=0 감지 ({symbol}), REST API로 조회 시도...")
+                                    try:
+                                        accounts = await asyncio.to_thread(self.api.get_accounts)
+                                        for account in accounts:
+                                            if account['currency'] == currency:
+                                                rest_avg_price = float(account.get('avg_buy_price', 0))
+                                                if rest_avg_price > 0:
+                                                    new_avg_price = rest_avg_price
+                                                    logger.info(f"✅ REST API에서 평단가 조회 성공: {new_avg_price:,.2f}원")
+                                                else:
+                                                    # REST API도 0이면 현재가로 임시 추정
+                                                    ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
+                                                    current_price = ticker.get('trade_price', 0)
+                                                    if current_price > 0:
+                                                        new_avg_price = current_price
+                                                        logger.warning(f"⚠️ REST API도 평단가 0, 현재가로 임시 설정: {new_avg_price:,.2f}원")
+                                                break
+                                    except Exception as e:
+                                        logger.error(f"REST API 평단가 조회 실패: {e}")
+                                        # 실패 시 현재가로 fallback
+                                        try:
+                                            ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
+                                            new_avg_price = ticker.get('trade_price', 0)
+                                            logger.warning(f"⚠️ 평단가 조회 실패, 현재가로 임시 설정: {new_avg_price:,.2f}원")
+                                        except Exception as e2:
+                                            logger.error(f"현재가 조회도 실패: {e2}")
+                                            new_avg_price = managed.position.avg_buy_price  # 기존 평단가 유지
+
+                                # 평단가 업데이트
+                                if new_avg_price > 0 and abs(new_avg_price - managed.position.avg_buy_price) > 0.01:
+                                    old_avg = managed.signal_price
+                                    managed.signal_price = new_avg_price  # ← 진입가 업데이트!
+                                    managed.position.avg_buy_price = new_avg_price
+                                    logger.info(f"✅ 평단가 업데이트: {old_avg:,.2f}원 → {new_avg_price:,.2f}원")
+
+                                    # Position 객체 생성하여 _update_managed_position 호출 (GUI 업데이트)
+                                    from core.position_detector import Position
+                                    updated_position = Position(
+                                        symbol=symbol,
+                                        currency=currency,
+                                        balance=balance,
+                                        avg_buy_price=new_avg_price,
+                                        locked=locked
+                                    )
+                                    await self._update_managed_position(updated_position)
+
+                                    # GUI 알림
+                                    if self.notification_callback:
+                                        coin_name = symbol.replace('KRW-', '')
+                                        try:
+                                            await self.notification_callback(
+                                                f"💰 평단가 업데이트: {coin_name}\n"
+                                                f"   새 평단가: {format_price(new_avg_price)}"
+                                            )
+                                        except Exception as e:
+                                            logger.error(f"평단가 업데이트 알림 실패: {e}")
 
                     asset_changes.append(currency)
 
