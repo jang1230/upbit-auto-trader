@@ -830,9 +830,11 @@ class SemiAutoManager:
             # 예: drop_pct = -3%, level_config.drop_pct = 5% → -3 <= -5 (실행 안 함)
             #     drop_pct = -6%, level_config.drop_pct = 5% → -6 <= -5 (실행)
             if drop_pct <= -level_config.drop_pct:
+                # 🔧 중복 실행 방지: 실행 **전**에 레벨 기록
+                managed.executed_dca_levels.add(level)
+
                 # DCA 추가 매수 실행
                 await self._execute_dca_buy(managed, level_config, current_price)
-                managed.executed_dca_levels.add(level)
     
     async def _check_take_profit(self, managed: ManagedPosition, current_price: float):
         """익절 체크 (다단계 익절 지원)"""
@@ -968,8 +970,12 @@ class SemiAutoManager:
                     f"💰 DCA 추가 매수 완료 (Level {level}): {coin_name}\n"
                     f"   가격: {price:,.0f}원 | 금액: {buy_amount:,.0f}원 | 하락률: -{level_config.drop_pct}%"
                 )
-            
+
             logger.info(f"✅ DCA 추가 매수 완료: {symbol} Level {level}")
+
+            # 🔧 DCA 추가매수 후 즉시 포지션 스캔 → GUI 업데이트
+            logger.info(f"🔍 DCA 추가매수 완료 후 즉시 포지션 스캔 트리거")
+            await self._scan_and_process()
         else:
             logger.error(f"❌ DCA 추가 매수 실패: {symbol} Level {level}")
     
