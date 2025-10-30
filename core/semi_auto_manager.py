@@ -550,13 +550,18 @@ class SemiAutoManager:
 
                     asset_changes.append(currency)
 
-                # 🔧 개선: KRW 변동 또는 코인 변동 모두 스캔 트리거
-                # - KRW 감소 = 매수 발생 가능
-                # - KRW 증가 = 매도 발생 가능
-                # - 코인 변동 = 매수/매도 발생
+                # 🔧 WebSocket 메시지 처리 후 즉시 스캔 제거 (Race Condition 방지)
+                # - WebSocket은 변동 감지 및 추가매수/매도 로직만 실행
+                # - 실제 balance 업데이트는 DCA 완료 시점에만 수행
+                # - Fallback polling이 60초마다 스캔하므로 안전망 확보
+                #
+                # if has_krw_change or has_coin_change:
+                #     logger.info(f"🔍 자산 변동 감지 ({', '.join(asset_changes)}) → 즉시 포지션 스캔")
+                #     await self._scan_and_process()
+
+                # 🔧 변동 감지 로그만 출력 (디버깅용)
                 if has_krw_change or has_coin_change:
-                    logger.info(f"🔍 자산 변동 감지 ({', '.join(asset_changes)}) → 즉시 포지션 스캔")
-                    await self._scan_and_process()
+                    logger.debug(f"📊 자산 변동 감지 (WebSocket): {', '.join(asset_changes)}")
 
         except asyncio.CancelledError:
             logger.info("MyAsset WebSocket 리스닝 종료")
@@ -1216,9 +1221,8 @@ class SemiAutoManager:
             except Exception as e:
                 logger.error(f"❌ 평단가 업데이트 실패: {symbol} - {e}", exc_info=True)
 
-            # 🔧 전체 포지션 스캔 (다른 코인도 체크)
-            logger.info(f"🔍 DCA 추가매수 완료 후 전체 포지션 스캔")
-            await self._scan_and_process()
+            # 🔧 평단가 업데이트 완료 - 전체 스캔 불필요 (이미 업데이트됨)
+            logger.info(f"✅ DCA 추가매수 완료 - 평단가 및 잔고 업데이트 완료")
         else:
             logger.error(f"❌ DCA 추가 매수 실패: {symbol} Level {level}")
     
