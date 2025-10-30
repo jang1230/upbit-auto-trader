@@ -367,21 +367,25 @@ class SemiAutoManager:
                         if balance > 0:
                             has_coin_change = True
 
-                        # 🔧 수동 매도 감지: 관리 중인 코인의 잔액 감소 확인
+                        # 🔧 수동 매도 감지: 관리 중인 코인의 총 보유량 감소 확인
                         symbol = f"KRW-{currency}"
                         if symbol in self.managed_positions:
                             managed = self.managed_positions[symbol]
-                            old_balance = managed.position.balance
-                            new_balance = balance
 
-                            # 잔액 감소 감지 → _update_managed_position 호출
-                            if new_balance < old_balance:
-                                logger.info(f"🔍 잔액 감소 감지: {symbol} ({old_balance:.8f} → {new_balance:.8f})")
+                            # ✅ 수정: balance만 확인하지 않고 total (balance + locked) 확인
+                            # - DCA 추가매수: balance 감소하지만 locked 증가 → total 동일 또는 증가
+                            # - 실제 매도: total (balance + locked) 감소
+                            old_total = managed.position.balance + managed.position.locked
+                            new_total = balance + locked
+
+                            # 총 보유량 감소 감지 → 실제 매도로 판단
+                            if new_total < old_total:
+                                logger.info(f"🔍 총 보유량 감소 감지: {symbol} ({old_total:.8f} → {new_total:.8f})")
                                 # Position 객체 생성하여 _update_managed_position 호출
                                 from core.position_detector import Position
                                 updated_position = Position(
                                     symbol=symbol,
-                                    currency=currency,  # ✅ currency 인자 추가
+                                    currency=currency,
                                     balance=new_balance,
                                     avg_buy_price=managed.position.avg_buy_price,
                                     locked=locked
