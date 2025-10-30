@@ -39,6 +39,7 @@ from gui.advanced_dca_dialog import AdvancedDcaDialog
 from gui.dca_config import DcaConfigManager
 from gui.coin_selection_dialog import CoinSelectionDialog  # 🔧 코인 선택 다이얼로그
 from gui.auto_trading_config import AutoTradingConfig  # 🔧 완전 자동 모드 설정
+from core.utils import format_price  # 🔧 가격 포맷팅 유틸리티
 
 
 class BalanceWorker(QThread):
@@ -1374,7 +1375,7 @@ class MainWindow(QMainWindow):
             symbol_short = trade.get_symbol_short()
             
             if trade.trade_type == 'buy':
-                self._add_log(f"{emoji} {symbol_short} {trade_type}: {trade.price:,.0f}원 × {trade.quantity:.8f} = {trade.amount:,.0f}원")
+                self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원")
 
                 # 🔧 매수 발생 시 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
                 # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
@@ -1383,7 +1384,7 @@ class MainWindow(QMainWindow):
                     if coin_status:
                         self._on_coin_update(trade.symbol, coin_status)
             else:
-                self._add_log(f"{emoji} {symbol_short} {trade_type}: {trade.price:,.0f}원 × {trade.quantity:.8f} = {trade.amount:,.0f}원 | 손익: {trade.profit:+,.0f}원 ({trade.profit_pct:+.2f}%)")
+                self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원 | 손익: {trade.profit:+,.0f}원 ({trade.profit_pct:+.2f}%)")
 
                 # 🔧 매도 발생 시에도 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
                 # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
@@ -1514,13 +1515,13 @@ class MainWindow(QMainWindow):
             self.position_table.setItem(row_index, 1, status_item)
 
             # 진입가
-            entry_price_item = QTableWidgetItem(f"{entry_price:,.0f}원")
+            entry_price_item = QTableWidgetItem(format_price(entry_price))
             entry_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.position_table.setItem(row_index, 2, entry_price_item)
 
             # 현재가
             if current_price:
-                current_price_item = QTableWidgetItem(f"{current_price:,.0f}원")
+                current_price_item = QTableWidgetItem(format_price(current_price))
                 current_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.position_table.setItem(row_index, 3, current_price_item)
             else:

@@ -19,6 +19,7 @@ from core.position_detector import PositionDetector, Position
 from core.order_manager import OrderManager
 from core.upbit_api import UpbitAPI
 from core.upbit_websocket import UpbitWebSocket
+from core.utils import format_price
 from gui.dca_config import AdvancedDcaConfig
 
 logger = logging.getLogger(__name__)
@@ -589,7 +590,7 @@ class SemiAutoManager:
             position.avg_buy_price = current_price
             logger.warning(
                 f"⚠️ 평단가 0원 감지 → 현재가로 대체: {symbol}\n"
-                f"   현재가: {current_price:,.0f}원 (Upbit API 평단가 미제공)"
+                f"   현재가: {format_price(current_price)} (Upbit API 평단가 미제공)"
             )
 
         # 🔧 진입가 결정 로직 (초기 스캔 vs 실시간 매수 구분)
@@ -600,8 +601,8 @@ class SemiAutoManager:
             entry_price = position.avg_buy_price
             logger.info(
                 f"  📊 {symbol}: 기존 보유 종목 감지\n"
-                f"     진입가: {entry_price:,.0f}원 (API 평단가)\n"
-                f"     현재가: {current_price:,.0f}원\n"
+                f"     진입가: {format_price(entry_price)} (API 평단가)\n"
+                f"     현재가: {format_price(current_price)}\n"
                 f"     수익률: {((current_price - entry_price) / entry_price * 100):+.2f}%"
             )
         else:
@@ -611,8 +612,8 @@ class SemiAutoManager:
             if abs(position.avg_buy_price - current_price) > current_price * 0.01:
                 logger.info(
                     f"  💰 {symbol}: 신규 매수 감지 (이전 보유분 있음)\n"
-                    f"     진입가: {entry_price:,.0f}원 (시장가 기준)\n"
-                    f"     API평단가: {position.avg_buy_price:,.0f}원 (이전보유분 포함)"
+                    f"     진입가: {format_price(entry_price)} (시장가 기준)\n"
+                    f"     API평단가: {format_price(position.avg_buy_price)} (이전보유분 포함)"
                 )
 
         # ManagedPosition 생성
@@ -633,7 +634,7 @@ class SemiAutoManager:
 
         logger.info(
             f"  ✅ {symbol}: 수량={position.balance:.6f}, "
-            f"진입가={entry_price:,.0f}원, "
+            f"진입가={format_price(entry_price)}, "
             f"수익률={profit_pct:+.2f}%"
         )
 
@@ -663,7 +664,7 @@ class SemiAutoManager:
                 await self.notification_callback(
                     f"💰 수동 매수 감지: {coin_name}\n"
                     f"   수량: {position.balance:.6f}개\n"
-                    f"   진입가: {entry_price:,.0f}원\n"
+                    f"   진입가: {format_price(entry_price)}\n"
                     f"   수익률: {profit_pct:+.2f}%"
                 )
             except Exception as e:
@@ -736,8 +737,8 @@ class SemiAutoManager:
                     logger.warning(
                         f"⚠️ 수동 매도 감지: {symbol}\n"
                         f"   매도 수량: {sold_amount:.6f}개 ({old_balance:.6f} → {new_balance:.6f})\n"
-                        f"   매도가: {current_price:,.0f}원\n"
-                        f"   진입가: {entry_price:,.0f}원\n"
+                        f"   매도가: {format_price(current_price)}\n"
+                        f"   진입가: {format_price(entry_price)}\n"
                         f"   손익: {profit_loss:+,.0f}원 ({profit_pct:+.2f}%)"
                     )
 
@@ -879,8 +880,8 @@ class SemiAutoManager:
         if symbol not in self._debug_profit_check:
             logger.info(
                 f"🔍 익절 체크 시작: {symbol}\n"
-                f"   평단가: {avg_price:,.0f}원\n"
-                f"   현재가: {current_price:,.0f}원\n"
+                f"   평단가: {format_price(avg_price)}\n"
+                f"   현재가: {format_price(current_price)}\n"
                 f"   수익률: {profit_pct:.2f}%\n"
                 f"   다단계 익절 설정: {len(self.dca_config.take_profit_levels) if self.dca_config.take_profit_levels else 0}개"
             )
@@ -973,7 +974,7 @@ class SemiAutoManager:
         
         logger.info(
             f"💰 DCA 추가 매수 실행: {symbol} Level {level}\n"
-            f"   현재가: {price:,.0f}원\n"
+            f"   현재가: {format_price(price)}\n"
             f"   매수 금액: {buy_amount:,.0f}원\n"
             f"   하락률: {level_config.drop_pct}%"
         )
@@ -991,7 +992,7 @@ class SemiAutoManager:
                 coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
                     f"💰 DCA 추가 매수 완료 (Level {level}): {coin_name}\n"
-                    f"   가격: {price:,.0f}원 | 금액: {buy_amount:,.0f}원 | 하락률: -{level_config.drop_pct}%"
+                    f"   가격: {format_price(price)} | 금액: {buy_amount:,.0f}원 | 하락률: -{level_config.drop_pct}%"
                 )
 
             logger.info(f"✅ DCA 추가 매수 완료: {symbol} Level {level}")
@@ -1041,7 +1042,7 @@ class SemiAutoManager:
             f"🎯 익절 실행 (Level {tp_level.level}): {symbol}\n"
             f"   목표 수익률: {tp_level.profit_pct:.2f}%\n"
             f"   현재 수익률: {profit_pct:.2f}%\n"
-            f"   현재가: {price:,.0f}원\n"
+            f"   현재가: {format_price(price)}\n"
             f"   매도 비율: {tp_level.sell_ratio:.0f}%{' (수량 조정됨)' if adjusted else ''}\n"
             f"   매도 수량: {sell_volume:.6f} / {balance:.6f}\n"
             f"   예상 금액: {estimated_amount:,.0f}원"
@@ -1067,7 +1068,7 @@ class SemiAutoManager:
                 coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
                     f"🎯 익절 완료 (Level {tp_level.level}): {coin_name}\n"
-                    f"   수익률: +{profit_pct:.2f}% | 매도: {tp_level.sell_ratio:.0f}% | 가격: {price:,.0f}원"
+                    f"   수익률: +{profit_pct:.2f}% | 매도: {tp_level.sell_ratio:.0f}% | 가격: {format_price(price)}"
                 )
 
             logger.info(f"✅ 익절 완료: {symbol} Level {tp_level.level}")
@@ -1092,7 +1093,7 @@ class SemiAutoManager:
         logger.info(
             f"🎯 익절 실행: {symbol}\n"
             f"   수익률: {profit_pct:.2f}%\n"
-            f"   현재가: {price:,.0f}원\n"
+            f"   현재가: {format_price(price)}\n"
             f"   수량: {balance:.6f}"
         )
 
@@ -1123,7 +1124,7 @@ class SemiAutoManager:
                 coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
                     f"🎯 익절 완료: {coin_name}\n"
-                    f"   수익률: +{profit_pct:.2f}% | 매도가: {price:,.0f}원"
+                    f"   수익률: +{profit_pct:.2f}% | 매도가: {format_price(price)}"
                 )
             
             logger.info(f"✅ 익절 완료: {symbol} (+{profit_pct:.2f}%)")
@@ -1169,7 +1170,7 @@ class SemiAutoManager:
             f"🚨 손절 실행 (Level {sl_level.level}): {symbol}\n"
             f"   목표 손실률: -{sl_level.loss_pct:.2f}%\n"
             f"   현재 손실률: {loss_pct:.2f}%\n"
-            f"   현재가: {price:,.0f}원\n"
+            f"   현재가: {format_price(price)}\n"
             f"   매도 비율: {sl_level.sell_ratio:.0f}%{' (수량 조정됨)' if adjusted else ''}\n"
             f"   매도 수량: {sell_volume:.6f} / {balance:.6f}\n"
             f"   예상 금액: {estimated_amount:,.0f}원"
@@ -1195,7 +1196,7 @@ class SemiAutoManager:
                 coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
                     f"🚨 손절 완료 (Level {sl_level.level}): {coin_name}\n"
-                    f"   손실률: {loss_pct:.2f}% | 매도: {sl_level.sell_ratio:.0f}% | 가격: {price:,.0f}원"
+                    f"   손실률: {loss_pct:.2f}% | 매도: {sl_level.sell_ratio:.0f}% | 가격: {format_price(price)}"
                 )
 
             logger.info(f"✅ 손절 완료: {symbol} Level {sl_level.level}")
@@ -1220,7 +1221,7 @@ class SemiAutoManager:
         logger.info(
             f"🚨 손절 실행: {symbol}\n"
             f"   손실률: {loss_pct:.2f}%\n"
-            f"   현재가: {price:,.0f}원\n"
+            f"   현재가: {format_price(price)}\n"
             f"   수량: {balance:.6f}"
         )
 
@@ -1251,7 +1252,7 @@ class SemiAutoManager:
                 coin_name = symbol.replace('KRW-', '')
                 await self.notification_callback(
                     f"🚨 손절 완료: {coin_name}\n"
-                    f"   손실률: {loss_pct:.2f}% | 매도가: {price:,.0f}원"
+                    f"   손실률: {loss_pct:.2f}% | 매도가: {format_price(price)}"
                 )
             
             logger.info(f"✅ 손절 완료: {symbol} ({loss_pct:.2f}%)")
@@ -1404,7 +1405,7 @@ class SemiAutoManager:
 
                 logger.info(
                     f"  📊 {symbol}: 현재 수익률 {profit_pct:+.2f}% "
-                    f"(평단가 {avg_price:,.0f}원 → 현재가 {current_price:,.0f}원)"
+                    f"(평단가 {format_price(avg_price)} → 현재가 {format_price(current_price)})"
                 )
 
                 # 익절/손절/DCA 체크 (변경된 설정으로)
