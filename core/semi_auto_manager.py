@@ -747,10 +747,14 @@ class SemiAutoManager:
 
                 # 🔧 전량 매도 시 포지션 제거
                 if new_balance == 0:
-                    del self.managed_positions[symbol]
-                    self.detector.unregister_managed_position(symbol)
-                    sell_type = "자동" if is_auto_sell else "수동"
-                    logger.info(f"✅ 포지션 제거: {symbol} (전량 {sell_type} 매도)")
+                    # 🔧 안전한 삭제 (이미 삭제된 경우 방지)
+                    if symbol in self.managed_positions:
+                        del self.managed_positions[symbol]
+                        self.detector.unregister_managed_position(symbol)
+                        sell_type = "자동" if is_auto_sell else "수동"
+                        logger.info(f"✅ 포지션 제거: {symbol} (전량 {sell_type} 매도)")
+                    else:
+                        logger.warning(f"⚠️ 포지션이 이미 제거됨: {symbol}")
                     return  # GUI 업데이트 불필요 (포지션 없음)
 
             # 포지션 업데이트
@@ -1037,9 +1041,13 @@ class SemiAutoManager:
 
             # 100% 매도한 경우 포지션 제거
             if tp_level.sell_ratio >= 100.0:
-                del self.managed_positions[symbol]
-                self.detector.unregister_managed_position(symbol)
-                logger.info(f"✅ 포지션 제거: {symbol} (전량 익절)")
+                # 🔧 안전한 삭제 (이미 삭제된 경우 방지)
+                if symbol in self.managed_positions:
+                    del self.managed_positions[symbol]
+                    self.detector.unregister_managed_position(symbol)
+                    logger.info(f"✅ 포지션 제거: {symbol} (전량 익절)")
+                else:
+                    logger.warning(f"⚠️ 포지션이 이미 제거됨: {symbol}")
         else:
             logger.error(f"❌ 익절 실패: {symbol} Level {tp_level.level}")
 
@@ -1070,9 +1078,12 @@ class SemiAutoManager:
         )
         
         if order_result and order_result.get('success'):
-            # 포지션 제거
-            del self.managed_positions[symbol]
-            self.detector.unregister_managed_position(symbol)
+            # 🔧 안전한 포지션 제거 (이미 삭제된 경우 방지)
+            if symbol in self.managed_positions:
+                del self.managed_positions[symbol]
+                self.detector.unregister_managed_position(symbol)
+            else:
+                logger.warning(f"⚠️ 포지션이 이미 제거됨: {symbol}")
 
             # 알림
             if self.notification_callback:
@@ -1158,9 +1169,13 @@ class SemiAutoManager:
 
             # 100% 매도한 경우 포지션 제거
             if sl_level.sell_ratio >= 100.0:
-                del self.managed_positions[symbol]
-                self.detector.unregister_managed_position(symbol)
-                logger.info(f"✅ 포지션 제거: {symbol} (전량 손절)")
+                # 🔧 안전한 삭제 (이미 삭제된 경우 방지)
+                if symbol in self.managed_positions:
+                    del self.managed_positions[symbol]
+                    self.detector.unregister_managed_position(symbol)
+                    logger.info(f"✅ 포지션 제거: {symbol} (전량 손절)")
+                else:
+                    logger.warning(f"⚠️ 포지션이 이미 제거됨: {symbol}")
         else:
             logger.error(f"❌ 손절 실패: {symbol} Level {sl_level.level}")
 
@@ -1191,10 +1206,13 @@ class SemiAutoManager:
         )
         
         if order_result and order_result.get('success'):
-            # 포지션 제거
-            del self.managed_positions[symbol]
-            self.detector.unregister_managed_position(symbol)
-            
+            # 🔧 안전한 포지션 제거 (이미 삭제된 경우 방지)
+            if symbol in self.managed_positions:
+                del self.managed_positions[symbol]
+                self.detector.unregister_managed_position(symbol)
+            else:
+                logger.warning(f"⚠️ 포지션이 이미 제거됨: {symbol}")
+
             # 알림
             if self.notification_callback:
                 coin_name = symbol.replace('KRW-', '')
@@ -1246,7 +1264,8 @@ class SemiAutoManager:
 
         positions_data = []
 
-        for symbol, pos in self.managed_positions.items():
+        # 🔧 순회 중 딕셔너리 변경 방지 (list로 복사)
+        for symbol, pos in list(self.managed_positions.items()):
             # 투자금액 = 평균 진입가 × 보유량
             invested = pos.avg_entry_price * pos.total_balance
             total_invested += invested
@@ -1301,7 +1320,8 @@ class SemiAutoManager:
         self.dca_config = dca_config
 
         # 2. 모든 ManagedPosition의 DCA 설정 업데이트
-        for symbol, managed in self.managed_positions.items():
+        # 🔧 순회 중 딕셔너리 변경 방지 (list로 복사)
+        for symbol, managed in list(self.managed_positions.items()):
             managed.dca_config = dca_config
 
         # 3. 설정 변경 로그
@@ -1333,7 +1353,8 @@ class SemiAutoManager:
         if self.managed_positions:
             logger.info("🔍 변경된 설정으로 모든 포지션 재체크 중...")
 
-            for symbol, managed in self.managed_positions.items():
+            # 🔧 순회 중 딕셔너리 변경 방지 (익절/손절 시 포지션 삭제될 수 있음)
+            for symbol, managed in list(self.managed_positions.items()):
                 # 현재 가격 가져오기
                 current_price = await self._get_current_price(symbol)
 
