@@ -751,6 +751,25 @@ class SemiAutoManager:
 
                 # 🔧 전량 매도 시 포지션 제거
                 if new_balance == 0:
+                    # 🔧 GUI 업데이트 먼저 (포지션 삭제 전에 GUI에 position=0 전송)
+                    if self.position_callback:
+                        current_price = await self._get_current_price(symbol)
+                        entry_price = managed.avg_entry_price
+
+                        position_data = {
+                            'symbol': symbol,
+                            'position': 0,  # ✅ 전량 매도 → GUI에서 테이블 행 제거
+                            'entry_price': entry_price,
+                            'current_price': current_price or 0,
+                            'profit_loss': 0,
+                            'return_pct': 0,
+                            'entry_time': managed.created_at.isoformat()
+                        }
+                        try:
+                            await self.position_callback(position_data)
+                        except Exception as e:
+                            logger.error(f"GUI 콜백 실패: {e}")
+
                     # 🔧 안전한 삭제 (이미 삭제된 경우 방지)
                     if symbol in self.managed_positions:
                         del self.managed_positions[symbol]
@@ -759,7 +778,7 @@ class SemiAutoManager:
                         logger.info(f"✅ 포지션 제거: {symbol} (전량 {sell_type} 매도)")
                     else:
                         logger.warning(f"⚠️ 포지션이 이미 제거됨: {symbol}")
-                    return  # GUI 업데이트 불필요 (포지션 없음)
+                    return  # 포지션 제거 완료
 
             # 포지션 업데이트
             managed.update_position(position)
