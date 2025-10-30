@@ -1152,8 +1152,72 @@ class SemiAutoManager:
 
             logger.info(f"✅ DCA 추가 매수 완료: {symbol} Level {level}")
 
-            # 🔧 DCA 추가매수 후 즉시 포지션 스캔 → GUI 업데이트
-            logger.info(f"🔍 DCA 추가매수 완료 후 즉시 포지션 스캔 트리거")
+            # 🔧 DCA 추가매수 후 평단가 업데이트 (REST API로 직접 조회)
+            logger.info(f"🔍 DCA 추가매수 완료 → 평단가 업데이트 시작")
+            try:
+                # REST API로 최신 계좌 정보 조회
+                accounts = await asyncio.to_thread(self.api.get_accounts)
+                currency = symbol.replace('KRW-', '')
+
+                new_avg_price = None
+                new_balance = None
+                for account in accounts:
+                    if account['currency'] == currency:
+                        new_avg_price = float(account.get('avg_buy_price', 0))
+                        new_balance = float(account.get('balance', 0))
+                        break
+
+                # 🔧 소수점 가격 코인 (PENGU, DOOD 등) 처리: avg_buy_price=0일 때 현재가로 추정
+                if not new_avg_price or new_avg_price <= 0:
+                    logger.warning(f"⚠️ REST API avg_buy_price=0 감지 ({symbol}), 현재가로 임시 추정...")
+                    try:
+                        ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
+                        new_avg_price = ticker.get('trade_price', 0)
+                        if new_avg_price > 0:
+                            logger.info(f"✅ 현재가로 평단가 임시 설정: {new_avg_price:,.2f}원")
+                    except Exception as e2:
+                        logger.error(f"현재가 조회 실패: {e2}")
+
+                if new_avg_price and new_avg_price > 0:
+                    old_avg = managed.signal_price
+                    managed.signal_price = new_avg_price
+                    managed.position.avg_buy_price = new_avg_price
+
+                    if new_balance:
+                        managed.position.balance = new_balance
+
+                    logger.info(
+                        f"✅ 평단가 업데이트 완료: {symbol}\n"
+                        f"   {old_avg:,.2f}원 → {new_avg_price:,.2f}원\n"
+                        f"   수량: {new_balance:.8f}개"
+                    )
+
+                    # GUI 업데이트 (Position 객체 생성)
+                    from core.position_detector import Position
+                    updated_position = Position(
+                        symbol=symbol,
+                        currency=currency,
+                        balance=new_balance if new_balance else managed.position.balance,
+                        avg_buy_price=new_avg_price,
+                        locked=managed.position.locked
+                    )
+                    await self._update_managed_position(updated_position)
+
+                    # GUI 알림
+                    if self.notification_callback:
+                        coin_name = symbol.replace('KRW-', '')
+                        await self.notification_callback(
+                            f"💰 평단가 업데이트: {coin_name}\n"
+                            f"   {format_price(old_avg)} → {format_price(new_avg_price)}"
+                        )
+                else:
+                    logger.error(f"❌ 평단가 업데이트 실패: {symbol} (모든 방법 실패)")
+
+            except Exception as e:
+                logger.error(f"❌ 평단가 업데이트 실패: {symbol} - {e}", exc_info=True)
+
+            # 🔧 전체 포지션 스캔 (다른 코인도 체크)
+            logger.info(f"🔍 DCA 추가매수 완료 후 전체 포지션 스캔")
             await self._scan_and_process()
         else:
             logger.error(f"❌ DCA 추가 매수 실패: {symbol} Level {level}")
