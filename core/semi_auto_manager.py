@@ -386,7 +386,7 @@ class SemiAutoManager:
                                 updated_position = Position(
                                     symbol=symbol,
                                     currency=currency,
-                                    balance=new_balance,
+                                    balance=balance,  # ✅ 수정: new_balance → balance
                                     avg_buy_price=managed.position.avg_buy_price,
                                     locked=locked
                                 )
