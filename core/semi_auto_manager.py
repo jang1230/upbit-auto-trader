@@ -62,10 +62,14 @@ class ManagedPosition:
     
     @property
     def avg_entry_price(self) -> float:
-        """평균 매수가 (수동 매수 감지 시점의 시장가 기준)"""
-        # 🔧 Upbit API의 avg_buy_price 대신 감지 시점의 signal_price 사용
-        # - Upbit API는 이전 보유분을 포함한 평균가를 반환 (부정확)
-        # - signal_price는 수동 매수 감지 시점의 실시간 시장가 (더 정확)
+        """
+        평균 매수가 (Upbit WebSocket avg_buy_price 기준)
+
+        Returns:
+            float: 현재 평균 매수가
+                - 최초 감지: 감지 시점 시장가
+                - 추가매수 후: Upbit WebSocket에서 받은 새 평단가로 업데이트됨
+        """
         return self.signal_price
     
     @property
@@ -387,11 +391,58 @@ class SemiAutoManager:
                                 updated_position = Position(
                                     symbol=symbol,
                                     currency=currency,
-                                    balance=balance,  # ✅ 수정: new_balance → balance
+                                    balance=balance,
                                     avg_buy_price=managed.position.avg_buy_price,
                                     locked=locked
                                 )
                                 await self._update_managed_position(updated_position)
+
+                            # 🔧 총 보유량 증가 감지 → 추가매수 발생 (DCA 또는 수동)
+                            elif new_total > old_total:
+                                added_amount = new_total - old_total
+
+                                # WebSocket에서 받은 새 평단가 적용
+                                new_avg_price = float(asset.get('avg_buy_price', 0))
+                                avg_modified = asset.get('avg_buy_price_modified', False)
+
+                                logger.info(
+                                    f"💰 추가매수 감지: {symbol}\n"
+                                    f"   수량: {old_total:.8f} → {new_total:.8f} (+{added_amount:.8f})\n"
+                                    f"   평단가: {managed.position.avg_buy_price} → {new_avg_price} "
+                                    f"({'변경됨' if avg_modified else '동일'})"
+                                )
+
+                                # 평단가 업데이트 (Upbit가 계산한 값 사용)
+                                if new_avg_price > 0:
+                                    old_avg = managed.signal_price
+                                    managed.signal_price = new_avg_price  # ← 진입가 업데이트!
+                                    managed.position.avg_buy_price = new_avg_price
+
+                                    if abs(new_avg_price - old_avg) > 0.01:  # 변화가 있을 때만 로그
+                                        logger.info(f"✅ 평단가 업데이트: {old_avg:,.2f}원 → {new_avg_price:,.2f}원")
+
+                                # Position 객체 생성하여 _update_managed_position 호출 (GUI 업데이트)
+                                from core.position_detector import Position
+                                updated_position = Position(
+                                    symbol=symbol,
+                                    currency=currency,
+                                    balance=balance,
+                                    avg_buy_price=new_avg_price if new_avg_price > 0 else managed.position.avg_buy_price,
+                                    locked=locked
+                                )
+                                await self._update_managed_position(updated_position)
+
+                                # GUI 알림
+                                if self.notification_callback:
+                                    coin_name = symbol.replace('KRW-', '')
+                                    try:
+                                        await self.notification_callback(
+                                            f"💰 추가매수 감지: {coin_name}\n"
+                                            f"   수량: +{added_amount:.6f}개\n"
+                                            f"   새 평단가: {format_price(new_avg_price)}"
+                                        )
+                                    except Exception as e:
+                                        logger.error(f"추가매수 알림 실패: {e}")
 
                     asset_changes.append(currency)
 

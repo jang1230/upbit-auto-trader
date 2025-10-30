@@ -151,12 +151,21 @@ class OrderManager:
             final_order = await self.wait_for_order(order_id)
             
             # 6. 결과 반환
-            if final_order['state'] == 'done':
-                # 체결 정보 계산
-                executed_volume = sum(float(trade['volume']) for trade in final_order.get('trades', []))
-                executed_funds = sum(float(trade['funds']) for trade in final_order.get('trades', []))
+            # 🔧 trades 배열로 체결 여부 판단 (state가 cancel이어도 체결됐을 수 있음)
+            trades = final_order.get('trades', [])
+
+            if trades and len(trades) > 0:
+                # 체결됨! (state가 done 또는 cancel이어도)
+                executed_volume = sum(float(trade['volume']) for trade in trades)
+                executed_funds = sum(float(trade['funds']) for trade in trades)
                 avg_price = executed_funds / executed_volume if executed_volume > 0 else 0
-                
+
+                # 전량 체결 vs 부분 체결 확인
+                is_fully_filled = abs(executed_funds - amount) < 1.0  # 오차 ±1원
+
+                if final_order['state'] == 'cancel' and not is_fully_filled:
+                    logger.warning(f"⚠️ 부분 체결 후 취소: {executed_funds:,.0f}원 / {amount:,.0f}원")
+
                 result = {
                     'success': True,
                     'order_id': order_id,
@@ -165,10 +174,11 @@ class OrderManager:
                     'amount': amount,
                     'executed_volume': executed_volume,
                     'executed_price': avg_price,
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(),
+                    'fully_filled': is_fully_filled
                 }
-                
-                logger.info(f"✅ 매수 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원")
+
+                logger.info(f"✅ 매수 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원 (state={final_order['state']})")
 
                 # 주문 기록 저장
                 self.order_history.append(result)
@@ -206,7 +216,8 @@ class OrderManager:
 
                 return result
             else:
-                error_msg = f"주문 미체결: state={final_order['state']}"
+                # trades 없음 = 진짜 미체결
+                error_msg = f"주문 미체결: state={final_order['state']}, trades=0"
                 logger.error(f"❌ {error_msg}")
                 return {
                     'success': False,
@@ -295,12 +306,21 @@ class OrderManager:
             final_order = await self.wait_for_order(order_id)
             
             # 5. 결과 반환
-            if final_order['state'] == 'done':
-                # 체결 정보 계산
-                executed_funds = sum(float(trade['funds']) for trade in final_order.get('trades', []))
-                executed_volume = sum(float(trade['volume']) for trade in final_order.get('trades', []))
+            # 🔧 trades 배열로 체결 여부 판단 (state가 cancel이어도 체결됐을 수 있음)
+            trades = final_order.get('trades', [])
+
+            if trades and len(trades) > 0:
+                # 체결됨! (state가 done 또는 cancel이어도)
+                executed_funds = sum(float(trade['funds']) for trade in trades)
+                executed_volume = sum(float(trade['volume']) for trade in trades)
                 avg_price = executed_funds / executed_volume if executed_volume > 0 else 0
-                
+
+                # 전량 체결 vs 부분 체결 확인
+                is_fully_filled = abs(executed_volume - volume) < 0.00000001  # 수량 오차
+
+                if final_order['state'] == 'cancel' and not is_fully_filled:
+                    logger.warning(f"⚠️ 부분 체결 후 취소: {executed_volume:.8f}개 / {volume:.8f}개")
+
                 result = {
                     'success': True,
                     'order_id': order_id,
@@ -309,10 +329,11 @@ class OrderManager:
                     'volume': volume,
                     'executed_funds': executed_funds,
                     'executed_price': avg_price,
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(),
+                    'fully_filled': is_fully_filled
                 }
-                
-                logger.info(f"✅ 매도 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원, 총 {executed_funds:,.0f}원")
+
+                logger.info(f"✅ 매도 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원, 총 {executed_funds:,.0f}원 (state={final_order['state']})")
 
                 # 주문 기록 저장
                 self.order_history.append(result)
@@ -350,7 +371,8 @@ class OrderManager:
 
                 return result
             else:
-                error_msg = f"주문 미체결: state={final_order['state']}"
+                # trades 없음 = 진짜 미체결
+                error_msg = f"주문 미체결: state={final_order['state']}, trades=0"
                 logger.error(f"❌ {error_msg}")
                 return {
                     'success': False,
