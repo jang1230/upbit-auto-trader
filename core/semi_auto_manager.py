@@ -576,17 +576,21 @@ class SemiAutoManager:
         """
         symbol = position.symbol
 
-        # 평단가 0원인 포지션은 제외 (에어드랍 코인 등)
-        if position.avg_buy_price == 0:
-            logger.warning(f"⚠️ 평단가 0원 포지션 제외: {symbol} (에어드랍 또는 이벤트 지급)")
-            return None
-
-        # 현재 가격 조회
+        # 현재 가격 조회 (평단가 0원 시 대체값으로 사용)
         current_price = await self._get_current_price(symbol)
 
         if current_price is None:
             logger.warning(f"현재 가격 조회 실패: {symbol}")
             return None
+
+        # 평단가 0원인 포지션 처리 (일부 코인은 Upbit API가 평단가 제공 안 함)
+        if position.avg_buy_price == 0:
+            # ✅ 현재 시장가를 평단가로 사용 (정확하지 않지만 실용적)
+            position.avg_buy_price = current_price
+            logger.warning(
+                f"⚠️ 평단가 0원 감지 → 현재가로 대체: {symbol}\n"
+                f"   현재가: {current_price:,.0f}원 (Upbit API 평단가 미제공)"
+            )
 
         # 🔧 진입가 결정 로직 (초기 스캔 vs 실시간 매수 구분)
         # - 초기 스캔 (프로그램 시작 시): API 평단가 사용 (실제 매수가)
