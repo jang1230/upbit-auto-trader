@@ -412,7 +412,39 @@ class SemiAutoManager:
                                     f"({'변경됨' if avg_modified else '동일'})"
                                 )
 
-                                # 평단가 업데이트 (Upbit가 계산한 값 사용)
+                                # 🔧 WebSocket avg_buy_price=0 문제 해결
+                                # 일부 코인(PENGU, DOOD, ENSO 등)은 WebSocket에서 avg_buy_price=0 반환
+                                # → REST API로 실제 평단가 조회
+                                if new_avg_price <= 0:
+                                    logger.warning(f"⚠️ WebSocket avg_buy_price=0 감지 ({symbol}), REST API로 조회 시도...")
+                                    try:
+                                        accounts = await asyncio.to_thread(self.api.get_accounts)
+                                        for account in accounts:
+                                            if account['currency'] == currency:
+                                                rest_avg_price = float(account.get('avg_buy_price', 0))
+                                                if rest_avg_price > 0:
+                                                    new_avg_price = rest_avg_price
+                                                    logger.info(f"✅ REST API에서 평단가 조회 성공: {new_avg_price:,.2f}원")
+                                                else:
+                                                    # REST API도 0이면 현재가로 임시 추정
+                                                    ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
+                                                    current_price = ticker.get('trade_price', 0)
+                                                    if current_price > 0:
+                                                        new_avg_price = current_price
+                                                        logger.warning(f"⚠️ REST API도 평단가 0, 현재가로 임시 설정: {new_avg_price:,.2f}원")
+                                                break
+                                    except Exception as e:
+                                        logger.error(f"REST API 평단가 조회 실패: {e}")
+                                        # 실패 시 현재가로 fallback
+                                        try:
+                                            ticker = await asyncio.to_thread(self.api.get_ticker, symbol)
+                                            new_avg_price = ticker.get('trade_price', 0)
+                                            logger.warning(f"⚠️ 평단가 조회 실패, 현재가로 임시 설정: {new_avg_price:,.2f}원")
+                                        except Exception as e2:
+                                            logger.error(f"현재가 조회도 실패: {e2}")
+                                            new_avg_price = managed.position.avg_buy_price  # 기존 평단가 유지
+
+                                # 평단가 업데이트 (Upbit가 계산한 값 또는 REST API로 조회한 값 사용)
                                 if new_avg_price > 0:
                                     old_avg = managed.signal_price
                                     managed.signal_price = new_avg_price  # ← 진입가 업데이트!
@@ -420,6 +452,8 @@ class SemiAutoManager:
 
                                     if abs(new_avg_price - old_avg) > 0.01:  # 변화가 있을 때만 로그
                                         logger.info(f"✅ 평단가 업데이트: {old_avg:,.2f}원 → {new_avg_price:,.2f}원")
+                                else:
+                                    logger.error(f"❌ 평단가 업데이트 실패: 모든 방법에서 0 반환 ({symbol})")
 
                                 # Position 객체 생성하여 _update_managed_position 호출 (GUI 업데이트)
                                 from core.position_detector import Position
