@@ -1258,12 +1258,25 @@ class SemiAutoManager:
                     f"   조정 수량: {balance * sell_ratio:.6f}개 → {sell_volume:.6f}개"
                 )
             else:
-                # 전량 매도해도 5,000원 미만이면 건너뛰기
-                logger.warning(
-                    f"⚠️ 최소 주문 금액 미달로 익절 건너뜀: {symbol} Level {tp_level.level}\n"
-                    f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {balance * price:,.0f}원 < 5,000원"
-                )
-                return
+                # 조정된 수량이 보유량을 초과하면, 전량 매도로 폴백
+                total_amount = balance * price
+                if total_amount >= MIN_ORDER_AMOUNT:
+                    # 전량 매도 (최소 금액 충족)
+                    sell_volume = balance
+                    estimated_amount = total_amount
+                    adjusted = True
+                    logger.info(
+                        f"⚙️ 최소 주문 금액 충족을 위해 전량 매도로 변경: {symbol} Level {tp_level.level}\n"
+                        f"   목표 비율: {tp_level.sell_ratio:.0f}% ({balance * sell_ratio:.6f}개, {balance * sell_ratio * price:,.0f}원) → 최소 금액 미달\n"
+                        f"   전량 매도: 100% ({balance:.6f}개, {total_amount:,.0f}원) ✅"
+                    )
+                else:
+                    # 전량 매도해도 5,000원 미만이면 건너뛰기
+                    logger.warning(
+                        f"⚠️ 최소 주문 금액 미달로 익절 건너뜀: {symbol} Level {tp_level.level}\n"
+                        f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {total_amount:,.0f}원 < 5,000원"
+                    )
+                    return
 
         logger.info(
             f"🎯 익절 실행 (Level {tp_level.level}): {symbol}\n"
