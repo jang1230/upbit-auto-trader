@@ -358,6 +358,7 @@ class SemiAutoManager:
                 asset_changes = []
                 has_coin_change = False
                 has_krw_change = False
+                new_coin_detected = False  # 🔧 새로운 코인 감지 플래그
 
                 for asset in assets:
                     currency = asset.get('currency')  # 'KRW', 'BTC', 'XRP' 등
@@ -372,8 +373,13 @@ class SemiAutoManager:
                         if balance > 0:
                             has_coin_change = True
 
-                        # 🔧 수동 매도 감지: 관리 중인 코인의 총 보유량 감소 확인
+                        # 🔧 새로운 코인 감지 (managed_positions에 없는 코인)
                         symbol = f"KRW-{currency}"
+                        if symbol not in self.managed_positions and balance > 0:
+                            logger.info(f"🆕 새로운 코인 감지: {symbol} (잔액: {balance:.8f})")
+                            new_coin_detected = True
+
+                        # 🔧 수동 매도 감지: 관리 중인 코인의 총 보유량 감소 확인
                         if symbol in self.managed_positions:
                             managed = self.managed_positions[symbol]
 
@@ -550,17 +556,15 @@ class SemiAutoManager:
 
                     asset_changes.append(currency)
 
-                # 🔧 WebSocket 메시지 처리 후 즉시 스캔 제거 (Race Condition 방지)
-                # - WebSocket은 변동 감지 및 추가매수/매도 로직만 실행
-                # - 실제 balance 업데이트는 DCA 완료 시점에만 수행
+                # 🔧 새로운 코인 감지 시에만 즉시 스캔 (Race Condition 방지)
+                # - 새로운 코인: 즉시 스캔 (managed_positions 등록 필요)
+                # - 기존 코인 DCA: WebSocket 추가매수 감지 로직으로 처리 (스캔 불필요)
                 # - Fallback polling이 60초마다 스캔하므로 안전망 확보
-                #
-                # if has_krw_change or has_coin_change:
-                #     logger.info(f"🔍 자산 변동 감지 ({', '.join(asset_changes)}) → 즉시 포지션 스캔")
-                #     await self._scan_and_process()
-
-                # 🔧 변동 감지 로그만 출력 (디버깅용)
-                if has_krw_change or has_coin_change:
+                if new_coin_detected:
+                    logger.info(f"🆕 새로운 코인 감지 → 즉시 포지션 스캔")
+                    await self._scan_and_process()
+                elif has_krw_change or has_coin_change:
+                    # 기존 코인 변동은 로그만 (디버깅용)
                     logger.debug(f"📊 자산 변동 감지 (WebSocket): {', '.join(asset_changes)}")
 
         except asyncio.CancelledError:
