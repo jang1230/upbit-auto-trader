@@ -560,14 +560,29 @@ class SemiAutoManager:
         """익절 실행"""
         symbol = managed.position.symbol
         balance = managed.total_balance
-        
+
+        # ⚠️ 최소 주문 금액 체크 (Upbit: 5,000원)
+        MIN_ORDER_AMOUNT = 5000
+        total_amount = balance * price
+
+        # 전량 매도해도 5,000원 미만이면 건너뛰기
+        if total_amount < MIN_ORDER_AMOUNT:
+            logger.warning(
+                f"⚠️ 최소 주문 금액 미달로 익절 건너뜀: {symbol}\n"
+                f"   수익률: {profit_pct:.2f}%\n"
+                f"   현재가: {price:,.0f}원\n"
+                f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {total_amount:,.0f}원 < 5,000원"
+            )
+            return
+
         logger.info(
             f"🎯 익절 실행: {symbol}\n"
             f"   수익률: {profit_pct:.2f}%\n"
             f"   현재가: {price:,.0f}원\n"
-            f"   수량: {balance:.6f}"
+            f"   수량: {balance:.6f}\n"
+            f"   매도 금액: {total_amount:,.0f}원"
         )
-        
+
         # 전량 매도 (dry_run 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
@@ -597,14 +612,29 @@ class SemiAutoManager:
         """손절 실행"""
         symbol = managed.position.symbol
         balance = managed.total_balance
-        
+
+        # ⚠️ 최소 주문 금액 체크 (Upbit: 5,000원)
+        MIN_ORDER_AMOUNT = 5000
+        total_amount = balance * price
+
+        # 전량 매도해도 5,000원 미만이면 건너뛰기
+        if total_amount < MIN_ORDER_AMOUNT:
+            logger.warning(
+                f"⚠️ 최소 주문 금액 미달로 손절 건너뜀: {symbol}\n"
+                f"   손실률: {loss_pct:.2f}%\n"
+                f"   현재가: {price:,.0f}원\n"
+                f"   보유 전량: {balance:.6f}개 × {price:,.0f}원 = {total_amount:,.0f}원 < 5,000원"
+            )
+            return
+
         logger.info(
             f"🚨 손절 실행: {symbol}\n"
             f"   손실률: {loss_pct:.2f}%\n"
             f"   현재가: {price:,.0f}원\n"
-            f"   수량: {balance:.6f}"
+            f"   수량: {balance:.6f}\n"
+            f"   매도 금액: {total_amount:,.0f}원"
         )
-        
+
         # 전량 매도 (dry_run 모드)
         order_result = await self.order_manager.execute_sell(
             symbol=symbol,
