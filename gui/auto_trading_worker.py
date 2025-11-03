@@ -7,12 +7,13 @@ AutoTradingManager + SemiAutoManager를 실행하는 QThread 워커
 import asyncio
 import logging
 from PySide6.QtCore import QThread, Signal
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from core.upbit_api import UpbitAPI
 from core.order_manager import OrderManager
 from core.semi_auto_manager import SemiAutoManager
 from core.auto_trading_manager import AutoTradingManager
+from core.telegram_bot import TelegramBot
 from gui.auto_trading_config import AutoTradingConfig
 from gui.dca_config import AdvancedDcaConfig
 
@@ -42,6 +43,8 @@ class AutoTradingWorker(QThread):
         dca_config: AdvancedDcaConfig,
         dry_run: bool = True,
         balance_update_callback=None,  # 🔧 잔고 갱신 콜백
+        telegram_token: Optional[str] = None,  # 🔧 텔레그램 봇 토큰
+        telegram_chat_id: Optional[str] = None,  # 🔧 텔레그램 채팅 ID
         parent=None
     ):
         super().__init__(parent)
@@ -52,11 +55,14 @@ class AutoTradingWorker(QThread):
         self.dca_config = dca_config
         self.dry_run = dry_run
         self.balance_update_callback = balance_update_callback  # 🔧 저장
+        self.telegram_token = telegram_token
+        self.telegram_chat_id = telegram_chat_id
 
         self.api = None
         self.order_manager = None
         self.semi_auto_manager = None
         self.auto_trading_manager = None
+        self.telegram_bot = None  # 🔧 텔레그램 봇 인스턴스
 
         self._running = False
         self._loop = None
@@ -87,8 +93,21 @@ class AutoTradingWorker(QThread):
             # 1. API 초기화
             self.api = UpbitAPI(self.access_key, self.secret_key)
             self.log_signal.emit("✅ Upbit API 연결")
-            
-            # 2. OrderManager 초기화
+
+            # 2. TelegramBot 초기화 및 시작
+            if self.telegram_token and self.telegram_chat_id:
+                try:
+                    self.telegram_bot = TelegramBot(self.telegram_token, self.telegram_chat_id)
+                    await self.telegram_bot.start_bot()
+                    self.log_signal.emit("✅ 텔레그램 봇 연결")
+                except Exception as e:
+                    logger.warning(f"텔레그램 봇 시작 실패: {e}")
+                    self.log_signal.emit(f"⚠️ 텔레그램 봇 연결 실패 (알림 비활성화)")
+                    self.telegram_bot = None
+            else:
+                self.log_signal.emit("ℹ️ 텔레그램 미설정 (알림 비활성화)")
+
+            # 3. OrderManager 초기화
             self.order_manager = OrderManager(
                 upbit_api=self.api,
                 min_order_amount=5000.0,
@@ -96,7 +115,7 @@ class AutoTradingWorker(QThread):
             )
             self.log_signal.emit("✅ OrderManager 초기화")
 
-            # 3. SemiAutoManager 초기화
+            # 4. SemiAutoManager 초기화
             self.semi_auto_manager = SemiAutoManager(
                 upbit_api=self.api,
                 order_manager=self.order_manager,
@@ -156,10 +175,29 @@ class AutoTradingWorker(QThread):
                 await self.auto_trading_manager.stop()
             if self.semi_auto_manager:
                 await self.semi_auto_manager.stop()
+
+            # TelegramBot 종료
+            if self.telegram_bot:
+                try:
+                    await self.telegram_bot.stop_bot()
+                    logger.info("✅ TelegramBot 정상 종료")
+                except Exception as e:
+                    logger.warning(f"TelegramBot 종료 중 오류: {e}")
     
     async def _notification_callback(self, message: str):
         """알림 콜백"""
+        # GUI 로그 출력
         self.log_signal.emit(f"📢 {message}")
+
+        # 텔레그램 메시지 전송
+        if self.telegram_bot:
+            try:
+                await self.telegram_bot.send_message(message)
+                logger.debug(f"텔레그램 알림 전송 완료: {message[:50]}...")
+            except Exception as e:
+                logger.error(f"텔레그램 메시지 전송 실패: {e}")
+                # 텔레그램 실패 시 GUI 로그만 남기고 계속 진행
+                pass
     
     def stop(self):
         """워커 중지"""

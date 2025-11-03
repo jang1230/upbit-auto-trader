@@ -1103,7 +1103,9 @@ class MainWindow(QMainWindow):
                     dca_config=self.dca_config,
                     dry_run=config['dry_run'],
                     scan_interval=self.scan_interval,
-                    balance_update_callback=self.balance_update_callback  # 🔧 잔고 갱신 콜백 전달
+                    balance_update_callback=self.balance_update_callback,  # 🔧 잔고 갱신 콜백 전달
+                    telegram_token=config['telegram']['token'],  # 🔧 텔레그램 봇 토큰
+                    telegram_chat_id=config['telegram']['chat_id']  # 🔧 텔레그램 채팅 ID
                 )
                 
                 # 반자동 모드 시그널 연결
@@ -1141,7 +1143,9 @@ class MainWindow(QMainWindow):
                     auto_config=self.auto_trading_config,
                     dca_config=self.dca_config,
                     dry_run=config['dry_run'],
-                    balance_update_callback=self.balance_update_callback  # 🔧 잔고 갱신 콜백 전달
+                    balance_update_callback=self.balance_update_callback,  # 🔧 잔고 갱신 콜백 전달
+                    telegram_token=config['telegram']['token'],  # 🔧 텔레그램 봇 토큰
+                    telegram_chat_id=config['telegram']['chat_id']  # 🔧 텔레그램 채팅 ID
                 )
                 
                 # 완전 자동 모드 시그널 연결
