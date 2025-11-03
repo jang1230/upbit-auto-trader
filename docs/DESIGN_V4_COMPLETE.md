@@ -11,12 +11,13 @@
 1. [기존 시스템 vs 새 시스템](#1-기존-시스템-vs-새-시스템)
 2. [핵심 개념: 그룹 시스템](#2-핵심-개념-그룹-시스템)
 3. [매수/매도 설정 (3가지 옵션)](#3-매수매도-설정-3가지-옵션)
-4. [전역 설정](#4-전역-설정)
-5. [기존 보유 코인 처리](#5-기존-보유-코인-처리)
-6. [포지션 상태 관리](#6-포지션-상태-관리)
-7. [JSON 스키마](#7-json-스키마)
-8. [보류된 사항](#8-보류된-사항)
-9. [구현 우선순위](#9-구현-우선순위)
+4. [관찰 전용 모드 (최상위 권한)](#4-관찰-전용-모드-최상위-권한)
+5. [전역 설정](#5-전역-설정)
+6. [기존 보유 코인 처리](#6-기존-보유-코인-처리)
+7. [포지션 상태 관리](#7-포지션-상태-관리)
+8. [JSON 스키마](#8-json-스키마)
+9. [보류된 사항](#9-보류된-사항)
+10. [구현 우선순위](#10-구현-우선순위)
 
 ---
 
@@ -205,7 +206,294 @@ DCA: 알림만
 
 ---
 
-## 4. 전역 설정
+## 4. 관찰 전용 모드 (최상위 권한)
+
+### 핵심 개념
+
+> "이 코인은 절대 건드리지 않는다. 보기만 한다. 전역 설정도 무시한다."
+
+### 문제 상황
+
+#### 시나리오 1: 기존 손실이 큰 코인
+```
+사용자 상황:
+  - BTC: -50% 손실 (장기 보유 중)
+  - 새로 트레이딩 시작하고 싶음
+
+문제:
+  - BTC를 그룹에 포함하면 일일 손실 한도 계산에 포함됨
+  - 조금만 더 떨어져도 손실 한도 -10% 도달
+  - 신규 거래가 막힘 😭
+```
+
+#### 시나리오 2: 큰 수익 장기 보유 코인
+```
+사용자 상황:
+  - ETH: +300% 수익 (절대 팔지 않을 것)
+  - 포트폴리오에는 표시하고 싶음
+
+문제:
+  - 그룹에 넣으면 손절 조건 걸릴 수 있음
+  - 안 넣으면 포트폴리오 현황 안 보임
+```
+
+### 해결: 관찰 전용 모드
+
+**최상위 권한 계층 구조:**
+```
+1️⃣ 관찰 전용 (observation_only: true)
+   ↓ 모든 것을 무시
+
+2️⃣ 전역 설정 (risk_management)
+   ↓ 일반 코인들에 적용
+
+3️⃣ 그룹 설정 (group.settings)
+   ↓ 개별 코인 동작
+```
+
+### 동작 방식
+
+#### 관찰 전용이 켜진 그룹:
+```json
+{
+  "group_name": "장기 보유",
+  "observation_only": true,  // ← 최상위 플래그
+  "coins": ["KRW-BTC", "KRW-ETH"],
+  "settings": {
+    // 이 설정들은 모두 무시됨
+    "buy_mode": "manual",
+    "dca": {"mode": "disabled"},
+    "take_profit": {"mode": "disabled"},
+    "stop_loss": {"mode": "disabled"}
+  }
+}
+```
+
+**효과:**
+1. ✅ 모든 자동 기능 강제 비활성화
+2. ✅ 전역 리스크 관리 계산에서 완전 제외
+   - 일일 손실 한도 계산 제외
+   - 최대 포지션 수 카운트 제외
+3. ✅ 그룹 설정 완전 무시
+4. ✅ 테이블에는 표시 (현황 파악 용도)
+5. ✅ "보기만" 가능
+
+### UI 설계
+
+#### 그룹 설정 다이얼로그 (관찰 전용 ON)
+```
+┌──────────────────────────────────────────┐
+│  그룹 설정: 장기 보유                    │
+├──────────────────────────────────────────┤
+│  그룹명: [장기 보유__________]           │
+│                                          │
+│  [✓] 관찰 전용 모드                      │
+│      (모든 자동 기능 비활성화)           │
+│                                          │
+│  ─────────────────────────────────────── │
+│  ⚠️ 관찰 전용 모드가 켜져있습니다        │
+│                                          │
+│  매수 방식: 불가능 (비활성화됨)          │
+│  DCA: 불가능 (비활성화됨)                │
+│  익절: 불가능 (비활성화됨)                │
+│  손절: 불가능 (비활성화됨)                │
+│  ─────────────────────────────────────── │
+│                                          │
+│  💡 이 그룹은 단순히 보유 현황만 표시    │
+│     리스크 관리에도 영향 없음            │
+│                                          │
+│               [저장] [취소]               │
+└──────────────────────────────────────────┘
+```
+
+#### 테이블 표시
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 그룹      코인  매수  DCA   익절  손절  현재가     수익률    │
+├─────────────────────────────────────────────────────────────┤
+│ 👁️장기   BTC  -     -     -     -    95,000,000  -8.5%    │
+│ 👁️장기   ETH  -     -     -     -    4,500,000   +12.3%   │
+│ 📁대형    DOGE 자동  자동  자동  자동  150         -1.5%    │
+│ 📁알트    XRP  수동  자동  알림  자동  650         +0.8%    │
+└─────────────────────────────────────────────────────────────┘
+
+범례:
+👁️ = 관찰 전용 그룹
+📁 = 일반 그룹
+- = 기능 비활성화
+```
+
+### 구체적인 동작 예시
+
+#### 설정
+```
+👁️ 관찰 전용 그룹
+  - BTC: -50% 손실
+  - ETH: +300% 수익
+  - observation_only: true
+
+📁 액티브 트레이딩 그룹
+  - DOGE: -5%
+  - XRP: -3%
+  - SOL: -2%
+
+전역 설정:
+  - 최대 포지션: 3개
+  - 일일 손실 한도: -10%
+```
+
+#### [09:00] 일일 손실 계산
+```python
+def calculate_daily_loss():
+    total_investment = 0
+    current_value = 0
+
+    for coin in all_positions:
+        group = get_group(coin)
+
+        # 관찰 전용은 아예 건너뛰기
+        if group.observation_only:
+            continue  # ← BTC, ETH 제외!
+
+        # 일반 코인만 계산
+        total_investment += coin.investment
+        current_value += coin.current_value
+
+    # 손실률 = 관찰 전용 제외한 코인들만
+    loss_pct = (current_value - total_investment) / total_investment * 100
+    return loss_pct
+
+# 결과:
+# - DOGE, XRP, SOL만 계산
+# - BTC -50%, ETH +300%는 완전히 무시 ✅
+# - 일일 손실: -3.33% (한도 안 도달)
+```
+
+#### [10:00] 최대 포지션 수 체크
+```python
+def count_active_positions():
+    count = 0
+
+    for coin in all_positions:
+        group = get_group(coin)
+
+        # 관찰 전용은 카운트 안 함
+        if group.observation_only:
+            continue
+
+        count += 1
+
+    return count
+
+# 결과:
+# - 총 5개 보유 (BTC, ETH, DOGE, XRP, SOL)
+# - 카운트: 3개 (DOGE, XRP, SOL만)
+# - BTC, ETH는 카운트 제외 ✅
+```
+
+#### [11:00] BTC 가격 -10% 추가 하락
+```python
+def should_execute_stop_loss(coin, group):
+    # 1단계: 관찰 전용 체크 (최상위)
+    if group.observation_only:
+        return False  # 무조건 실행 안 함!
+
+    # 2단계: 전역 설정 체크
+    # ...
+
+    # 3단계: 그룹 설정 체크
+    # ...
+
+# 결과:
+# - BTC는 -60%가 되어도 아무 동작 안 함
+# - 손절 조건이든 뭐든 완전 무시 ✅
+```
+
+### 코드 로직
+
+```python
+class TradingEngine:
+
+    def can_execute_action(self, coin, action_type):
+        """모든 동작 전에 체크"""
+
+        group = self.get_group(coin)
+
+        # 🔴 1단계: 관찰 전용 (최상위 권한)
+        if group.observation_only:
+            logger.debug(f"{coin}: 관찰 전용 - {action_type} 불가")
+            return False
+
+        # 🟡 2단계: 전역 설정 (중간 권한)
+        if not self._check_global_limits(coin):
+            logger.debug(f"{coin}: 전역 제한 - {action_type} 불가")
+            return False
+
+        # 🟢 3단계: 그룹 설정 (하위 권한)
+        if not self._check_group_settings(coin, action_type):
+            logger.debug(f"{coin}: 그룹 설정 - {action_type} 불가")
+            return False
+
+        return True
+
+    def _check_global_limits(self, coin):
+        """전역 제한 체크 (관찰 전용 제외)"""
+
+        # 최대 포지션 수 (관찰 전용 제외)
+        active_positions = [
+            p for p in self.positions
+            if not self.get_group(p).observation_only
+        ]
+
+        if len(active_positions) >= self.global_settings.max_positions:
+            return False
+
+        # 일일 손실 한도 (관찰 전용 제외)
+        daily_loss = self._calculate_daily_loss(exclude_observation=True)
+        if daily_loss < self.global_settings.daily_loss_limit:
+            return False
+
+        return True
+```
+
+### 사용 케이스
+
+#### 케이스 1: 손실 큰 코인 격리
+```
+📁 장기 보유 (관찰 전용)
+  - BTC: -50% (회복 기다리는 중)
+
+📁 신규 트레이딩
+  - DOGE, XRP (새로 시작)
+
+→ BTC 손실이 신규 거래에 영향 없음 ✅
+```
+
+#### 케이스 2: 대량 수익 보호
+```
+📁 장기 보유 (관찰 전용)
+  - ETH: +300% (절대 팔지 않을 것)
+
+📁 액티브 트레이딩
+  - DOGE, XRP (활발한 거래)
+
+→ ETH에 실수로 손절 걸릴 일 없음 ✅
+```
+
+#### 케이스 3: 포트폴리오 전체 보기
+```
+👁️ 관찰 전용: BTC, ETH (건드리지 않음)
+📁 트레이딩: DOGE, XRP, SOL (활발한 거래)
+
+테이블:
+  - 5개 코인 모두 표시
+  - 총 평가액 확인 가능
+  - 리스크 관리는 트레이딩 코인만 ✅
+```
+
+---
+
+## 5. 전역 설정
 
 ### 기존 시스템의 전역 설정 (완전 자동 모드)
 
@@ -540,6 +828,7 @@ positions.json에서 제거:
       "group_id": "group_001",
       "group_name": "대형코인",
       "created_at": "2025-01-24T14:00:00",
+      "observation_only": false,
       "coins": ["KRW-BTC", "KRW-ETH"],
       "settings": {
         "buy_mode": "auto",
@@ -605,6 +894,7 @@ positions.json에서 제거:
       "group_id": "group_002",
       "group_name": "알트코인",
       "created_at": "2025-01-24T14:00:00",
+      "observation_only": false,
       "coins": ["KRW-DOGE", "KRW-XRP"],
       "settings": {
         "buy_mode": "manual",
@@ -635,6 +925,7 @@ positions.json에서 제거:
 - `groups[]`: 그룹 배열
   - `group_id`: 고유 ID (UUID 또는 auto-increment)
   - `group_name`: 사용자 지정 이름
+  - `observation_only`: 관찰 전용 모드 (true = 모든 기능 비활성화, 리스크 관리 제외)
   - `coins[]`: 포함된 코인 심볼 리스트
   - `settings.buy_mode`: `"auto"` | `"manual"`
   - `settings.buy_amount`: 자동매수 금액 (buy_mode="auto"일 때만 사용)
@@ -849,6 +1140,7 @@ positions.json에서 제거:
 | 손실 계산 | - | 당일 거래만 | 직관적 |
 | 기존 보유 코인 | 모호함 | 그룹 배치 강제 | 명확함 |
 | 포지션 상태 | 메모리 | positions.json | 재시작 복구 |
+| 관찰 전용 모드 | 없음 | 추가 (최상위 권한) | 특정 코인 격리 |
 
 ---
 
@@ -890,8 +1182,8 @@ positions.json에서 제거:
 
 ## 변경 이력
 
-- 2025-01-24: 초안 작성
-- V4.0.0 설계 확정
+- 2025-01-24 (v1): 초안 작성 - V4.0.0 설계 확정
+- 2025-01-24 (v2): 관찰 전용 모드 추가 (최상위 권한, 리스크 관리 제외)
 
 ---
 
