@@ -12,13 +12,49 @@ PyInstaller 호환성:
 import sys
 import argparse
 import logging
+import atexit
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 # PyInstaller 멀티프로세싱 지원
 if sys.platform.startswith('win'):
     import multiprocessing
     multiprocessing.freeze_support()
+
+# 전역 변수: 현재 로그 파일 경로 (종료 시 rename용)
+_current_log_file: Optional[Path] = None
+
+
+def _rename_log_file_on_exit():
+    """
+    프로그램 종료 시 로그 파일을 타임스탬프 파일명으로 변경
+
+    예: logs/upbit_dca.log → logs/2025-10-30_09-30-45.log
+    """
+    global _current_log_file
+
+    if _current_log_file is None or not _current_log_file.exists():
+        return
+
+    try:
+        # 종료 시각으로 타임스탬프 생성
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        new_log_file = _current_log_file.parent / f"{timestamp}.log"
+
+        # 로그 핸들러 닫기 (파일 잠금 해제)
+        logger = logging.getLogger()
+        for handler in logger.handlers[:]:
+            if isinstance(handler, logging.FileHandler):
+                handler.close()
+                logger.removeHandler(handler)
+
+        # 파일 이름 변경
+        _current_log_file.rename(new_log_file)
+        print(f"📁 로그 파일 저장: {new_log_file}")
+
+    except Exception as e:
+        print(f"⚠️ 로그 파일 저장 실패: {e}")
 
 
 def setup_logging(log_level: str = 'INFO', log_file: Optional[Path] = None):
@@ -55,9 +91,15 @@ def setup_logging(log_level: str = 'INFO', log_file: Optional[Path] = None):
 
     # 파일 핸들러
     if log_file:
+        global _current_log_file
+        _current_log_file = Path(log_file)
+
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
+
+        # 프로그램 종료 시 로그 파일 이름 변경 (타임스탬프)
+        atexit.register(_rename_log_file_on_exit)
 
     # 콘솔 핸들러
     console_handler = logging.StreamHandler()
