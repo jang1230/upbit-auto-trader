@@ -37,7 +37,8 @@ class OrderManager:
         min_order_amount: float = 5000.0,
         order_timeout: int = 30,
         dry_run: bool = False,
-        balance_update_callback: Optional[Callable] = None  # 🔧 잔고 갱신 콜백
+        balance_update_callback: Optional[Callable] = None,  # 🔧 잔고 갱신 콜백
+        trade_callback: Optional[Callable] = None  # 🔧 거래 내역 기록 콜백
     ):
         """
         주문 관리자 초기화
@@ -48,12 +49,14 @@ class OrderManager:
             order_timeout: 주문 완료 대기 시간 (초)
             dry_run: True이면 실제 주문 없이 시뮬레이션 (기본값)
             balance_update_callback: 주문 완료 시 호출할 잔고 갱신 콜백
+            trade_callback: 거래 완료 시 호출할 거래 내역 기록 콜백
         """
         self.api = upbit_api
         self.min_order_amount = min_order_amount
         self.order_timeout = order_timeout
         self.dry_run = dry_run
         self.balance_update_callback = balance_update_callback  # 🔧 저장
+        self.trade_callback = trade_callback  # 🔧 저장
 
         # 주문 기록
         self.order_history = []
@@ -148,12 +151,21 @@ class OrderManager:
             final_order = await self.wait_for_order(order_id)
             
             # 6. 결과 반환
-            if final_order['state'] == 'done':
-                # 체결 정보 계산
-                executed_volume = sum(float(trade['volume']) for trade in final_order.get('trades', []))
-                executed_funds = sum(float(trade['funds']) for trade in final_order.get('trades', []))
+            # 🔧 trades 배열로 체결 여부 판단 (state가 cancel이어도 체결됐을 수 있음)
+            trades = final_order.get('trades', [])
+
+            if trades and len(trades) > 0:
+                # 체결됨! (state가 done 또는 cancel이어도)
+                executed_volume = sum(float(trade['volume']) for trade in trades)
+                executed_funds = sum(float(trade['funds']) for trade in trades)
                 avg_price = executed_funds / executed_volume if executed_volume > 0 else 0
-                
+
+                # 전량 체결 vs 부분 체결 확인
+                is_fully_filled = abs(executed_funds - amount) < 1.0  # 오차 ±1원
+
+                if final_order['state'] == 'cancel' and not is_fully_filled:
+                    logger.warning(f"⚠️ 부분 체결 후 취소: {executed_funds:,.0f}원 / {amount:,.0f}원")
+
                 result = {
                     'success': True,
                     'order_id': order_id,
@@ -162,10 +174,11 @@ class OrderManager:
                     'amount': amount,
                     'executed_volume': executed_volume,
                     'executed_price': avg_price,
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(),
+                    'fully_filled': is_fully_filled
                 }
-                
-                logger.info(f"✅ 매수 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원")
+
+                logger.info(f"✅ 매수 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원 (state={final_order['state']})")
 
                 # 주문 기록 저장
                 self.order_history.append(result)
@@ -181,9 +194,30 @@ class OrderManager:
                     except Exception as e:
                         logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
 
+                # 🔧 거래 내역 기록 콜백 호출 (매수 완료 시)
+                if self.trade_callback:
+                    try:
+                        trade_data = {
+                            'symbol': symbol,
+                            'trade_type': 'buy',
+                            'price': avg_price,
+                            'quantity': executed_volume,
+                            'amount': executed_funds,
+                            'timestamp': datetime.now(),
+                            'reason': '수동 매수' if not dry_run else 'DRY RUN 매수'
+                        }
+                        if asyncio.iscoroutinefunction(self.trade_callback):
+                            await self.trade_callback(trade_data)
+                        else:
+                            self.trade_callback(trade_data)
+                        logger.debug("✅ 거래 내역 콜백 호출 완료 (매수)")
+                    except Exception as e:
+                        logger.error(f"❌ 거래 내역 콜백 실패: {e}")
+
                 return result
             else:
-                error_msg = f"주문 미체결: state={final_order['state']}"
+                # trades 없음 = 진짜 미체결
+                error_msg = f"주문 미체결: state={final_order['state']}, trades=0"
                 logger.error(f"❌ {error_msg}")
                 return {
                     'success': False,
@@ -272,12 +306,21 @@ class OrderManager:
             final_order = await self.wait_for_order(order_id)
             
             # 5. 결과 반환
-            if final_order['state'] == 'done':
-                # 체결 정보 계산
-                executed_funds = sum(float(trade['funds']) for trade in final_order.get('trades', []))
-                executed_volume = sum(float(trade['volume']) for trade in final_order.get('trades', []))
+            # 🔧 trades 배열로 체결 여부 판단 (state가 cancel이어도 체결됐을 수 있음)
+            trades = final_order.get('trades', [])
+
+            if trades and len(trades) > 0:
+                # 체결됨! (state가 done 또는 cancel이어도)
+                executed_funds = sum(float(trade['funds']) for trade in trades)
+                executed_volume = sum(float(trade['volume']) for trade in trades)
                 avg_price = executed_funds / executed_volume if executed_volume > 0 else 0
-                
+
+                # 전량 체결 vs 부분 체결 확인
+                is_fully_filled = abs(executed_volume - volume) < 0.00000001  # 수량 오차
+
+                if final_order['state'] == 'cancel' and not is_fully_filled:
+                    logger.warning(f"⚠️ 부분 체결 후 취소: {executed_volume:.8f}개 / {volume:.8f}개")
+
                 result = {
                     'success': True,
                     'order_id': order_id,
@@ -286,10 +329,11 @@ class OrderManager:
                     'volume': volume,
                     'executed_funds': executed_funds,
                     'executed_price': avg_price,
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(),
+                    'fully_filled': is_fully_filled
                 }
-                
-                logger.info(f"✅ 매도 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원, 총 {executed_funds:,.0f}원")
+
+                logger.info(f"✅ 매도 완료: {executed_volume:.8f}개 @ {avg_price:,.0f}원, 총 {executed_funds:,.0f}원 (state={final_order['state']})")
 
                 # 주문 기록 저장
                 self.order_history.append(result)
@@ -305,9 +349,30 @@ class OrderManager:
                     except Exception as e:
                         logger.error(f"❌ 잔고 갱신 콜백 실패: {e}")
 
+                # 🔧 거래 내역 기록 콜백 호출 (매도 완료 시)
+                if self.trade_callback:
+                    try:
+                        trade_data = {
+                            'symbol': symbol,
+                            'trade_type': 'sell',
+                            'price': avg_price,
+                            'quantity': executed_volume,
+                            'amount': executed_funds,
+                            'timestamp': datetime.now(),
+                            'reason': '수동 매도' if not dry_run else 'DRY RUN 매도'
+                        }
+                        if asyncio.iscoroutinefunction(self.trade_callback):
+                            await self.trade_callback(trade_data)
+                        else:
+                            self.trade_callback(trade_data)
+                        logger.debug("✅ 거래 내역 콜백 호출 완료 (매도)")
+                    except Exception as e:
+                        logger.error(f"❌ 거래 내역 콜백 실패: {e}")
+
                 return result
             else:
-                error_msg = f"주문 미체결: state={final_order['state']}"
+                # trades 없음 = 진짜 미체결
+                error_msg = f"주문 미체결: state={final_order['state']}, trades=0"
                 logger.error(f"❌ {error_msg}")
                 return {
                     'success': False,

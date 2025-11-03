@@ -32,7 +32,8 @@ pyqtgraph>=0.13.0
 matplotlib>=3.8.0
 
 # WebSocket (Phase 3)
-websockets>=12.0
+websockets>=12.0  # 기존 (다른 부분에서 사용 중일 수 있음)
+websocket-client>=1.7.0  # Upbit 공식 예제 호환
 aiohttp>=3.9.0
 
 # Testing
