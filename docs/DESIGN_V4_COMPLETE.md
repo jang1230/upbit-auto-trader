@@ -801,14 +801,20 @@ positions.json에서 제거:
 
 ---
 
-## 7. JSON 스키마
+## 8. JSON 스키마
 
-### trading_config.json (그룹 설정)
+### trading_config.json (통합 파일)
+
+**설계 원칙**:
+- ✅ 그룹 설정 + 포지션 상태를 하나의 파일로 통합
+- ✅ Upbit 데이터(잔고, 평단가, 현재가)는 저장 안 함
+- ✅ 프로그램 상태(DCA 레벨, 진입 시각)만 저장
 
 ```json
 {
   "version": "4.0.0",
   "last_updated": "2025-01-24T16:00:00",
+  "dry_run": false,
   "global_settings": {
     "trading_day_reset_hour": 9,
     "risk_management": {
@@ -828,161 +834,75 @@ positions.json에서 제거:
       }
     }
   },
-  "groups": [
-    {
-      "group_id": "group_001",
-      "group_name": "대형코인",
+  "groups": {
+    "large_coins": {
+      "name": "대형코인",
       "created_at": "2025-01-24T14:00:00",
       "observation_only": false,
-      "coins": ["KRW-BTC", "KRW-ETH"],
-      "settings": {
-        "buy_mode": "auto",
-        "buy_amount": 50000,
-        "dca": {
-          "mode": "auto",
-          "levels": [
-            {
-              "level": 1,
-              "drop_pct": -3.0,
-              "order_amount": 50000
-            },
-            {
-              "level": 2,
-              "drop_pct": -6.0,
-              "order_amount": 50000
-            },
-            {
-              "level": 3,
-              "drop_pct": -10.0,
-              "order_amount": 100000
-            }
-          ]
-        },
-        "take_profit": {
-          "mode": "auto",
-          "levels": [
-            {
-              "level": 1,
-              "profit_pct": 3.0,
-              "sell_ratio": 30.0
-            },
-            {
-              "level": 2,
-              "profit_pct": 6.0,
-              "sell_ratio": 50.0
-            },
-            {
-              "level": 3,
-              "profit_pct": 10.0,
-              "sell_ratio": 100.0
-            }
-          ]
-        },
-        "stop_loss": {
-          "mode": "auto",
-          "levels": [
-            {
-              "level": 1,
-              "loss_pct": -5.0,
-              "sell_ratio": 50.0
-            },
-            {
-              "level": 2,
-              "loss_pct": -10.0,
-              "sell_ratio": 100.0
-            }
-          ]
+
+      "coins": ["KRW-BTC", "KRW-ETH", "KRW-SOL"],
+
+      "buy_mode": "auto",
+      "buy_amount": 50000,
+
+      "dca_mode": "auto",
+      "dca_levels": [
+        {"price_ratio": -10, "quantity_ratio": 100},
+        {"price_ratio": -20, "quantity_ratio": 100}
+      ],
+
+      "take_profit_mode": "auto",
+      "take_profit_levels": [
+        {"price_ratio": 5, "quantity_ratio": 50},
+        {"price_ratio": 10, "quantity_ratio": 50}
+      ],
+
+      "stop_loss_mode": "auto",
+      "stop_loss_levels": [
+        {"price_ratio": -10, "quantity_ratio": 100}
+      ],
+
+      "positions": {
+        "KRW-BTC": {
+          "current_dca_level": 2,
+          "entry_time": "2025-01-24T09:00:00",
+          "last_dca_time": "2025-01-24T10:30:00"
         }
       }
     },
-    {
-      "group_id": "group_002",
-      "group_name": "알트코인",
+    "alt_coins": {
+      "name": "알트코인",
       "created_at": "2025-01-24T14:00:00",
       "observation_only": false,
+
       "coins": ["KRW-DOGE", "KRW-XRP"],
-      "settings": {
-        "buy_mode": "manual",
-        "buy_amount": 10000,
-        "dca": {
-          "mode": "auto",
-          "levels": [...]
-        },
-        "take_profit": {
-          "mode": "alert",
-          "levels": [...]
-        },
-        "stop_loss": {
-          "mode": "auto",
-          "levels": [...]
+
+      "buy_mode": "manual",
+      "buy_amount": 0,
+
+      "dca_mode": "auto",
+      "dca_levels": [
+        {"price_ratio": -5, "quantity_ratio": 100},
+        {"price_ratio": -10, "quantity_ratio": 100}
+      ],
+
+      "take_profit_mode": "alert",
+      "take_profit_levels": [
+        {"price_ratio": 10, "quantity_ratio": 100}
+      ],
+
+      "stop_loss_mode": "auto",
+      "stop_loss_levels": [
+        {"price_ratio": -15, "quantity_ratio": 100}
+      ],
+
+      "positions": {
+        "KRW-DOGE": {
+          "current_dca_level": 0,
+          "entry_time": "2025-01-24T11:00:00",
+          "last_dca_time": null
         }
       }
-    }
-  ]
-}
-```
-
-**필드 설명:**
-
-- `version`: 설정 파일 버전 (마이그레이션 체크용)
-- `trading_day_reset_hour`: 일일 리셋 시간 (9 = 오전 9시)
-- `global_settings.risk_management`: 전역 리스크 관리 (3가지)
-- `groups[]`: 그룹 배열
-  - `group_id`: 고유 ID (UUID 또는 auto-increment)
-  - `group_name`: 사용자 지정 이름
-  - `observation_only`: 관찰 전용 모드 (true = 모든 기능 비활성화, 리스크 관리 제외)
-  - `coins[]`: 포함된 코인 심볼 리스트
-  - `settings.buy_mode`: `"auto"` | `"manual"`
-  - `settings.buy_amount`: 자동매수 금액 (buy_mode="auto"일 때만 사용)
-  - `settings.dca.mode`: `"auto"` | `"alert"` | `"disabled"`
-  - `settings.take_profit.mode`: `"auto"` | `"alert"` | `"disabled"`
-  - `settings.stop_loss.mode`: `"auto"` | `"alert"` | `"disabled"`
-
-### positions.json (포지션 상태)
-
-```json
-{
-  "version": "4.0.0",
-  "last_updated": "2025-01-24T16:30:00",
-  "positions": {
-    "KRW-BTC": {
-      "group_id": "group_001",
-      "status": "active",
-      "imported": false,
-      "entry_time": "2025-01-24T14:00:00",
-      "average_price": 94500000,
-      "total_quantity": 0.02116,
-      "total_investment": 2000000,
-      "executed_dca_levels": [1, 2],
-      "executed_tp_levels": [],
-      "executed_sl_levels": [],
-      "last_updated": "2025-01-24T15:00:00",
-      "history": [
-        {
-          "type": "buy",
-          "level": 0,
-          "time": "2025-01-24T14:00:00",
-          "price": 100000000,
-          "amount": 1000000,
-          "quantity": 0.01
-        },
-        {
-          "type": "dca",
-          "level": 1,
-          "time": "2025-01-24T14:30:00",
-          "price": 97000000,
-          "amount": 500000,
-          "quantity": 0.00515
-        },
-        {
-          "type": "dca",
-          "level": 2,
-          "time": "2025-01-24T15:00:00",
-          "price": 94000000,
-          "amount": 500000,
-          "quantity": 0.00606
-        }
-      ]
     }
   }
 }
@@ -990,22 +910,53 @@ positions.json에서 제거:
 
 **필드 설명:**
 
-- `positions[symbol]`: 코인 심볼을 키로 사용
-  - `group_id`: 소속 그룹 ID
-  - `status`: `"active"` | `"closed"`
-  - `imported`: 기존 보유 코인 Import 여부
+#### 최상위 레벨
+- `version`: 설정 파일 버전 (마이그레이션 체크용)
+- `dry_run`: Dry Run 모드 여부 (전역 설정)
+- `global_settings`: 전역 설정
+  - `trading_day_reset_hour`: 일일 리셋 시간
+  - `risk_management`: 리스크 관리 3가지
+
+#### groups (딕셔너리)
+- **key**: 그룹 ID (문자열, 예: `"large_coins"`)
+- **value**: 그룹 설정 + 포지션
+
+#### 그룹 설정
+- `name`: 사용자 지정 그룹 이름
+- `created_at`: 그룹 생성 시각
+- `observation_only`: 관찰 전용 모드
+- `coins[]`: 이 그룹에 포함된 코인 심볼 리스트
+- `buy_mode`: `"auto"` | `"alert"` | `"disabled"`
+- `buy_amount`: 자동매수 금액 (KRW)
+- `dca_mode`: `"auto"` | `"alert"` | `"disabled"`
+- `dca_levels[]`: DCA 레벨 설정
+  - `price_ratio`: 가격 비율 (%, 음수)
+  - `quantity_ratio`: 수량 비율 (%, 초기 매수 대비)
+- `take_profit_mode`: `"auto"` | `"alert"` | `"disabled"`
+- `take_profit_levels[]`: 익절 레벨 설정
+- `stop_loss_mode`: `"auto"` | `"alert"` | `"disabled"`
+- `stop_loss_levels[]`: 손절 레벨 설정
+
+#### positions (딕셔너리)
+**프로그램이 자동 업데이트** (DCA 실행, 포지션 진입/청산 시 즉시 저장)
+
+- **key**: 코인 심볼 (예: `"KRW-BTC"`)
+- **value**: 포지션 메타데이터
+  - `current_dca_level`: 현재 DCA 레벨 (0 = 초기 매수만)
   - `entry_time`: 최초 진입 시각
-  - `average_price`: 평단가
-  - `total_quantity`: 총 보유량
-  - `total_investment`: 총 투자금액
-  - `executed_dca_levels`: 실행된 DCA 레벨 배열
-  - `executed_tp_levels`: 실행된 익절 레벨 배열
-  - `executed_sl_levels`: 실행된 손절 레벨 배열
-  - `history[]`: 거래 히스토리 (선택 사항, 디버깅용)
+  - `last_dca_time`: 마지막 DCA 실행 시각 (null 가능)
+
+#### ❌ 저장하지 않는 데이터 (Upbit에서 조회)
+- `balance`: 실제 보유 수량 → WebSocket / REST API
+- `locked`: 주문 중 수량 → WebSocket / REST API
+- `avg_buy_price`: 평균 매수가 → Upbit API
+- `current_price`: 현재가 → WebSocket
+
+**이유**: Upbit이 진실의 원천 (source of truth)
 
 ---
 
-## 8. 보류된 사항
+## 9. 보류된 사항
 
 다음 항목들은 **자동매수 로직 논의 시** 결정:
 
@@ -2434,7 +2385,223 @@ if error.name == "insufficient_funds_ask":
 
 ---
 
-### 15.4 구현 체크리스트
+### 15.4 WebSocket 재연결 전략
+
+#### 핵심 원칙
+**WebSocket은 정상적으로 끊기지 않음** (Upbit 공식 구조 준수)
+- PING/PONG 활성화 (30초 간격)
+- Rate Limit 준수
+- 끊김 = 네트워크/서버 문제 (비정상 상황)
+
+#### 모든 WebSocket 동일한 처리
+
+**대상 WebSocket**:
+- Ticker WebSocket (실시간 가격) ← 필수
+- Candle WebSocket (1분봉) ← 필수
+- MyAsset WebSocket (잔고 감지) ← 선택 (폴링 대체 가능)
+
+**재연결 전략**:
+```python
+async def handle_websocket_disconnect(ws_type: str):
+    """
+    모든 WebSocket 끊김 시 동일한 처리
+
+    Args:
+        ws_type: "ticker" | "candle" | "myasset"
+    """
+    logger.error(f"❌ {ws_type} WebSocket 연결 끊김")
+
+    # 1. 자동매매 즉시 중지 (실시간 감지 불가능)
+    await trading_engine.pause()
+
+    # 2. GUI 경고 표시
+    gui.show_warning(f"⚠️ {ws_type} 연결 끊김 - 재연결 중")
+
+    # 3. 초기 재연결 (exponential backoff, 5회)
+    reconnected = await initial_reconnect(ws_type, max_retries=5)
+    if reconnected:
+        await resume_trading(ws_type)
+        return
+
+    # 4. 네트워크 진단
+    issue_type = await diagnose_network_issue()
+
+    # 5. 유형별 무한 재시도
+    if issue_type == "USER_INTERNET_DOWN":
+        # 10초 간격 재시도
+        await infinite_reconnect(ws_type, interval=10)
+    else:
+        # 30초 간격 + 텔레그램 알림
+        await telegram.send_alert(f"⚠️ {ws_type} 끊김\n재연결 시도 중...")
+        await infinite_reconnect(ws_type, interval=30)
+
+    # 6. 복구 완료 → 자동 재개
+    await resume_trading(ws_type)
+```
+
+**간단한 전략**:
+```
+끊김 → 중지 → 재시도 → 복구 → 재개
+```
+
+---
+
+### 15.5 데이터 구조 및 손상 복구
+
+#### V4 파일 구조 (통합 설계)
+
+**파일 1개로 통합**: `trading_config.json`
+
+```json
+{
+  "dry_run": false,
+  "global_settings": {
+    "max_positions": 10,
+    "min_krw_balance": 100000,
+    "daily_loss_limit": -100000
+  },
+  "groups": {
+    "large_coins": {
+      "name": "대형코인",
+
+      // ✅ 그룹에 포함된 코인 목록
+      "coins": ["KRW-BTC", "KRW-ETH", "KRW-SOL"],
+
+      // ✅ 매수/DCA/익절/손절 설정
+      "buy_mode": "auto",
+      "buy_amount": 50000,
+      "dca_mode": "auto",
+      "dca_levels": [...],
+      "take_profit_mode": "auto",
+      "take_profit_levels": [...],
+      "stop_loss_mode": "auto",
+      "stop_loss_levels": [...],
+
+      // ✅ 실제 포지션 상태 (프로그램 자동 업데이트)
+      "positions": {
+        "KRW-BTC": {
+          "current_dca_level": 2,
+          "entry_time": "2025-01-24T09:00:00",
+          "last_dca_time": "2025-01-24T10:30:00"
+        }
+      }
+    }
+  }
+}
+```
+
+#### 데이터 분리 원칙
+
+**✅ 파일에 저장하는 데이터** (사용자 지정 + 프로그램 상태):
+- 그룹별 코인 목록 (`coins`)
+- 매수/DCA/익절/손절 설정 (`*_mode`, `*_levels`)
+- 현재 DCA 레벨 (`current_dca_level`)
+- 진입/DCA 시각 (`entry_time`, `last_dca_time`)
+
+**❌ 저장 안 하는 데이터** (Upbit에서 실시간 조회):
+- 실제 잔고 (`balance`, `locked`)
+- 평균 매수가 (`avg_buy_price`)
+- 현재가 (`current_price`)
+
+**이유**: Upbit이 진실의 원천 (source of truth)
+
+#### 저장 시점
+
+**1. 사용자가 설정 변경**
+- 그룹 생성/수정/삭제
+- 코인 추가/제거
+- DCA/익절/손절 레벨 변경
+- → [저장] 버튼 클릭 시
+
+**2. 프로그램 자동 업데이트** (즉시 저장)
+```python
+# 새 포지션 진입
+group['positions'][symbol] = {
+    'current_dca_level': 0,
+    'entry_time': now(),
+    'last_dca_time': None
+}
+save_trading_config()  # ← 즉시 저장
+
+# DCA 추가매수 실행
+group['positions'][symbol]['current_dca_level'] = 2
+group['positions'][symbol]['last_dca_time'] = now()
+save_trading_config()  # ← 즉시 저장
+
+# 익절/손절 완료
+del group['positions'][symbol]
+save_trading_config()  # ← 즉시 삭제
+```
+
+#### 데이터 손상 복구 전략
+
+```python
+def load_trading_config():
+    """설정 로드 + 자동 복구"""
+
+    # 1. 정식 파일 로드 시도
+    try:
+        return load_json('trading_config.json')
+
+    except json.JSONDecodeError:
+        logger.error("❌ 설정 파일 손상")
+
+        # 2. 백업 파일 시도
+        try:
+            config = load_json('trading_config.json.backup')
+            logger.info("✅ 백업으로 복구 성공")
+
+            # 손상 파일 보관
+            shutil.move('trading_config.json',
+                       f'trading_config.json.corrupt.{int(time.time())}')
+
+            # 백업 복원
+            save_trading_config(config)
+            return config
+
+        except Exception:
+            logger.critical("❌ 백업도 손상")
+
+            # 3. 텔레그램 긴급 알림
+            telegram.send_alert(
+                "🚨 설정 파일 손상!\n"
+                "백업도 손상됨\n"
+                "프로그램 중지 - 수동 복구 필요"
+            )
+
+            # 4. 프로그램 종료 (데이터 손실 방지)
+            sys.exit(1)
+```
+
+**안전한 저장**:
+```python
+def save_trading_config(config: dict):
+    """원자적 저장 (atomic write)"""
+
+    temp_file = 'trading_config.json.tmp'
+
+    # 1. 임시 파일에 저장
+    with open(temp_file, 'w') as f:
+        json.dump(config, f, indent=2)
+
+    # 2. 백업 생성 (기존 파일 존재 시)
+    if os.path.exists('trading_config.json'):
+        shutil.copy2('trading_config.json',
+                    'trading_config.json.backup')
+
+    # 3. 원자적 이동 (임시 → 정식)
+    shutil.move(temp_file, 'trading_config.json')
+```
+
+**장점**:
+- ✅ 그룹과 포지션이 같은 파일 → 불일치 불가능
+- ✅ 백업 자동 생성
+- ✅ 손상 파일 보관 (디버깅 가능)
+- ✅ 복구 실패 시 프로그램 안전 종료
+
+---
+
+### 15.6 구현 체크리스트
 
 #### ✅ 이미 구현됨 (추가 작업 불필요)
 
@@ -2446,25 +2613,31 @@ if error.name == "insufficient_funds_ask":
 #### ⚠️ V4 구현 시 추가 필요
 
 - [ ] 네트워크 진단 로직 (`diagnose_network_issue()`)
-- [ ] 사용자 인터넷 vs Upbit 서버 구분 처리
-- [ ] 잔고 불일치 에러 처리 (`insufficient_funds_ask`)
+- [ ] WebSocket 재연결 무한 재시도
 - [ ] 자동매매 일시 중지/재개 메커니즘
-- [ ] 에러 텔레그램 알림 (연결 가능 시)
+- [ ] trading_config.json 통합 파일 구조
+- [ ] 안전한 저장 (원자적 쓰기 + 백업)
+- [ ] 데이터 손상 자동 복구
 
 #### ⏳ 다른 Topic에서 설계
 
 - [ ] 최소 주문 금액 처리 (Topic 7)
 - [ ] 텔레그램 알림 형식 (Topic 5)
+- [ ] API 키 에러 처리 (Topic 6 계속)
 
 ---
 
-### 15.5 설계 원칙 요약
+### 15.7 설계 원칙 요약
 
 1. **예방 우선**: 에러가 발생하지 않도록 설계 (Rate Limit)
-2. **자동 복구**: 가능한 모든 에러는 자동 복구 시도
-3. **사용자 알림**: 복구 불가능한 에러는 즉시 알림
-4. **데이터 무결성**: 모든 에러 상황에서 positions.json 일관성 유지
-5. **로깅**: 모든 에러는 상세 로그 기록 (디버깅 용이)
+2. **자동 복구**: 가능한 모든 에러는 자동 복구 시도 (WebSocket, 데이터 손상)
+3. **간단함 유지**: 복잡한 분기 제거, 일관된 처리
+4. **데이터 무결성**:
+   - Upbit을 진실의 원천으로 사용
+   - 파일 저장은 프로그램 상태만
+   - 원자적 저장 + 백업
+5. **사용자 알림**: 복구 불가능한 에러는 즉시 알림 + 안전 종료
+6. **로깅**: 모든 에러는 상세 로그 기록
 
 ---
 
@@ -2475,6 +2648,7 @@ if error.name == "insufficient_funds_ask":
 - 2025-01-24 (v3): V3→V4 마이그레이션 전략, Dry Run 모드 설계, 그룹 관리 제약사항 추가
 - 2025-01-24 (v4): GUI 상세 설계 추가 (메인 윈도우, 그룹 관리, 설정 다이얼로그)
 - 2025-01-24 (v5): 에러 처리 및 복구 전략 추가 (Rate Limit 예방, 네트워크 에러, 주문 실패)
+- 2025-01-24 (v6): WebSocket 재연결 전략 + 데이터 구조 통합 (trading_config.json 하나로 통합)
 
 ---
 
