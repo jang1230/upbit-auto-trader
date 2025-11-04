@@ -21,6 +21,8 @@
 11. [V3 → V4 마이그레이션 전략](#11-v3--v4-마이그레이션-전략)
 12. [Dry Run 모드 설계](#12-dry-run-모드-설계)
 13. [그룹 관리 제약사항](#13-그룹-관리-제약사항)
+14. [GUI 상세 설계](#14-gui-상세-설계)
+15. [에러 처리 및 복구 전략](#15-에러-처리-및-복구-전략)
 
 ---
 
@@ -2201,12 +2203,278 @@ Day 7:
 
 ---
 
+## 15. 에러 처리 및 복구 전략
+
+**작성일**: 2025-01-24
+**목적**: V4 시스템의 에러 처리 및 복구 메커니즘 설계
+
+---
+
+### 15.1 Rate Limit 예방 (설계 우선)
+
+#### 핵심 원칙
+**에러 처리가 아닌 예방이 우선** - Rate Limit 에러가 발생하지 않도록 설계
+
+#### REST API Rate Limit 예방 ✅ (이미 구현됨)
+
+**구현 위치**: `core/upbit_api.py:29-129` (RateLimiter 클래스)
+
+**구현 완료 내용**:
+1. ✅ **Window-based 토큰 관리** (시간 기반)
+2. ✅ **API 그룹별 분리**
+   - ticker/candle/orderbook: 10 req/sec
+   - order (주문): 8 req/sec
+   - default (계좌/주문조회): 30 req/sec
+   - order-cancel-all: 1 req/2sec
+3. ✅ **Remaining-Req 헤더 동기화** (서버 실제 값 반영)
+4. ✅ **429 에러 즉시 차단** (`mark_exhausted()` 메서드)
+
+**동작 방식**:
+```python
+# 모든 API 요청 전 자동 실행
+group = self._group_for(method, endpoint)
+self.limiter.acquire(group)  # 토큰 부족 시 자동 대기
+
+# 429 에러 발생 시
+if response.status_code == 429:
+    self.limiter.mark_exhausted(group)  # 즉시 차단
+
+# 서버 응답으로 동기화
+self.limiter.update_from_header(response.headers.get("Remaining-Req"))
+```
+
+**결론**:
+- REST API는 추가 구현 불필요
+- 기존 코드가 Upbit 공식 예제와 동일한 구조
+
+#### WebSocket Rate Limit 예방 ✅ (현재 불필요)
+
+**현재 상태**:
+- PING/PONG: 구현 완료 (`upbit_websocket.py:146-148`)
+- 120초 Idle Timeout: 30초 PING으로 방지
+- 메시지 전송 Rate Limiter: 미구현
+
+**불필요한 이유**:
+1. WebSocket 메시지 전송은 **프로그램 시작 시 1회만 발생** (구독 요청)
+2. 이후 수신만 하며 전송 없음
+3. Rate Limit (5 msg/sec, 100 msg/min) 초과 불가능
+
+**차후 구현 조건**:
+- 동적 구독 변경 기능 추가 시 (실시간 코인 추가/제거)
+- 그때 DualWindowLimiter 추가 고려
+
+---
+
+### 15.2 네트워크 에러 처리
+
+#### 네트워크 에러 2가지 유형
+
+| 유형 | 원인 | 감지 방법 | 재시도 전략 |
+|------|------|-----------|-------------|
+| **사용자 인터넷 끊김** | 사용자 측 문제 | google.com 체크 실패 | 10초 간격 무한 재시도 |
+| **Upbit 서버 다운** | Upbit 측 문제 | Upbit API 실패 + 인터넷 정상 | 30초 간격 재시도 (서버 부하 방지) |
+
+#### 네트워크 진단 로직
+
+```python
+async def diagnose_network_issue():
+    """
+    네트워크 문제 유형 진단
+
+    Returns:
+        str: "USER_INTERNET_DOWN" | "UPBIT_SERVER_DOWN" | "UNKNOWN"
+    """
+    # 1. 일반 인터넷 연결 확인
+    internet_ok = await check_general_internet()  # google.com, 1.1.1.1 체크
+
+    # 2. Upbit API 연결 확인
+    upbit_ok = await check_upbit_api()  # WebSocket 연결 시도
+
+    if not internet_ok:
+        return "USER_INTERNET_DOWN"  # 사용자 인터넷 문제
+    elif not upbit_ok:
+        return "UPBIT_SERVER_DOWN"   # Upbit 서버 문제
+    else:
+        return "UNKNOWN"
+```
+
+#### 에러 처리 흐름
+
+```
+네트워크 에러 발생
+    ↓
+진단 시작 (diagnose_network_issue)
+    ↓
+┌─────────────────┐         ┌─────────────────┐
+│ 사용자 인터넷   │         │ Upbit 서버 다운 │
+│ 10초 재시도     │         │ 30초 재시도     │
+└─────────────────┘         └─────────────────┘
+    ↓                             ↓
+자동매매 일시 중지           자동매매 일시 중지
+텔레그램 알림 전송           텔레그램 알림 전송
+    ↓                             ↓
+연결 복구 감지               연결 복구 감지
+    ↓                             ↓
+자동매매 자동 재개           자동매매 자동 재개
+텔레그램 복구 알림           텔레그램 복구 알림
+```
+
+#### 텔레그램 알림 가능 여부
+
+**질문**: 네트워크 끊김 시 텔레그램 알림이 가능한가?
+
+**답변**:
+- ❌ **사용자 인터넷 끊김**: 텔레그램 전송 불가 (프로그램도 인터넷 필요)
+- ✅ **Upbit 서버 다운**: 텔레그램 전송 가능 (일반 인터넷은 정상)
+
+**대응**:
+```python
+if error_type == "USER_INTERNET_DOWN":
+    # 텔레그램 전송 불가능
+    logger.error("⚠️ 인터넷 연결 끊김 - 10초 후 재시도")
+    # GUI에 빨간색 경고 표시
+
+elif error_type == "UPBIT_SERVER_DOWN":
+    # 텔레그램 전송 가능
+    await telegram.send_alert(
+        "⚠️ Upbit 서버 연결 불가\n"
+        "자동매매 일시 중지\n"
+        "30초마다 재연결 시도 중..."
+    )
+```
+
+---
+
+### 15.3 주문 실패 에러 처리
+
+#### 15.3.1 시장가 변동 - ❌ 제외
+
+**이유**:
+- 현재 시스템은 **시장가 주문** 사용
+- 시장가 주문은 현재가로 즉시 체결
+- 가격 변동과 관계없이 체결됨
+- `invalid_price_range` 에러는 **지정가 주문**에서만 발생
+
+**결론**: 시장가 변동은 에러 처리 항목에서 제외
+
+#### 15.3.2 최소 주문 금액 - ⏳ Topic 7에서 상세 설계
+
+**문제 상황**:
+```python
+# 예시: BTC 잔액 5200원, 50% 매도 신호
+remaining_value = 5200
+sell_ratio = 0.5
+calculated_amount = 5200 * 0.5  # 2600원 → 5000원 미달
+```
+
+**해결 방향**:
+```python
+MIN_ORDER_AMOUNT = 5000
+
+if calculated_amount < MIN_ORDER_AMOUNT:
+    if remaining_value >= MIN_ORDER_AMOUNT:
+        # 케이스 1: 잔액은 5000원 이상인데, 비율 적용하면 미달
+        # → 전량 매도로 전환
+        final_amount = remaining_value  # 5200원 전체 매도
+    else:
+        # 케이스 2: 잔액 자체가 5000원 미만
+        # → 매도 불가, 다음 기회 대기
+        return None
+```
+
+**Topic 7에서 논의할 내용**:
+- 전량 매도 전환 로직 상세
+- 다음 차수 매도 시 처리
+- 사용자 알림 방식
+
+#### 15.3.3 주문 가능 수량 부족 - ✅ 에러 처리
+
+**발생 상황**:
+
+| 케이스 | 원인 | 발생 확률 |
+|--------|------|-----------|
+| 1. 외부 수동 매도 | 사용자가 Upbit 앱에서 직접 매도 | ❌ 발생 안 함 (MyAsset WebSocket 실시간 동기화) |
+| 2. 프로그램 비정상 종료 | 주문 체결 전 강제 종료 → positions.json 업데이트 안 됨 | ⚠️ 매우 낮음 (사용자 부주의) |
+| 3. 동시 실행 | 같은 계정으로 프로그램 2개 실행 | ⚠️ 거의 없음 (사용자 부주의) |
+
+**케이스 1 해결 확인** (`semi_auto_manager.py:382-408`):
+```python
+# MyAsset WebSocket이 자산 변동 실시간 감지
+async for data in self.myasset_websocket.listen():
+    # 총 보유량 확인 (balance + locked)
+    old_total = managed.position.balance + managed.position.locked
+    new_total = balance + locked
+
+    # 총 보유량 감소 → 수동 매도 감지
+    if new_total < old_total:
+        await self._update_managed_position(updated_position)
+        # → positions.json 자동 동기화 ✅
+```
+
+**케이스 2, 3 에러 처리**:
+```python
+if error.name == "insufficient_funds_ask":
+    # 1. 실제 잔고 즉시 조회 (REST API)
+    real_balance = await self.upbit_api.get_balance(symbol)
+
+    # 2. positions.json 동기화
+    self.position_manager.sync_with_real_balance(symbol, real_balance)
+
+    # 3. 텔레그램 긴급 알림
+    await self.telegram.send_alert(
+        f"⚠️ 잔고 불일치 감지 (희귀)\n"
+        f"코인: {symbol}\n"
+        f"원인: 프로그램 비정상 종료 또는 중복 실행\n"
+        f"→ 실제 잔고로 동기화 완료"
+    )
+
+    # 4. 자동매매 일시 중지 (사용자 확인 필요)
+    self.pause_trading(symbol)
+```
+
+---
+
+### 15.4 구현 체크리스트
+
+#### ✅ 이미 구현됨 (추가 작업 불필요)
+
+- [x] REST API Rate Limit 예방 (`core/upbit_api.py:29-129`)
+- [x] WebSocket PING/PONG (120초 Idle Timeout 방지)
+- [x] MyAsset WebSocket 실시간 잔고 동기화
+- [x] Exponential backoff 재연결
+
+#### ⚠️ V4 구현 시 추가 필요
+
+- [ ] 네트워크 진단 로직 (`diagnose_network_issue()`)
+- [ ] 사용자 인터넷 vs Upbit 서버 구분 처리
+- [ ] 잔고 불일치 에러 처리 (`insufficient_funds_ask`)
+- [ ] 자동매매 일시 중지/재개 메커니즘
+- [ ] 에러 텔레그램 알림 (연결 가능 시)
+
+#### ⏳ 다른 Topic에서 설계
+
+- [ ] 최소 주문 금액 처리 (Topic 7)
+- [ ] 텔레그램 알림 형식 (Topic 5)
+
+---
+
+### 15.5 설계 원칙 요약
+
+1. **예방 우선**: 에러가 발생하지 않도록 설계 (Rate Limit)
+2. **자동 복구**: 가능한 모든 에러는 자동 복구 시도
+3. **사용자 알림**: 복구 불가능한 에러는 즉시 알림
+4. **데이터 무결성**: 모든 에러 상황에서 positions.json 일관성 유지
+5. **로깅**: 모든 에러는 상세 로그 기록 (디버깅 용이)
+
+---
+
 ## 변경 이력
 
 - 2025-01-24 (v1): 초안 작성 - V4.0.0 설계 확정
 - 2025-01-24 (v2): 관찰 전용 모드 추가 (최상위 권한, 리스크 관리 제외)
 - 2025-01-24 (v3): V3→V4 마이그레이션 전략, Dry Run 모드 설계, 그룹 관리 제약사항 추가
 - 2025-01-24 (v4): GUI 상세 설계 추가 (메인 윈도우, 그룹 관리, 설정 다이얼로그)
+- 2025-01-24 (v5): 에러 처리 및 복구 전략 추가 (Rate Limit 예방, 네트워크 에러, 주문 실패)
 
 ---
 
