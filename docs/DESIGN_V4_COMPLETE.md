@@ -2601,7 +2601,497 @@ def save_trading_config(config: dict):
 
 ---
 
-### 15.6 구현 체크리스트
+### 15.6 API 키 에러 처리 (최적화)
+
+#### 핵심 원칙
+**API 키 에러는 네트워크와 무관** - 불필요한 재시도 제거
+
+#### API 키 에러 발생 시점
+
+| 시점 | 처리 방식 |
+|------|-----------|
+| 프로그램 시작 시 | 간단한 경고 다이얼로그 표시 → 종료 |
+| 거래 실행 중 | 자동매매 즉시 중지 → 텔레그램 알림 → 종료 |
+
+**최적화 포인트**:
+```python
+if error.name in ['jwt_verification', 'expired_access_key',
+                   'nonce_used', 'no_authorization_ip', 'out_of_scope']:
+    # ❌ 네트워크 진단 생략
+    # ❌ WebSocket 재연결 시도 생략
+    # ❌ 재시도 루프 생략
+
+    # ✅ 즉시 중지만 실행
+    await stop_trading_immediately(error.name)
+```
+
+**시작 시 에러**:
+```python
+async def check_api_keys_on_startup():
+    try:
+        # 간단한 API 호출 (계좌 조회)
+        account = await upbit_api.get_account()
+        return True
+
+    except APIError as e:
+        if e.name in ['jwt_verification', 'expired_access_key', ...]:
+            # 간단한 다이얼로그
+            show_error_dialog(
+                "API 키 오류",
+                f"원인: {e.message}\n"
+                f"해결: Upbit 설정에서 API 키 확인"
+            )
+            sys.exit(1)
+```
+
+**거래 중 에러**:
+```python
+async def handle_api_key_error_during_trading(error):
+    # 1. 자동매매 즉시 중지
+    await trading_engine.stop()
+
+    # 2. 텔레그램 긴급 알림
+    await telegram.send_alert(
+        "🚨 API 키 오류\n"
+        f"코드: {error.name}\n"
+        f"원인: {error.message}\n"
+        "자동매매 중지 - Upbit 설정 확인 필요"
+    )
+
+    # 3. GUI 경고 표시
+    gui.show_critical_error(f"API 키 오류: {error.name}")
+
+    # 4. 프로그램 종료 (데이터 안전 저장 후)
+    await safe_shutdown()
+```
+
+---
+
+### 15.7 통합 에러 처리 전략 (최종 설계)
+
+#### 핵심 아이디어
+**에러코드를 라우터로 사용** - 19가지 에러를 6가지 카테고리로 분류하여 최적 처리
+
+#### Upbit 공식 에러코드 맵
+
+```python
+# 출처: Upbit API 공식 문서
+ERROR_HANDLING_MAP = {
+    # ═══════════════════════════════════════════════════════
+    # 카테고리 1: API 키 에러 (즉시 중지, 재시도 없음)
+    # ═══════════════════════════════════════════════════════
+    "jwt_verification": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "JWT 검증 실패 - API 키 확인 필요"
+    },
+    "expired_access_key": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "만료된 액세스 키"
+    },
+    "nonce_used": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "이미 사용된 nonce"
+    },
+    "no_authorization_ip": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "허용되지 않은 IP 주소"
+    },
+    "out_of_scope": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "API 키 권한 부족"
+    },
+    "invalid_access_key": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "유효하지 않은 액세스 키"
+    },
+    "invalid_query_payload": {
+        "http": 401,
+        "category": "API_KEY",
+        "retry": False,
+        "network_check": False,
+        "action": "immediate_stop",
+        "message": "잘못된 쿼리 페이로드 (서명 오류)"
+    },
+
+    # ═══════════════════════════════════════════════════════
+    # 카테고리 2: Rate Limit (대기 후 재시도)
+    # ═══════════════════════════════════════════════════════
+    "too_many_requests": {
+        "http": 429,
+        "category": "RATE_LIMIT",
+        "retry": True,
+        "network_check": False,
+        "action": "wait_and_retry",
+        "message": "요청 횟수 초과 - 대기 후 재시도"
+    },
+    "thirdparty_api_limit": {
+        "http": 418,
+        "category": "RATE_LIMIT",
+        "retry": True,
+        "network_check": False,
+        "action": "wait_long",
+        "message": "IP/계정 차단 - 장시간 대기 필요"
+    },
+
+    # ═══════════════════════════════════════════════════════
+    # 카테고리 3: 주문 에러 (비즈니스 로직)
+    # ═══════════════════════════════════════════════════════
+    "insufficient_funds_ask": {
+        "http": 400,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "sync_balance",
+        "message": "매도 가능 수량 부족"
+    },
+    "insufficient_funds_bid": {
+        "http": 400,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "sync_balance",
+        "message": "매수 가능 금액 부족"
+    },
+    "under_min_total_ask": {
+        "http": 400,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "adjust_amount",
+        "message": "최소 주문 금액 미달 (5000원)"
+    },
+    "under_min_total_bid": {
+        "http": 400,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "adjust_amount",
+        "message": "최소 주문 금액 미달 (5000원)"
+    },
+    "order_not_found": {
+        "http": 404,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "skip",
+        "message": "주문을 찾을 수 없음"
+    },
+    "market_does_not_exist": {
+        "http": 400,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "skip",
+        "message": "존재하지 않는 마켓"
+    },
+    "validation_error": {
+        "http": 400,
+        "category": "ORDER",
+        "retry": False,
+        "network_check": False,
+        "action": "log_bug",
+        "message": "요청 파라미터 검증 실패 (버그 가능성)"
+    },
+
+    # ═══════════════════════════════════════════════════════
+    # 카테고리 4: 네트워크 에러 (진단 필요) ⭐ 유일하게 네트워크 체크
+    # ═══════════════════════════════════════════════════════
+    "timeout": {
+        "http": 0,
+        "category": "NETWORK",
+        "retry": True,
+        "network_check": True,  # ⭐ 네트워크 진단 필요
+        "action": "diagnose_and_retry",
+        "message": "요청 시간 초과"
+    },
+    "connection_error": {
+        "http": 0,
+        "category": "NETWORK",
+        "retry": True,
+        "network_check": True,  # ⭐ 네트워크 진단 필요
+        "action": "diagnose_and_retry",
+        "message": "연결 실패"
+    },
+
+    # ═══════════════════════════════════════════════════════
+    # 카테고리 5: 서버 에러 (백오프 재시도)
+    # ═══════════════════════════════════════════════════════
+    "internal_server_error": {
+        "http": 500,
+        "category": "SERVER",
+        "retry": True,
+        "network_check": False,
+        "action": "backoff_retry",
+        "message": "Upbit 서버 내부 오류"
+    }
+}
+```
+
+#### 통합 에러 핸들러
+
+```python
+async def handle_error(error: Exception):
+    """
+    모든 에러의 진입점 - 에러코드 기반 라우팅
+
+    17/19 에러: 네트워크 체크 생략 ✅
+    2/19 에러: 네트워크 진단 실행 (timeout, connection_error)
+    """
+
+    # 1. 에러코드 식별
+    if isinstance(error, APIError):
+        error_name = error.name
+        error_info = ERROR_HANDLING_MAP.get(error_name)
+
+        if not error_info:
+            # 알 수 없는 에러 → 보수적 처리
+            logger.error(f"⚠️ 미등록 에러: {error_name}")
+            error_info = {"category": "UNKNOWN", "retry": False,
+                          "network_check": True}
+    else:
+        # Python 예외 (requests.Timeout, ConnectionError, etc.)
+        error_name = type(error).__name__
+        if "timeout" in error_name.lower():
+            error_info = ERROR_HANDLING_MAP["timeout"]
+        elif "connection" in error_name.lower():
+            error_info = ERROR_HANDLING_MAP["connection_error"]
+        else:
+            error_info = {"category": "UNKNOWN", "retry": False}
+
+    # 2. 카테고리별 라우팅
+    category = error_info["category"]
+
+    if category == "API_KEY":
+        # ═══════════════════════════════════════════════════
+        # API 키 에러 → 즉시 중지 (네트워크 체크 생략)
+        # ═══════════════════════════════════════════════════
+        await handle_api_key_error(error_name, error_info)
+
+    elif category == "RATE_LIMIT":
+        # ═══════════════════════════════════════════════════
+        # Rate Limit → 대기만 (이미 예방됨, 만일의 경우)
+        # ═══════════════════════════════════════════════════
+        await handle_rate_limit_error(error_name, error_info)
+
+    elif category == "ORDER":
+        # ═══════════════════════════════════════════════════
+        # 주문 에러 → 비즈니스 로직 (Section 15.3 원래 설계)
+        # ═══════════════════════════════════════════════════
+        await handle_order_error(error_name, error_info)
+
+    elif category == "NETWORK":
+        # ═══════════════════════════════════════════════════
+        # 네트워크 에러 → 진단 실행 (Section 15.2 원래 설계) ⭐
+        # ═══════════════════════════════════════════════════
+        await handle_network_error(error_name, error_info)
+
+    elif category == "SERVER":
+        # ═══════════════════════════════════════════════════
+        # 서버 에러 → 백오프 재시도
+        # ═══════════════════════════════════════════════════
+        await handle_server_error(error_name, error_info)
+
+    else:
+        # 알 수 없는 에러 → 보수적 처리
+        await handle_unknown_error(error_name, error_info)
+```
+
+#### 카테고리별 핸들러 (원래 설계 통합)
+
+```python
+# ═══════════════════════════════════════════════════════
+# 1. API 키 에러 핸들러 (Section 15.6 원래 설계)
+# ═══════════════════════════════════════════════════════
+async def handle_api_key_error(error_name: str, error_info: dict):
+    """
+    최적화: 네트워크 체크 생략, 재시도 생략
+    """
+    logger.error(f"❌ API 키 에러: {error_name}")
+
+    # 즉시 중지
+    await trading_engine.stop()
+
+    # 텔레그램 알림
+    await telegram.send_alert(
+        f"🚨 API 키 오류\n"
+        f"코드: {error_name}\n"
+        f"원인: {error_info['message']}\n"
+        f"해결: Upbit 설정에서 API 키 확인"
+    )
+
+    # 안전 종료
+    await safe_shutdown()
+
+
+# ═══════════════════════════════════════════════════════
+# 2. Rate Limit 핸들러 (Section 15.1 원래 설계)
+# ═══════════════════════════════════════════════════════
+async def handle_rate_limit_error(error_name: str, error_info: dict):
+    """
+    이미 예방되어 있지만, 만일의 경우 대기
+    """
+    if error_name == "too_many_requests":
+        logger.warning("⚠️ Rate Limit 초과 (희귀)")
+        await asyncio.sleep(1)  # 1초 대기
+
+    elif error_name == "thirdparty_api_limit":
+        logger.error("❌ IP/계정 차단")
+        await telegram.send_alert("⚠️ Upbit IP 차단 - 장시간 대기 필요")
+        await asyncio.sleep(300)  # 5분 대기
+
+
+# ═══════════════════════════════════════════════════════
+# 3. 주문 에러 핸들러 (Section 15.3 원래 설계)
+# ═══════════════════════════════════════════════════════
+async def handle_order_error(error_name: str, error_info: dict):
+    """
+    비즈니스 로직 처리 (네트워크 체크 생략)
+    """
+    action = error_info["action"]
+
+    if action == "sync_balance":
+        # 잔고 부족 → 실제 잔고 동기화 (Section 15.3.3)
+        logger.warning(f"⚠️ 잔고 부족: {error_name}")
+        await sync_balance_with_upbit()
+        await trading_engine.pause()
+
+    elif action == "adjust_amount":
+        # 최소 주문 금액 미달 → Topic 7에서 상세 설계
+        logger.info(f"ℹ️ 최소 주문 금액 미달: {error_name}")
+        # Topic 7 로직 연결 예정
+
+    elif action == "skip":
+        # 주문 없음, 마켓 없음 → 스킵
+        logger.info(f"ℹ️ 주문 스킵: {error_name}")
+
+    elif action == "log_bug":
+        # 검증 에러 → 버그 가능성
+        logger.error(f"🐛 버그 가능성: {error_name} - {error_info['message']}")
+        await telegram.send_alert(f"🐛 버그 감지: {error_name}")
+
+
+# ═══════════════════════════════════════════════════════
+# 4. 네트워크 에러 핸들러 (Section 15.2 원래 설계) ⭐
+# ═══════════════════════════════════════════════════════
+async def handle_network_error(error_name: str, error_info: dict):
+    """
+    유일하게 네트워크 진단 실행
+    """
+    logger.error(f"❌ 네트워크 에러: {error_name}")
+
+    # 1. 자동매매 중지
+    await trading_engine.pause()
+
+    # 2. 네트워크 진단 (Section 15.2 원래 설계)
+    issue_type = await diagnose_network_issue()
+
+    # 3. 유형별 재시도
+    if issue_type == "USER_INTERNET_DOWN":
+        # 사용자 인터넷 끊김 → 10초 재시도
+        logger.error("⚠️ 인터넷 연결 끊김")
+        await infinite_reconnect(interval=10)
+
+    elif issue_type == "UPBIT_SERVER_DOWN":
+        # Upbit 서버 다운 → 30초 재시도 + 텔레그램
+        logger.error("⚠️ Upbit 서버 연결 불가")
+        await telegram.send_alert("⚠️ Upbit 서버 다운\n재연결 시도 중...")
+        await infinite_reconnect(interval=30)
+
+    # 4. 복구 완료 → 재개
+    await trading_engine.resume()
+
+
+# ═══════════════════════════════════════════════════════
+# 5. 서버 에러 핸들러
+# ═══════════════════════════════════════════════════════
+async def handle_server_error(error_name: str, error_info: dict):
+    """
+    Upbit 서버 내부 오류 → 백오프 재시도
+    """
+    logger.error(f"❌ 서버 에러: {error_name}")
+
+    # Exponential backoff (2초, 4초, 8초, 16초, 32초)
+    for attempt in range(5):
+        wait_time = 2 ** attempt
+        logger.info(f"⏳ {wait_time}초 후 재시도 ({attempt+1}/5)")
+        await asyncio.sleep(wait_time)
+
+        try:
+            # 재시도
+            return await retry_last_operation()
+        except Exception:
+            continue
+
+    # 5회 실패 → 텔레그램 알림
+    await telegram.send_alert("❌ Upbit 서버 오류 지속\n자동매매 일시 중지")
+    await trading_engine.pause()
+```
+
+#### WebSocket 에러 통합
+
+```python
+# WebSocket 에러도 동일한 라우터 사용
+async def handle_websocket_error(ws_type: str, error: Exception):
+    """
+    WebSocket 에러 → 같은 에러 핸들러 사용
+
+    WebSocket 특정 에러:
+    - INVALID_AUTH → API 키 에러로 라우팅
+    - 연결 끊김 → 네트워크 에러로 라우팅 (Section 15.4 원래 설계)
+    """
+    if hasattr(error, 'code'):
+        if error.code == "INVALID_AUTH":
+            # API 키 에러로 라우팅
+            await handle_error(APIError(name="jwt_verification",
+                                       message="WebSocket 인증 실패"))
+        else:
+            logger.warning(f"⚠️ WebSocket 에러: {error.code}")
+    else:
+        # 연결 끊김 → Section 15.4 원래 설계 사용
+        await handle_websocket_disconnect(ws_type)
+```
+
+#### 최적화 효과
+
+| 에러 카테고리 | 개수 | 네트워크 체크 | 재시도 | 처리 시간 |
+|--------------|------|---------------|--------|-----------|
+| API 키 | 7 | ❌ 생략 | ❌ 없음 | 즉시 (0.1초) |
+| Rate Limit | 2 | ❌ 생략 | ✅ 있음 | 1-300초 대기 |
+| 주문 에러 | 7 | ❌ 생략 | ❌ 없음 | 즉시 (0.1초) |
+| **네트워크** | 2 | ✅ 실행 | ✅ 있음 | 15초 진단 + 재시도 |
+| 서버 에러 | 1 | ❌ 생략 | ✅ 있음 | 백오프 재시도 |
+
+**핵심 최적화**:
+- 17개 에러: 네트워크 진단 생략 (15초 절약) ✅
+- 2개 에러만: 네트워크 진단 실행 (timeout, connection_error)
+
+---
+
+### 15.8 구현 체크리스트
 
 #### ✅ 이미 구현됨 (추가 작업 불필요)
 
@@ -2612,32 +3102,98 @@ def save_trading_config(config: dict):
 
 #### ⚠️ V4 구현 시 추가 필요
 
-- [ ] 네트워크 진단 로직 (`diagnose_network_issue()`)
-- [ ] WebSocket 재연결 무한 재시도
-- [ ] 자동매매 일시 중지/재개 메커니즘
-- [ ] trading_config.json 통합 파일 구조
-- [ ] 안전한 저장 (원자적 쓰기 + 백업)
-- [ ] 데이터 손상 자동 복구
+- [ ] **통합 에러 핸들러** (`handle_error()` 진입점)
+- [ ] **ERROR_HANDLING_MAP** (19가지 Upbit 공식 에러코드)
+- [ ] **네트워크 진단 로직** (`diagnose_network_issue()` - timeout/connection_error만)
+- [ ] **WebSocket 재연결 무한 재시도**
+- [ ] **자동매매 일시 중지/재개 메커니즘**
+- [ ] **trading_config.json 통합 파일 구조**
+- [ ] **안전한 저장** (원자적 쓰기 + 백업)
+- [ ] **데이터 손상 자동 복구**
+- [ ] **API 키 에러 최적화** (프로그램 시작 vs 거래 중)
 
 #### ⏳ 다른 Topic에서 설계
 
-- [ ] 최소 주문 금액 처리 (Topic 7)
+- [ ] 최소 주문 금액 처리 (Topic 7) - `adjust_amount` action 연결
 - [ ] 텔레그램 알림 형식 (Topic 5)
-- [ ] API 키 에러 처리 (Topic 6 계속)
 
 ---
 
-### 15.7 설계 원칙 요약
+### 15.9 설계 원칙 요약
 
-1. **예방 우선**: 에러가 발생하지 않도록 설계 (Rate Limit)
-2. **자동 복구**: 가능한 모든 에러는 자동 복구 시도 (WebSocket, 데이터 손상)
-3. **간단함 유지**: 복잡한 분기 제거, 일관된 처리
-4. **데이터 무결성**:
+#### 최종 에러 처리 아키텍처
+
+```
+┌─────────────────────────────────────────────────┐
+│  에러 발생 (REST API / WebSocket / Python)      │
+└────────────────┬────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────┐
+│  통합 에러 핸들러 (handle_error)                 │
+│  - 에러코드 식별                                 │
+│  - ERROR_HANDLING_MAP 조회                      │
+└────────────────┬────────────────────────────────┘
+                 │
+    ┌────────────┼──────────┬──────────┬──────────┐
+    │            │          │          │          │
+    ▼            ▼          ▼          ▼          ▼
+┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+│API 키  │ │Rate    │ │주문    │ │네트워크│ │서버    │
+│7개     │ │Limit   │ │7개     │ │2개 ⭐  │ │1개     │
+│        │ │2개     │ │        │ │        │ │        │
+└────┬───┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘
+     │         │          │          │          │
+     ▼         ▼          ▼          ▼          ▼
+  즉시중지   대기재시도  비즈니스  네트워크진단  백오프
+  (0.1초)  (1-300초)    로직    (15초+재시도) (2-32초)
+     │         │          │          │          │
+     └─────────┴──────────┴──────────┴──────────┘
+                         │
+                         ▼
+                ┌──────────────────┐
+                │ 로깅 + 텔레그램  │
+                └──────────────────┘
+```
+
+#### 핵심 설계 원칙
+
+1. **예방 우선**: 에러가 발생하지 않도록 설계 (Rate Limit 예방)
+
+2. **에러코드 기반 라우팅**:
+   - Upbit 공식 에러코드 19가지를 6개 카테고리로 분류
+   - 각 에러의 특성에 맞는 최적 처리 경로
+   - 불필요한 네트워크 체크 제거 (17/19 에러)
+
+3. **자동 복구**:
+   - 가능한 모든 에러는 자동 복구 시도 (네트워크, WebSocket, 데이터 손상)
+   - 복구 불가능한 에러만 사용자 개입 요청 (API 키)
+
+4. **간단함 유지**:
+   - 복잡한 분기 제거
+   - 일관된 처리 (모든 WebSocket 동일 전략)
+   - 단일 진입점 (`handle_error()`)
+
+5. **데이터 무결성**:
    - Upbit을 진실의 원천으로 사용
-   - 파일 저장은 프로그램 상태만
+   - 파일 저장은 프로그램 상태만 (DCA 레벨, 진입 시각)
    - 원자적 저장 + 백업
-5. **사용자 알림**: 복구 불가능한 에러는 즉시 알림 + 안전 종료
-6. **로깅**: 모든 에러는 상세 로그 기록
+   - 단일 파일 (`trading_config.json`)
+
+6. **최적화**:
+   - API 키 에러 → 네트워크 체크 생략 (15초 절약)
+   - Rate Limit 에러 → 대기만, 진단 없음
+   - 주문 에러 → 비즈니스 로직만
+   - 네트워크 에러 (2개만) → 진단 실행 ⭐
+
+7. **사용자 알림**:
+   - 복구 불가능한 에러는 즉시 텔레그램 알림 + 안전 종료
+   - 복구 가능한 에러는 상황별 알림 (Upbit 서버 다운만 알림)
+
+8. **로깅**:
+   - 모든 에러는 상세 로그 기록
+   - 에러 카테고리 명시
+   - 처리 경로 추적 가능
 
 ---
 
@@ -2649,6 +3205,7 @@ def save_trading_config(config: dict):
 - 2025-01-24 (v4): GUI 상세 설계 추가 (메인 윈도우, 그룹 관리, 설정 다이얼로그)
 - 2025-01-24 (v5): 에러 처리 및 복구 전략 추가 (Rate Limit 예방, 네트워크 에러, 주문 실패)
 - 2025-01-24 (v6): WebSocket 재연결 전략 + 데이터 구조 통합 (trading_config.json 하나로 통합)
+- 2025-01-24 (v7): 에러 처리 최종 통합 - Upbit 공식 에러코드 19개 기반 라우팅 시스템 (Topic 6 완료)
 
 ---
 
