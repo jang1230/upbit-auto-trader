@@ -3847,6 +3847,813 @@ async def execute_dca_buy(symbol: str, level: DCALevel, level_num: int):
 
 ---
 
+## Section 17: 포트폴리오 통계 (Portfolio Statistics)
+
+> **Topic 8 (9개 중 8번째)**: V4에서 사용자에게 제공할 포트폴리오 통계 설계
+
+---
+
+### 17.1 핵심 설계 원칙
+
+#### 데이터 수집 전략
+
+**목표**: Rate Limit을 발생시키지 않고 실시간 통계 제공
+
+**방법**:
+1. **최초 1회 REST API 호출**: 프로그램 시작 시 현재 잔고 및 포지션 조회
+2. **WebSocket 기반 실시간 업데이트**:
+   - `MyAsset` WebSocket: 잔고 변동 실시간 수신 (KRW + 코인 잔고)
+   - `Ticker` WebSocket: 현재가 실시간 수신
+3. **메모리 캐싱**: WebSocket 데이터를 메모리에 저장
+4. **GUI 업데이트**: 메모리에서 읽기만 (API 호출 0회)
+
+**결과**: 프로그램 실행 중 REST API 호출 없이 실시간 통계 제공
+
+#### GUI 업데이트 메커니즘
+
+**이벤트 기반 업데이트** (타이머 기반 아님)
+
+```python
+# V3 스타일 유지 (main_window.py:1574-1587 기반)
+class MainWindow(QMainWindow):
+    def __init__(self):
+        self.last_summary_update = 0  # Throttling용
+
+        # WebSocket 신호 연결
+        self.websocket_manager.price_updated.connect(self._update_statistics_throttled)
+        self.websocket_manager.balance_updated.connect(self._update_statistics_throttled)
+
+    def _update_statistics_throttled(self):
+        """
+        통계 업데이트 (500ms throttling)
+
+        데이터가 변경될 때만 실행되며, 500ms 이내 중복 호출은 무시
+        """
+        now = time.time()
+
+        if now - self.last_summary_update < 0.5:
+            return  # Skip
+
+        self.last_summary_update = now
+        self._update_statistics()  # 실제 GUI 업데이트
+```
+
+**장점**:
+- 데이터 변경 시에만 업데이트 (CPU 효율)
+- 500ms throttling으로 과도한 GUI redraw 방지
+- V3에서 이미 검증된 방식
+
+---
+
+### 17.2 전체 포트폴리오 통계 (A. Overall Portfolio)
+
+#### 표시 항목
+
+```
+┌─────────────────────────────────────────────────────┐
+│ 📊 전체 포트폴리오                                    │
+├─────────────────────────────────────────────────────┤
+│ 💰 총 자산          : 1,250,000원                    │
+│    - 보유 현금(KRW) : 200,000원                      │
+│    - 보유 자산      : 1,050,000원                    │
+│                                                       │
+│ 📈 평가 손익        : +50,000원 (+4.17%)             │
+│                       ⚠️ 수수료 미포함 (매매 시 각 0.05%) │
+│                                                       │
+│ 📊 활성 포지션      : 3개 종목                        │
+│    - 익절 대기      : 2개                            │
+│    - 손절 대기      : 1개                            │
+│                                                       │
+│ 📅 오늘 거래        : 5건 (매수 3, 매도 2)            │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 계산 로직
+
+```python
+async def calculate_portfolio_stats(self):
+    """전체 포트폴리오 통계 계산"""
+    # 1. 보유 현금 (MyAsset WebSocket에서)
+    krw_balance = self.myasset_manager.get_krw_balance()
+
+    # 2. 보유 자산 계산
+    total_coin_value = 0
+    total_profit_loss = 0
+
+    positions = self.position_manager.get_all_positions()
+    for symbol, position in positions.items():
+        # 현재가 (Ticker WebSocket에서)
+        current_price = self.ticker_manager.get_price(symbol)
+
+        # 평가금액
+        coin_value = current_price * position.quantity
+        total_coin_value += coin_value
+
+        # 평가손익 (수수료 미포함)
+        profit_loss = (current_price - position.avg_entry_price) * position.quantity
+        total_profit_loss += profit_loss
+
+    # 3. 총 자산
+    total_assets = krw_balance + total_coin_value
+
+    # 4. 수익률
+    initial_capital = self.get_initial_capital()  # settings에서
+    return_pct = (total_profit_loss / initial_capital) * 100
+
+    # 5. 활성 포지션 분류
+    takeprofit_waiting = sum(1 for p in positions.values() if p.profit_loss > 0)
+    stoploss_waiting = sum(1 for p in positions.values() if p.profit_loss < 0)
+
+    # 6. 오늘 거래 건수
+    today_trades = self.trade_history_manager.get_today_trades()
+
+    return {
+        'total_assets': total_assets,
+        'krw_balance': krw_balance,
+        'coin_value': total_coin_value,
+        'profit_loss': total_profit_loss,
+        'return_pct': return_pct,
+        'active_positions': len(positions),
+        'takeprofit_waiting': takeprofit_waiting,
+        'stoploss_waiting': stoploss_waiting,
+        'today_buys': today_trades['buy_count'],
+        'today_sells': today_trades['sell_count']
+    }
+```
+
+---
+
+### 17.3 그룹별 통계 (B. Group Statistics)
+
+#### 표시 항목
+
+```
+┌─────────────────────────────────────────────────────┐
+│ 📊 그룹별 통계                                        │
+├─────────────────────────────────────────────────────┤
+│ 🔷 대형코인                                          │
+│    활성: 2개 | 총 평가: 800,000원 | 손익: +30,000원 (+3.9%) │
+│                                                       │
+│ 🔶 중형코인                                          │
+│    활성: 1개 | 총 평가: 250,000원 | 손익: +20,000원 (+8.7%) │
+│                                                       │
+│ 🔸 소형코인                                          │
+│    활성: 0개 | 총 평가: 0원 | 손익: 0원 (0.0%)       │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 계산 로직
+
+```python
+async def calculate_group_stats(self):
+    """그룹별 통계 계산"""
+    group_stats = {}
+
+    for group_name in self.config_manager.get_all_groups():
+        symbols = self.config_manager.get_group_symbols(group_name)
+
+        active_count = 0
+        total_value = 0
+        total_profit = 0
+        total_cost = 0
+
+        for symbol in symbols:
+            position = self.position_manager.get_position(symbol)
+            if not position:
+                continue
+
+            active_count += 1
+            current_price = self.ticker_manager.get_price(symbol)
+
+            # 평가금액
+            value = current_price * position.quantity
+            total_value += value
+
+            # 손익
+            profit = (current_price - position.avg_entry_price) * position.quantity
+            total_profit += profit
+
+            # 매입금액
+            cost = position.avg_entry_price * position.quantity
+            total_cost += cost
+
+        # 수익률
+        return_pct = (total_profit / total_cost * 100) if total_cost > 0 else 0
+
+        group_stats[group_name] = {
+            'active_count': active_count,
+            'total_value': total_value,
+            'profit': total_profit,
+            'return_pct': return_pct
+        }
+
+    return group_stats
+```
+
+---
+
+### 17.4 거래 통계 (D. Trade Statistics)
+
+#### 표시 항목
+
+```
+┌─────────────────────────────────────────────────────┐
+│ 📊 거래 통계 (누적)                                   │
+├─────────────────────────────────────────────────────┤
+│ 📈 총 거래 횟수     : 47건                           │
+│    - 익절          : 32건 (68.1%)                    │
+│    - 손절          : 15건 (31.9%)                    │
+│                                                       │
+│ 💰 총 손익          : +127,450원                     │
+│    - 총 수익       : +245,000원 (익절)               │
+│    - 총 손실       : -117,550원 (손절)               │
+│                                                       │
+│ 📊 평균 수익률      : +2.71%                         │
+│    - 익절 평균     : +5.12%                          │
+│    - 손절 평균     : -3.45%                          │
+│                                                       │
+│ ⏱️ 평균 보유 시간   : 4시간 23분                     │
+│    - 익절 평균     : 3시간 45분                      │
+│    - 손절 평균     : 5시간 52분                      │
+│                                                       │
+│ 🎯 최대 연속 익절   : 7회                            │
+│ ❌ 최대 연속 손절   : 3회                            │
+│                                                       │
+│ 📋 [📊 엑셀로 내보내기]  버튼                         │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 거래 이력 상세 기록 (`trade_history.json`)
+
+**목적**:
+1. 누적 통계 계산
+2. 백테스팅과 유사한 상세 분석
+3. 전략 변경 전후 비교 (예: 대형코인 그룹 설정 변경 효과 분석)
+
+**데이터 구조**:
+
+```json
+{
+  "trades": [
+    {
+      "trade_id": "TR-20250124-001",
+      "timestamp": "2025-01-24T10:23:45",
+      "group": "대형코인",
+      "symbol": "KRW-BTC",
+
+      "entry": {
+        "timestamp": "2025-01-24T10:23:45",
+        "price": 105000,
+        "amount": 0.01,
+        "total_krw": 1050,
+        "fee": 0.525
+      },
+
+      "dca_history": [
+        {
+          "level": 1,
+          "timestamp": "2025-01-24T11:30:00",
+          "trigger_price": 94500,
+          "buy_price": 94500,
+          "amount": 0.0106,
+          "total_krw": 1000,
+          "fee": 0.5
+        },
+        {
+          "level": 2,
+          "timestamp": "2025-01-24T12:45:00",
+          "trigger_price": 85050,
+          "buy_price": 85050,
+          "amount": 0.0118,
+          "total_krw": 1000,
+          "fee": 0.5
+        }
+      ],
+
+      "exit": {
+        "type": "take_profit",
+        "level": 1,
+        "timestamp": "2025-01-24T14:30:00",
+        "price": 99750,
+        "amount": 0.0324,
+        "total_krw": 3231.9,
+        "fee": 1.616,
+        "net_received": 3230.284
+      },
+
+      "profit_analysis": {
+        "total_buy_cost": 3050,
+        "total_buy_fees": 1.525,
+        "total_sell_received": 3231.9,
+        "total_sell_fees": 1.616,
+        "net_profit": 178.759,
+        "return_pct": 5.86,
+        "holding_period_minutes": 247,
+        "holding_period_text": "4시간 7분"
+      },
+
+      "strategy": {
+        "name": "ScalpingStrategy",
+        "dca_levels_used": 2,
+        "max_dca_levels": 6,
+        "profit_target_pct": 5.0,
+        "stop_loss_pct": -10.0,
+        "buy_interval_pct": -10.0
+      },
+
+      "metadata": {
+        "dry_run": false,
+        "trading_mode": "semi_auto",
+        "group_settings_hash": "abc123def456",
+        "notes": ""
+      }
+    }
+  ]
+}
+```
+
+**필드 설명**:
+
+| 필드 | 설명 | 용도 |
+|------|------|------|
+| `trade_id` | 거래 고유 ID | 추적 및 엑셀 내보내기 |
+| `entry` | 최초 매수 정보 | 진입점 분석 |
+| `dca_history` | DCA 추가매수 배열 | DCA 효과 분석 |
+| `exit` | 매도 정보 (익절/손절) | 청산 분석 |
+| `profit_analysis` | 손익 상세 분석 | 수익률 계산 (수수료 포함) |
+| `strategy` | 사용한 전략 정보 | 전략 비교 |
+| `group_settings_hash` | 그룹 설정 해시값 | 설정 변경 전후 비교 |
+
+**기록 시점**:
+- `entry`: 최초 매수 체결 시
+- `dca_history[]`: 각 DCA 매수 체결 시 추가
+- `exit`: 익절/손절 매도 체결 시 (거래 완료)
+
+---
+
+### 17.5 엑셀 내보내기 (Excel Export)
+
+#### 목적
+
+1. **상세 분석**: GUI에서 보기 어려운 세부 데이터 분석
+2. **전략 비교**: 설정 변경 전후 효과 비교
+3. **백테스팅 효과**: 실제 거래 데이터로 전략 검증
+
+**예시 사용 사례** (사용자 제안):
+> "대형코인 그룹에 설정을 하던게 승률이 별로라서 만약 변경을했다면 변경전 설정과 변경후 설정의 결과값 통계를 볼수있다"
+
+#### 엑셀 구조
+
+**파일명**: `trade_history_20250124_143022.xlsx`
+
+**Sheet 1: 거래 요약 (Trade Summary)**
+
+| trade_id | 시작 시각 | 종료 시각 | 그룹 | 코인 | 전략 | 결과 | 수익률(%) | 순손익(원) | 보유시간 |
+|----------|-----------|-----------|------|------|------|------|-----------|------------|---------|
+| TR-001 | 01-24 10:23 | 01-24 14:30 | 대형코인 | BTC | Scalping | 익절 | +5.86 | +178.76 | 4h 7m |
+| TR-002 | 01-24 11:45 | 01-24 15:20 | 중형코인 | ETH | Scalping | 손절 | -3.21 | -32.14 | 3h 35m |
+
+**Sheet 2: 매수 상세 (Buy Details)**
+
+| trade_id | 매수 유형 | DCA 레벨 | 시각 | 가격 | 수량 | 금액 | 수수료 |
+|----------|-----------|----------|------|------|------|------|--------|
+| TR-001 | 최초 매수 | 0 | 01-24 10:23 | 105,000 | 0.01 | 1,050 | 0.525 |
+| TR-001 | DCA | 1 | 01-24 11:30 | 94,500 | 0.0106 | 1,000 | 0.5 |
+| TR-001 | DCA | 2 | 01-24 12:45 | 85,050 | 0.0118 | 1,000 | 0.5 |
+
+**Sheet 3: 매도 상세 (Sell Details)**
+
+| trade_id | 매도 유형 | 레벨 | 시각 | 가격 | 수량 | 금액 | 수수료 | 실수령액 |
+|----------|-----------|------|------|------|------|------|--------|---------|
+| TR-001 | 익절 | 1 | 01-24 14:30 | 99,750 | 0.0324 | 3,231.9 | 1.616 | 3,230.28 |
+
+**Sheet 4: 통계 요약 (Statistics Summary)**
+
+| 항목 | 값 |
+|------|-----|
+| 총 거래 횟수 | 47건 |
+| 익절 횟수 | 32건 (68.1%) |
+| 손절 횟수 | 15건 (31.9%) |
+| 총 손익 | +127,450원 |
+| 평균 수익률 | +2.71% |
+| 익절 평균 수익률 | +5.12% |
+| 손절 평균 손실률 | -3.45% |
+| 평균 보유 시간 | 4시간 23분 |
+| 최대 연속 익절 | 7회 |
+| 최대 연속 손절 | 3회 |
+
+**Sheet 5: 그룹별 분석 (Group Analysis)**
+
+| 그룹 | 거래 횟수 | 익절 | 손절 | 승률(%) | 총 손익 | 평균 수익률 |
+|------|-----------|------|------|---------|---------|-------------|
+| 대형코인 | 25 | 18 | 7 | 72.0% | +85,240원 | +3.41% |
+| 중형코인 | 15 | 10 | 5 | 66.7% | +32,180원 | +2.15% |
+| 소형코인 | 7 | 4 | 3 | 57.1% | +10,030원 | +1.43% |
+
+**Sheet 6: 코인별 분석 (Coin Analysis)**
+
+| 코인 | 거래 횟수 | 익절 | 손절 | 승률(%) | 총 손익 | 평균 수익률 |
+|------|-----------|------|------|---------|---------|-------------|
+| KRW-BTC | 12 | 9 | 3 | 75.0% | +45,200원 | +3.78% |
+| KRW-ETH | 10 | 7 | 3 | 70.0% | +28,450원 | +2.85% |
+| KRW-XRP | 8 | 5 | 3 | 62.5% | +15,780원 | +1.97% |
+
+#### 구현 방법
+
+```python
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill
+from datetime import datetime
+
+async def export_to_excel(self, output_path: str):
+    """
+    거래 이력을 엑셀 파일로 내보내기
+
+    Args:
+        output_path: 저장할 파일 경로 (예: "trade_history_20250124.xlsx")
+    """
+    # 1. trade_history.json 읽기
+    with open('data/trade_history.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    # 2. 워크북 생성
+    wb = openpyxl.Workbook()
+
+    # 3. Sheet 1: 거래 요약
+    ws_summary = wb.active
+    ws_summary.title = "거래 요약"
+    self._create_summary_sheet(ws_summary, data['trades'])
+
+    # 4. Sheet 2: 매수 상세
+    ws_buys = wb.create_sheet("매수 상세")
+    self._create_buy_details_sheet(ws_buys, data['trades'])
+
+    # 5. Sheet 3: 매도 상세
+    ws_sells = wb.create_sheet("매도 상세")
+    self._create_sell_details_sheet(ws_sells, data['trades'])
+
+    # 6. Sheet 4: 통계 요약
+    ws_stats = wb.create_sheet("통계 요약")
+    self._create_statistics_sheet(ws_stats, data['trades'])
+
+    # 7. Sheet 5: 그룹별 분석
+    ws_groups = wb.create_sheet("그룹별 분석")
+    self._create_group_analysis_sheet(ws_groups, data['trades'])
+
+    # 8. Sheet 6: 코인별 분석
+    ws_coins = wb.create_sheet("코인별 분석")
+    self._create_coin_analysis_sheet(ws_coins, data['trades'])
+
+    # 9. 저장
+    wb.save(output_path)
+
+    logger.info(f"✅ 엑셀 내보내기 완료: {output_path}")
+    await self.telegram.send_alert(f"📊 거래 내역 엑셀 내보내기 완료\n파일: {output_path}")
+```
+
+#### GUI 버튼
+
+**위치**: 통계 탭 하단
+
+```python
+# 통계 탭에 엑셀 내보내기 버튼 추가
+export_btn = QPushButton("📊 엑셀로 내보내기")
+export_btn.clicked.connect(self._on_export_excel)
+
+async def _on_export_excel(self):
+    """엑셀 내보내기 버튼 클릭 시"""
+    # 파일 저장 다이얼로그
+    filename = f"trade_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    file_path, _ = QFileDialog.getSaveFileName(
+        self,
+        "거래 내역 내보내기",
+        filename,
+        "Excel Files (*.xlsx)"
+    )
+
+    if not file_path:
+        return  # 취소
+
+    # 엑셀 내보내기 실행
+    await self.trade_history_manager.export_to_excel(file_path)
+
+    # 완료 메시지
+    QMessageBox.information(
+        self,
+        "내보내기 완료",
+        f"거래 내역이 엑셀 파일로 저장되었습니다.\n\n{file_path}"
+    )
+```
+
+---
+
+### 17.6 수수료 처리 방침
+
+#### 핵심 원칙: 차등 처리
+
+**보유 중 포지션**: 수수료 미포함 (명목 손익)
+- 이유: 아직 매도하지 않아 실제 수수료 발생하지 않음
+- 표시: "⚠️ 수수료 미포함 (매매 시 각 0.05%)"
+
+**매도 완료 거래**: 수수료 포함 (실제 손익)
+- 이유: 매도 완료 시 Upbit API가 `paid_fee` 제공
+- 표시: "✅ 수수료 포함 (실제 손익)"
+
+#### Upbit API 데이터 구조
+
+**매수 체결 응답**:
+```json
+{
+  "uuid": "order-uuid",
+  "side": "bid",
+  "price": "105000.0",
+  "executed_volume": "0.01",
+  "paid_fee": "0.525",          // ⭐ 실제 지불한 수수료
+  "trades": [...]
+}
+```
+
+**매도 체결 응답**:
+```json
+{
+  "uuid": "order-uuid",
+  "side": "ask",
+  "price": "110000.0",
+  "executed_volume": "0.01",
+  "paid_fee": "0.55",           // ⭐ 실제 지불한 수수료
+  "trades": [...]
+}
+```
+
+#### 계산 로직
+
+**보유 중 포지션 (GUI 표시)**:
+```python
+def calculate_unrealized_profit(position, current_price):
+    """
+    보유 중 포지션 평가손익 (수수료 미포함)
+    """
+    profit_loss = (current_price - position.avg_entry_price) * position.quantity
+    return_pct = ((current_price - position.avg_entry_price) / position.avg_entry_price) * 100
+
+    return {
+        'profit_loss': profit_loss,
+        'return_pct': return_pct,
+        'note': '⚠️ 수수료 미포함 (매매 시 각 0.05%)'
+    }
+```
+
+**매도 완료 거래 (trade_history.json)**:
+```python
+def record_completed_trade(trade):
+    """
+    매도 완료 거래 기록 (수수료 포함)
+    """
+    # 매수 총 비용
+    total_buy_cost = sum([
+        buy['total_krw'] for buy in [trade['entry']] + trade['dca_history']
+    ])
+
+    # 매수 총 수수료 (Upbit API paid_fee 합산)
+    total_buy_fees = sum([
+        buy['fee'] for buy in [trade['entry']] + trade['dca_history']
+    ])
+
+    # 매도 수령액 (Upbit API paid_fee 차감됨)
+    total_sell_received = trade['exit']['total_krw']
+    total_sell_fees = trade['exit']['fee']
+
+    # 실제 순손익
+    net_profit = total_sell_received - total_buy_cost - total_buy_fees - total_sell_fees
+    return_pct = (net_profit / total_buy_cost) * 100
+
+    return {
+        'net_profit': net_profit,
+        'return_pct': return_pct,
+        'note': '✅ 수수료 포함 (실제 손익)'
+    }
+```
+
+#### GUI 표시 예시
+
+**활성 포지션 탭**:
+```
+┌────────────────────────────────────────────┐
+│ 코인: KRW-BTC                              │
+│ 평가손익: +5,000원 (+4.76%)                │
+│ ⚠️ 수수료 미포함 (매매 시 각 0.05%)        │
+└────────────────────────────────────────────┘
+```
+
+**거래 내역 탭** (매도 완료):
+```
+┌────────────────────────────────────────────┐
+│ 코인: KRW-ETH                              │
+│ 실현손익: +4,877원 (+4.65%)                │
+│ ✅ 수수료 포함 (실제 손익)                  │
+└────────────────────────────────────────────┘
+```
+
+---
+
+### 17.7 GUI 레이아웃 (Statistics Tab)
+
+#### 탭 구조
+
+```
+┌────────────────────────────────────────────────────────┐
+│ [📊 활성 포지션] [📋 거래 내역] [📈 통계] ← New!      │
+└────────────────────────────────────────────────────────┘
+```
+
+#### 통계 탭 내부 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 📈 통계                                                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│ ┌─────────────────────────────────────────────────────┐    │
+│ │ 📊 전체 포트폴리오                                    │    │
+│ │ - 총 자산: 1,250,000원                               │    │
+│ │ - 평가 손익: +50,000원 (+4.17%)                      │    │
+│ │   ⚠️ 수수료 미포함 (매매 시 각 0.05%)                │    │
+│ └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│ ┌─────────────────────────────────────────────────────┐    │
+│ │ 📊 그룹별 통계                                        │    │
+│ │ 🔷 대형코인: 2개 | +30,000원 (+3.9%)                 │    │
+│ │ 🔶 중형코인: 1개 | +20,000원 (+8.7%)                 │    │
+│ └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│ ┌─────────────────────────────────────────────────────┐    │
+│ │ 📊 거래 통계 (누적)                                   │    │
+│ │ - 총 거래: 47건 (익절 32, 손절 15)                   │    │
+│ │ - 승률: 68.1%                                        │    │
+│ │ - 총 손익: +127,450원 (평균 +2.71%)                 │    │
+│ │   ✅ 수수료 포함 (실제 손익)                          │    │
+│ │                                                       │    │
+│ │ [📊 엑셀로 내보내기]  버튼                            │    │
+│ └─────────────────────────────────────────────────────┘    │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 구현 코드
+
+```python
+class StatisticsTab(QWidget):
+    """통계 탭"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # 1. 전체 포트폴리오 위젯
+        self.portfolio_widget = self._create_portfolio_widget()
+        layout.addWidget(self.portfolio_widget)
+
+        # 2. 그룹별 통계 위젯
+        self.group_widget = self._create_group_widget()
+        layout.addWidget(self.group_widget)
+
+        # 3. 거래 통계 위젯
+        self.trade_widget = self._create_trade_widget()
+        layout.addWidget(self.trade_widget)
+
+        # 4. 여백
+        layout.addStretch()
+
+        self.setLayout(layout)
+
+    def _create_portfolio_widget(self):
+        """전체 포트폴리오 위젯 생성"""
+        widget = QGroupBox("📊 전체 포트폴리오")
+        layout = QVBoxLayout()
+
+        self.total_assets_label = QLabel("💰 총 자산: 0원")
+        self.krw_balance_label = QLabel("   - 보유 현금(KRW): 0원")
+        self.coin_value_label = QLabel("   - 보유 자산: 0원")
+        self.profit_loss_label = QLabel("📈 평가 손익: 0원 (0.0%)")
+        self.fee_warning_label = QLabel("   ⚠️ 수수료 미포함 (매매 시 각 0.05%)")
+        self.active_positions_label = QLabel("📊 활성 포지션: 0개 종목")
+
+        layout.addWidget(self.total_assets_label)
+        layout.addWidget(self.krw_balance_label)
+        layout.addWidget(self.coin_value_label)
+        layout.addWidget(self.profit_loss_label)
+        layout.addWidget(self.fee_warning_label)
+        layout.addWidget(self.active_positions_label)
+
+        widget.setLayout(layout)
+        return widget
+
+    def _create_trade_widget(self):
+        """거래 통계 위젯 생성"""
+        widget = QGroupBox("📊 거래 통계 (누적)")
+        layout = QVBoxLayout()
+
+        # 통계 라벨들...
+        self.total_trades_label = QLabel("📈 총 거래 횟수: 0건")
+        # ...
+
+        # 엑셀 내보내기 버튼
+        export_btn = QPushButton("📊 엑셀로 내보내기")
+        export_btn.clicked.connect(self._on_export_excel)
+
+        layout.addWidget(self.total_trades_label)
+        # ...
+        layout.addWidget(export_btn)
+
+        widget.setLayout(layout)
+        return widget
+```
+
+---
+
+### 17.8 구현 체크리스트
+
+#### ⚠️ V4 구현 시 추가 필요
+
+**데이터 수집**:
+- [ ] `MyAssetManager` - MyAsset WebSocket 데이터 메모리 캐싱
+- [ ] `TickerManager` - Ticker WebSocket 데이터 메모리 캐싱
+- [ ] 최초 1회 REST API 호출 (잔고 + 포지션)
+
+**통계 계산**:
+- [ ] `PortfolioStatsManager.calculate_portfolio_stats()` - 전체 포트폴리오
+- [ ] `PortfolioStatsManager.calculate_group_stats()` - 그룹별 통계
+- [ ] `PortfolioStatsManager.calculate_trade_stats()` - 거래 통계
+
+**거래 이력 기록**:
+- [ ] `TradeHistoryManager.record_entry()` - 최초 매수 기록
+- [ ] `TradeHistoryManager.record_dca()` - DCA 추가매수 기록
+- [ ] `TradeHistoryManager.record_exit()` - 익절/손절 매도 기록
+- [ ] `TradeHistoryManager.calculate_profit_analysis()` - 손익 분석
+- [ ] `data/trade_history.json` 파일 관리
+
+**엑셀 내보내기**:
+- [ ] `TradeHistoryManager.export_to_excel()` - 메인 함수
+- [ ] `_create_summary_sheet()` - Sheet 1: 거래 요약
+- [ ] `_create_buy_details_sheet()` - Sheet 2: 매수 상세
+- [ ] `_create_sell_details_sheet()` - Sheet 3: 매도 상세
+- [ ] `_create_statistics_sheet()` - Sheet 4: 통계 요약
+- [ ] `_create_group_analysis_sheet()` - Sheet 5: 그룹별 분석
+- [ ] `_create_coin_analysis_sheet()` - Sheet 6: 코인별 분석
+- [ ] `openpyxl` 라이브러리 추가 (`requirements.txt`)
+
+**GUI**:
+- [ ] `StatisticsTab` 클래스 생성
+- [ ] `_create_portfolio_widget()` - 전체 포트폴리오 위젯
+- [ ] `_create_group_widget()` - 그룹별 통계 위젯
+- [ ] `_create_trade_widget()` - 거래 통계 위젯
+- [ ] `_update_statistics_throttled()` - 500ms throttling 업데이트
+- [ ] `_on_export_excel()` - 엑셀 내보내기 버튼 핸들러
+- [ ] 메인 윈도우에 통계 탭 추가
+
+**WebSocket 신호 연결**:
+- [ ] `websocket_manager.price_updated.connect()` - 가격 변동 시 GUI 업데이트
+- [ ] `websocket_manager.balance_updated.connect()` - 잔고 변동 시 GUI 업데이트
+
+**수수료 처리**:
+- [ ] 보유 포지션: 수수료 미포함 + 경고 문구
+- [ ] 완료 거래: `paid_fee` 사용하여 실제 손익 계산
+- [ ] GUI 표시: 차등 적용
+
+---
+
+### 17.9 설계 원칙 요약
+
+1. **Rate Limit 0회**: 최초 1회 REST API 후 WebSocket + 메모리 캐싱
+
+2. **이벤트 기반 업데이트**: 타이머 아닌 Signal/Slot 방식 (V3 검증됨)
+
+3. **500ms Throttling**: 과도한 GUI redraw 방지
+
+4. **수수료 차등 처리**:
+   - 보유 중: 명목 손익 + 경고 문구
+   - 완료: 실제 손익 (Upbit `paid_fee` 사용)
+
+5. **상세 기록**: `trade_history.json`으로 백테스팅 효과
+
+6. **엑셀 내보내기**: 6개 시트로 다각도 분석 지원
+
+7. **전략 변경 추적**: `group_settings_hash`로 설정 변경 전후 비교
+
+8. **명확한 통계 분류**:
+   - A (Overall): 전체 포트폴리오
+   - B (Group): 그룹별
+   - D (Trade): 거래 누적 (C는 보류)
+
+9. **GUI 분리**: 별도 통계 탭으로 깔끔한 구조
+
+10. **실용성 우선**: 복잡한 시간대별 통계(C) 대신 실질적인 A+B+D 구현
+
+---
+
 ## 변경 이력
 
 - 2025-01-24 (v1): 초안 작성 - V4.0.0 설계 확정
@@ -3857,6 +4664,7 @@ async def execute_dca_buy(symbol: str, level: DCALevel, level_num: int):
 - 2025-01-24 (v6): WebSocket 재연결 전략 + 데이터 구조 통합 (trading_config.json 하나로 통합)
 - 2025-01-24 (v7): 에러 처리 최종 통합 - Upbit 공식 에러코드 19개 기반 라우팅 시스템 (Topic 6 완료)
 - 2025-01-24 (v8): 최소 주문 금액 처리 (5,000원 제약) - 사전 검증 + 실시간 처리 (Topic 7 완료)
+- 2025-01-24 (v9): 포트폴리오 통계 설계 - Rate Limit 회피, 이벤트 기반 GUI, 엑셀 내보내기 (Topic 8 완료)
 
 ---
 
