@@ -3197,6 +3197,656 @@ async def handle_websocket_error(ws_type: str, error: Exception):
 
 ---
 
+## 16. 최소 주문 금액 처리 (5,000원 제약)
+
+**작성일**: 2025-01-24
+**목적**: Upbit 최소 주문 금액 5,000원 제약에 대한 청산 가능성 검증 및 처리
+
+---
+
+### 16.1 핵심 원칙
+
+**설정 시점 사전 검증** - 청산 불가능 상태를 미리 예방
+
+1. **GUI 설정 시**: 가상 시뮬레이션으로 검증
+2. **경고 + 해결 방안**: 사용자에게 명확한 안내
+3. **실제 거래 시**: 최종 검증 + 텔레그램 알림
+
+---
+
+### 16.2 문제 상황 분석
+
+#### 문제 1: 계산된 매도 금액이 5,000원 미달
+
+```python
+# 예시
+잔액: 5,200원
+레벨 1: +10% 도달, 50% 매도
+
+계산된 매도 금액 = 5,200 * 0.5 = 2,600원  # 5,000원 미달!
+
+해결: 전량 매도 전환 → 5,200원 매도
+```
+
+#### 문제 2: 매도 후 잔액이 5,000원 미달 ⭐ (핵심)
+
+```python
+# 예시
+잔액: 10,000원
+레벨 1: +10% 도달, 60% 매도
+레벨 2: +20% 도달, 40% 매도 (전량)
+
+레벨 1 실행:
+  - 60% 매도 → 6,000원 매도 ✅
+  - 매도 후 잔액: 4,000원 (5,000원 미달!)
+
+레벨 2 트리거:
+  - 40% 매도 → 4,000원 (5,000원 미달)
+  - 매도 불가 ❌
+  - 영원히 청산 불가능 상태!
+
+해결: 레벨 1에서 전량 매도 전환 (사전 검증으로 예방)
+```
+
+---
+
+### 16.3 설정 시점 사전 검증 (GUI)
+
+#### 검증 함수
+
+```python
+def validate_takeprofit_levels(buy_amount: int, levels: List[TakeProfitLevel]) -> ValidationResult:
+    """
+    익절 레벨 설정의 청산 가능성 검증
+
+    Args:
+        buy_amount: 초기 매수 금액
+        levels: 익절 레벨 리스트 [(profit_pct, sell_ratio), ...]
+
+    Returns:
+        ValidationResult: 검증 결과 + 경고 메시지 + 해결 방안
+    """
+    MIN_ORDER_AMOUNT = 5000
+
+    # 시뮬레이션 시작
+    current_balance = buy_amount
+    warnings = []
+
+    for i, level in enumerate(levels):
+        level_num = i + 1
+        profit_pct = level.profit_pct
+        sell_ratio = level.sell_ratio
+        is_final = (i == len(levels) - 1)
+
+        # 1. 매도 금액 계산
+        sell_amount = int(current_balance * sell_ratio)
+
+        # 2. 매도 후 잔액 계산 (사전 계산!) ⭐
+        remaining = current_balance - sell_amount
+
+        # ═══════════════════════════════════════════════════
+        # 케이스 A: 매도 금액 자체가 5,000원 미달
+        # ═══════════════════════════════════════════════════
+        if sell_amount < MIN_ORDER_AMOUNT:
+            if current_balance >= MIN_ORDER_AMOUNT:
+                # 전량 매도 전환됨 (자동 처리)
+                warnings.append({
+                    'level': level_num,
+                    'type': 'auto_full_sell',
+                    'message': f'레벨 {level_num}: {sell_ratio*100}% 매도({sell_amount:,}원)가 최소 금액 미달\n'
+                               f'→ 전량 매도({current_balance:,}원)로 자동 전환됩니다.',
+                    'severity': 'info'
+                })
+                # 전량 매도 → 포지션 청산 → 상위 레벨 비활성화
+                return ValidationResult(
+                    valid=True,
+                    warnings=warnings,
+                    final_level=level_num,
+                    note=f'레벨 {level_num}에서 전량 매도로 청산됩니다. '
+                         f'레벨 {level_num+1} 이상은 자동 비활성화됩니다.'
+                )
+            else:
+                # 매도 불가능 → 치명적 오류
+                warnings.append({
+                    'level': level_num,
+                    'type': 'cannot_sell',
+                    'message': f'❌ 레벨 {level_num}: 잔액({current_balance:,}원)이 최소 주문 금액(5,000원) 미달\n'
+                               f'청산 불가능 상태입니다!',
+                    'severity': 'error',
+                    'solutions': [
+                        f'매수 금액을 {MIN_ORDER_AMOUNT:,}원 이상으로 설정',
+                        f'레벨 {level_num}을 삭제하고 이전 레벨에서 전량 매도'
+                    ]
+                })
+                return ValidationResult(valid=False, warnings=warnings)
+
+        # ═══════════════════════════════════════════════════
+        # 케이스 B: 매도 후 잔액이 5,000원 미달 (핵심!) ⭐
+        # ═══════════════════════════════════════════════════
+        if remaining > 0 and remaining < MIN_ORDER_AMOUNT and not is_final:
+            # 다음 레벨에서 청산 불가능!
+            warnings.append({
+                'level': level_num,
+                'type': 'remaining_too_low',
+                'message': f'⚠️ 레벨 {level_num}: {sell_ratio*100}% 매도 후 잔액({remaining:,}원)이 최소 금액 미달\n'
+                           f'레벨 {level_num+1}에서 청산 불가능!\n'
+                           f'(추가매수 및 손절시에는 변동이있을수있습니다)',  # ⭐ 경고 문구
+                'severity': 'warning',
+                'solutions': [
+                    f'레벨 {level_num} 비율을 높여서 전량 매도 (100%)',
+                    f'레벨 {level_num} 비율을 낮춰서 잔액 5,000원 이상 유지',
+                    f'매수 금액을 늘리기 (권장: {calculate_min_buy_amount(levels):,}원 이상)',
+                    f'레벨 {level_num+1} 이상 삭제'
+                ]
+            })
+
+            # 경고이지만 계속 진행 (자동 전량 매도 전환됨)
+            warnings.append({
+                'level': level_num,
+                'type': 'auto_full_sell',
+                'message': f'→ 자동 해결: 레벨 {level_num}에서 전량 매도({current_balance:,}원)로 전환됩니다.',
+                'severity': 'info'
+            })
+
+            return ValidationResult(
+                valid=True,
+                warnings=warnings,
+                final_level=level_num,
+                note=f'레벨 {level_num}에서 자동 전량 매도로 청산됩니다.'
+            )
+
+        # ═══════════════════════════════════════════════════
+        # 정상 매도: 다음 레벨로 진행
+        # ═══════════════════════════════════════════════════
+        current_balance = remaining
+
+        if remaining == 0:
+            # 전량 매도 완료
+            return ValidationResult(
+                valid=True,
+                warnings=warnings,
+                final_level=level_num,
+                note=f'레벨 {level_num}에서 전량 매도로 청산됩니다.'
+            )
+
+    # 모든 레벨 통과
+    return ValidationResult(valid=True, warnings=warnings)
+
+
+def validate_stoploss_levels(buy_amount: int, levels: List[StopLossLevel]) -> ValidationResult:
+    """
+    손절 레벨 설정의 청산 가능성 검증
+
+    손절은 익절과 동일한 로직 적용
+    경고 문구만 변경: "(추가매수 및 익절시에는 변동이있을수있습니다)"
+    """
+    # 익절과 동일한 로직
+    # 경고 문구만 변경
+    MIN_ORDER_AMOUNT = 5000
+    current_balance = buy_amount
+    warnings = []
+
+    for i, level in enumerate(levels):
+        level_num = i + 1
+        loss_pct = level.loss_pct
+        sell_ratio = level.sell_ratio
+        is_final = (i == len(levels) - 1)
+
+        sell_amount = int(current_balance * sell_ratio)
+        remaining = current_balance - sell_amount
+
+        # 케이스 A: 매도 금액 미달
+        if sell_amount < MIN_ORDER_AMOUNT:
+            if current_balance >= MIN_ORDER_AMOUNT:
+                warnings.append({
+                    'level': level_num,
+                    'type': 'auto_full_sell',
+                    'message': f'레벨 {level_num}: {sell_ratio*100}% 매도({sell_amount:,}원)가 최소 금액 미달\n'
+                               f'→ 전량 매도({current_balance:,}원)로 자동 전환됩니다.',
+                    'severity': 'info'
+                })
+                return ValidationResult(
+                    valid=True,
+                    warnings=warnings,
+                    final_level=level_num,
+                    note=f'레벨 {level_num}에서 전량 매도로 청산됩니다.'
+                )
+            else:
+                warnings.append({
+                    'level': level_num,
+                    'type': 'cannot_sell',
+                    'message': f'❌ 레벨 {level_num}: 잔액({current_balance:,}원)이 최소 주문 금액(5,000원) 미달\n'
+                               f'청산 불가능 상태입니다!',
+                    'severity': 'error',
+                    'solutions': [
+                        f'매수 금액을 {MIN_ORDER_AMOUNT:,}원 이상으로 설정',
+                        f'레벨 {level_num}을 삭제하고 이전 레벨에서 전량 매도'
+                    ]
+                })
+                return ValidationResult(valid=False, warnings=warnings)
+
+        # 케이스 B: 매도 후 잔액 미달
+        if remaining > 0 and remaining < MIN_ORDER_AMOUNT and not is_final:
+            warnings.append({
+                'level': level_num,
+                'type': 'remaining_too_low',
+                'message': f'⚠️ 레벨 {level_num}: {sell_ratio*100}% 매도 후 잔액({remaining:,}원)이 최소 금액 미달\n'
+                           f'레벨 {level_num+1}에서 청산 불가능!\n'
+                           f'(추가매수 및 익절시에는 변동이있을수있습니다)',  # ⭐ 손절용 경고 문구
+                'severity': 'warning',
+                'solutions': [
+                    f'레벨 {level_num} 비율을 높여서 전량 매도 (100%)',
+                    f'레벨 {level_num} 비율을 낮춰서 잔액 5,000원 이상 유지',
+                    f'매수 금액을 늘리기',
+                    f'레벨 {level_num+1} 이상 삭제'
+                ]
+            })
+
+            warnings.append({
+                'level': level_num,
+                'type': 'auto_full_sell',
+                'message': f'→ 자동 해결: 레벨 {level_num}에서 전량 매도({current_balance:,}원)로 전환됩니다.',
+                'severity': 'info'
+            })
+
+            return ValidationResult(
+                valid=True,
+                warnings=warnings,
+                final_level=level_num,
+                note=f'레벨 {level_num}에서 자동 전량 매도로 청산됩니다.'
+            )
+
+        current_balance = remaining
+
+        if remaining == 0:
+            return ValidationResult(
+                valid=True,
+                warnings=warnings,
+                final_level=level_num,
+                note=f'레벨 {level_num}에서 전량 매도로 청산됩니다.'
+            )
+
+    return ValidationResult(valid=True, warnings=warnings)
+
+
+def calculate_min_buy_amount(levels: List[dict]) -> int:
+    """
+    모든 레벨이 정상 동작하기 위한 최소 매수 금액 계산
+
+    역산 알고리즘:
+    - 마지막 레벨부터 거꾸로 계산
+    - 각 레벨 후 최소 5,000원 유지 조건
+    """
+    import math
+
+    MIN_ORDER_AMOUNT = 5000
+    required_balance = 0
+
+    for level in reversed(levels):
+        sell_ratio = level.sell_ratio
+
+        # 매도 후 잔액이 MIN_ORDER_AMOUNT 이상이어야 함
+        # remaining = balance * (1 - sell_ratio) >= MIN_ORDER_AMOUNT
+        # balance >= MIN_ORDER_AMOUNT / (1 - sell_ratio)
+        if sell_ratio < 1.0:
+            required_balance = max(required_balance, MIN_ORDER_AMOUNT / (1 - sell_ratio))
+
+        # 매도 금액 자체도 MIN_ORDER_AMOUNT 이상
+        # sell_amount = balance * sell_ratio >= MIN_ORDER_AMOUNT
+        # balance >= MIN_ORDER_AMOUNT / sell_ratio
+        required_balance = max(required_balance, MIN_ORDER_AMOUNT / sell_ratio)
+
+    return int(math.ceil(required_balance))
+```
+
+---
+
+### 16.4 GUI 경고 다이얼로그
+
+#### 예시 1: 익절 레벨 경고 (청산 불가능)
+
+```
+┌───────────────────────────────────────┐
+│ ⚠️ 청산 불가능 위험 발견!              │
+│                                       │
+│ 레벨 1: 60% 매도(6,000원) 후          │
+│ → 잔액 4,000원 (5,000원 미달)         │
+│                                       │
+│ 레벨 2에서 청산 불가능!                │
+│ (추가매수 및 손절시에는 변동이있을수있습니다) ⭐
+│                                       │
+│ 자동 해결 방안:                        │
+│ → 레벨 1에서 전량 매도(10,000원)로    │
+│    자동 전환됩니다.                    │
+│ → 레벨 2는 자동 비활성화됩니다.        │
+│                                       │
+│ 권장 해결 방안:                        │
+│ 1. 매수 금액을 15,000원 이상으로 설정 │
+│ 2. 레벨 1 비율을 50%로 낮추기         │
+│ 3. 레벨 2 삭제하고 1단계만 사용       │
+└───────────────────────────────────────┘
+```
+
+#### 예시 2: 손절 레벨 경고
+
+```
+┌───────────────────────────────────────┐
+│ ⚠️ 청산 불가능 위험 발견!              │
+│                                       │
+│ 레벨 1: 50% 매도(5,000원) 후          │
+│ → 잔액 5,000원 미만                   │
+│                                       │
+│ 레벨 2에서 청산 불가능!                │
+│ (추가매수 및 익절시에는 변동이있을수있습니다) ⭐
+│                                       │
+│ 자동 해결 방안:                        │
+│ → 레벨 1에서 전량 매도로 전환됩니다.   │
+└───────────────────────────────────────┘
+```
+
+#### 예시 3: 정상 통과
+
+```
+┌───────────────────────────────────────┐
+│ ✅ 모든 레벨에서 청산 가능              │
+│                                       │
+│ 시뮬레이션:                            │
+│ 초기: 50,000원                        │
+│ → 레벨 1: 25,000원 매도, 잔액 25,000원│
+│ → 레벨 2: 25,000원 매도, 잔액 0원     │
+│                                       │
+│ 정상적으로 청산 가능합니다 ✅           │
+└───────────────────────────────────────┘
+```
+
+---
+
+### 16.5 실제 거래 시점 처리
+
+#### 매도 금액 계산 함수
+
+```python
+def calculate_sell_amount(current_value: int, sell_ratio: float, is_final_level: bool) -> tuple:
+    """
+    실제 거래 시점에 최소 주문 금액을 고려한 매도 금액 계산
+
+    Args:
+        current_value: 현재 보유 금액 (실시간 조회)
+        sell_ratio: 매도 비율 (0.5 = 50%)
+        is_final_level: 마지막 익절/손절 레벨 여부
+
+    Returns:
+        tuple: (매도금액, 전량매도여부, 사유)
+    """
+    MIN_ORDER_AMOUNT = 5000
+
+    # 1. 계산된 매도 금액
+    calculated_amount = int(current_value * sell_ratio)
+
+    # 2. 매도 후 남은 금액
+    remaining_after_sell = current_value - calculated_amount
+
+    # ═══════════════════════════════════════════════════
+    # 케이스 1: 계산된 매도 금액이 5,000원 미달
+    # ═══════════════════════════════════════════════════
+    if calculated_amount < MIN_ORDER_AMOUNT:
+        if current_value >= MIN_ORDER_AMOUNT:
+            # 전량 매도 전환
+            return (current_value, True, "calculated_amount_too_low")
+        else:
+            # 매도 불가 (다음 기회 대기)
+            return (0, False, "balance_too_low")
+
+    # ═══════════════════════════════════════════════════
+    # 케이스 2: 매도 후 잔액이 5,000원 미달
+    # ═══════════════════════════════════════════════════
+    if remaining_after_sell > 0 and remaining_after_sell < MIN_ORDER_AMOUNT:
+        if not is_final_level:
+            # 전량 매도 전환 (청산 불가능 상태 예방)
+            return (current_value, True, "remaining_amount_too_low")
+        else:
+            # 마지막 레벨이면 어차피 전량
+            return (calculated_amount, True, "final_level")
+
+    # ═══════════════════════════════════════════════════
+    # 케이스 3: 정상 매도
+    # ═══════════════════════════════════════════════════
+    return (calculated_amount, False, "normal")
+```
+
+#### 익절/손절 실행 로직
+
+```python
+async def execute_takeprofit(symbol: str, level: TakeProfitLevel, level_num: int, is_final: bool):
+    """
+    익절 레벨 실행
+    """
+    # 1. 실시간 잔고 조회
+    position = await get_position(symbol)
+    current_value = position.balance * position.current_price
+
+    # 2. 매도 금액 계산
+    sell_amount, is_full_sell, reason = calculate_sell_amount(
+        current_value,
+        level.sell_ratio,
+        is_final
+    )
+
+    # 3. 매도 불가능
+    if sell_amount == 0:
+        logger.warning(f"⚠️ {symbol} 레벨 {level_num} 익절 불가: {reason}")
+
+        # 텔레그램 알림 ⭐
+        await telegram.send_alert(
+            f"⚠️ 익절 실행 불가\n"
+            f"코인: {symbol}\n"
+            f"레벨: {level_num} (+{level.profit_pct}%)\n"
+            f"현재 잔액: {current_value:,}원\n"
+            f"사유: 최소 주문 금액(5,000원) 미달\n"
+            f"→ 다음 익절 기회 대기 중"
+        )
+        return
+
+    # 4. 매도 실행
+    logger.info(f"💰 {symbol} 레벨 {level_num} 익절 실행: {sell_amount:,}원")
+
+    if is_full_sell and reason in ["calculated_amount_too_low", "remaining_amount_too_low"]:
+        # 전량 매도 전환 알림
+        await telegram.send_alert(
+            f"💰 익절 실행 (전량 전환)\n"
+            f"코인: {symbol}\n"
+            f"레벨: {level_num} (+{level.profit_pct}%)\n"
+            f"원래: {level.sell_ratio*100}% 매도\n"
+            f"→ 전량 매도로 전환 ({sell_amount:,}원)\n"
+            f"사유: {get_reason_message(reason)}"
+        )
+
+    order_result = await order_manager.execute_sell(symbol, sell_amount)
+
+    # 5. 전량 매도 시 상위 레벨 비활성화
+    if is_full_sell:
+        await disable_upper_levels(symbol, level_num)
+        logger.info(f"✅ {symbol} 레벨 {level_num+1} 이상 자동 비활성화")
+
+
+async def execute_stoploss(symbol: str, level: StopLossLevel, level_num: int, is_final: bool):
+    """
+    손절 레벨 실행 (익절과 동일한 로직)
+    """
+    position = await get_position(symbol)
+    current_value = position.balance * position.current_price
+
+    sell_amount, is_full_sell, reason = calculate_sell_amount(
+        current_value,
+        level.sell_ratio,
+        is_final
+    )
+
+    if sell_amount == 0:
+        logger.warning(f"⚠️ {symbol} 레벨 {level_num} 손절 불가: {reason}")
+
+        # 텔레그램 알림 ⭐
+        await telegram.send_alert(
+            f"⚠️ 손절 실행 불가\n"
+            f"코인: {symbol}\n"
+            f"레벨: {level_num} ({level.loss_pct}%)\n"
+            f"현재 잔액: {current_value:,}원\n"
+            f"사유: 최소 주문 금액(5,000원) 미달\n"
+            f"→ 다음 손절 기회 대기 중"
+        )
+        return
+
+    logger.info(f"🔻 {symbol} 레벨 {level_num} 손절 실행: {sell_amount:,}원")
+
+    if is_full_sell and reason in ["calculated_amount_too_low", "remaining_amount_too_low"]:
+        await telegram.send_alert(
+            f"🔻 손절 실행 (전량 전환)\n"
+            f"코인: {symbol}\n"
+            f"레벨: {level_num} ({level.loss_pct}%)\n"
+            f"원래: {level.sell_ratio*100}% 매도\n"
+            f"→ 전량 매도로 전환 ({sell_amount:,}원)\n"
+            f"사유: {get_reason_message(reason)}"
+        )
+
+    order_result = await order_manager.execute_sell(symbol, sell_amount)
+
+    if is_full_sell:
+        await disable_upper_levels(symbol, level_num)
+
+
+def get_reason_message(reason: str) -> str:
+    """사유 코드를 사용자 친화적 메시지로 변환"""
+    messages = {
+        "calculated_amount_too_low": "계산된 매도 금액이 최소 주문 금액 미달",
+        "remaining_amount_too_low": "매도 후 잔액이 최소 주문 금액 미달로 청산 불가능 예방",
+        "balance_too_low": "현재 잔액이 최소 주문 금액 미달",
+        "final_level": "마지막 레벨 전량 매도",
+        "normal": "정상 매도"
+    }
+    return messages.get(reason, reason)
+```
+
+---
+
+### 16.6 DCA 추가매수 처리
+
+#### 설계 원칙
+
+**검증 불필요** - 본인 잔고 관리 문제
+
+**이유**:
+1. DCA 추가매수는 금액 증가 → 청산 가능성 높아짐
+2. KRW 잔고 부족은 사용자 책임
+3. 복잡한 검증 불필요
+
+#### 실행 로직
+
+```python
+async def execute_dca_buy(symbol: str, level: DCALevel, level_num: int):
+    """
+    DCA 추가매수 실행
+    """
+    MIN_ORDER_AMOUNT = 5000
+    buy_amount = level.buy_amount
+
+    # 1. 최소 주문 금액 체크
+    if buy_amount < MIN_ORDER_AMOUNT:
+        logger.error(f"❌ {symbol} DCA 레벨 {level_num} 매수 불가: 설정 금액({buy_amount:,}원) < 5,000원")
+
+        await telegram.send_alert(
+            f"❌ DCA 설정 오류\n"
+            f"코인: {symbol}\n"
+            f"레벨: {level_num}\n"
+            f"설정 금액: {buy_amount:,}원\n"
+            f"최소 금액: 5,000원\n"
+            f"→ 그룹 설정에서 DCA 금액 수정 필요"
+        )
+        return
+
+    # 2. KRW 잔고 조회
+    krw_balance = await get_krw_balance()
+
+    if krw_balance < buy_amount:
+        logger.warning(f"⚠️ {symbol} DCA 레벨 {level_num} 매수 불가: KRW 잔고 부족 ({krw_balance:,}원)")
+
+        # 텔레그램 알림 (잔고 부족) ⭐
+        await telegram.send_alert(
+            f"⚠️ DCA 매수 불가 (잔고 부족)\n"
+            f"코인: {symbol}\n"
+            f"레벨: {level_num} ({level.drop_pct}% 하락)\n"
+            f"필요 금액: {buy_amount:,}원\n"
+            f"현재 잔고: {krw_balance:,}원\n"
+            f"부족: {buy_amount - krw_balance:,}원\n"
+            f"→ KRW 입금 후 다음 DCA 레벨 대기"
+        )
+        return
+
+    # 3. 정상 매수 실행
+    logger.info(f"📈 {symbol} DCA 레벨 {level_num} 매수: {buy_amount:,}원")
+
+    order_result = await order_manager.execute_buy(symbol, buy_amount)
+
+    await telegram.send_alert(
+        f"📈 DCA 추가매수 실행\n"
+        f"코인: {symbol}\n"
+        f"레벨: {level_num} ({level.drop_pct}% 하락)\n"
+        f"금액: {buy_amount:,}원\n"
+        f"현재 평균 매수가: {order_result.avg_buy_price:,}원"
+    )
+```
+
+---
+
+### 16.7 구현 체크리스트
+
+#### ⚠️ V4 구현 시 추가 필요
+
+**설정 검증**:
+- [ ] `validate_takeprofit_levels()` 함수 구현
+- [ ] `validate_stoploss_levels()` 함수 구현
+- [ ] `calculate_min_buy_amount()` 함수 구현
+- [ ] GUI 경고 다이얼로그 구현
+
+**실제 거래 처리**:
+- [ ] `calculate_sell_amount()` 함수 구현
+- [ ] `execute_takeprofit()` 함수에 최소 금액 검증 추가
+- [ ] `execute_stoploss()` 함수에 최소 금액 검증 추가
+- [ ] `execute_dca_buy()` 함수에 잔고 체크 추가
+
+**텔레그램 알림**:
+- [ ] 익절 불가 알림
+- [ ] 손절 불가 알림
+- [ ] 전량 매도 전환 알림
+- [ ] DCA 잔고 부족 알림
+
+**상위 레벨 비활성화**:
+- [ ] `disable_upper_levels()` 함수 구현
+- [ ] 전량 매도 시 자동 호출
+
+---
+
+### 16.8 설계 원칙 요약
+
+1. **사전 검증 우선**: GUI 설정 시 가상 시뮬레이션으로 청산 가능성 검증
+
+2. **명확한 경고**:
+   - 익절: "(추가매수 및 손절시에는 변동이있을수있습니다)"
+   - 손절: "(추가매수 및 익절시에는 변동이있을수있습니다)"
+
+3. **자동 해결 + 수동 선택**:
+   - 자동: 전량 매도 전환으로 청산 보장
+   - 수동: 권장 해결 방안 제시 (매수 금액 증가, 비율 조정, 레벨 삭제)
+
+4. **실시간 최종 검증**: 실제 거래 시점에 다시 계산 (가격 변동, DCA 반영)
+
+5. **텔레그램 알림**: 매도/매수 불가 시 명확한 이유와 해결 방안 제공
+
+6. **DCA 단순화**: 추가매수는 잔고 체크만, 복잡한 검증 불필요
+
+7. **일관성**: 익절과 손절은 동일한 로직 적용
+
+---
+
 ## 변경 이력
 
 - 2025-01-24 (v1): 초안 작성 - V4.0.0 설계 확정
@@ -3206,6 +3856,7 @@ async def handle_websocket_error(ws_type: str, error: Exception):
 - 2025-01-24 (v5): 에러 처리 및 복구 전략 추가 (Rate Limit 예방, 네트워크 에러, 주문 실패)
 - 2025-01-24 (v6): WebSocket 재연결 전략 + 데이터 구조 통합 (trading_config.json 하나로 통합)
 - 2025-01-24 (v7): 에러 처리 최종 통합 - Upbit 공식 에러코드 19개 기반 라우팅 시스템 (Topic 6 완료)
+- 2025-01-24 (v8): 최소 주문 금액 처리 (5,000원 제약) - 사전 검증 + 실시간 처리 (Topic 7 완료)
 
 ---
 
