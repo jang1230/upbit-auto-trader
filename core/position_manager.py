@@ -6,13 +6,17 @@ V4 포지션 관리자
 - 포지션 CRUD (생성/조회/업데이트/삭제)
 - 그룹별 포지션 조회
 - 가상 잔고 관리 (Dry-run용)
+- Upbit API 동기화 (Live 모드)
 """
 
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from core.upbit_api import UpbitAPI
 
 
 class PositionManager:
@@ -22,10 +26,11 @@ class PositionManager:
     POSITIONS_DRYRUN_PATH = "data/positions_dryrun.json"
     VIRTUAL_BALANCES_PATH = "data/virtual_balances.json"
 
-    def __init__(self, mode: str = "live"):
+    def __init__(self, mode: str = "live", upbit_api: Optional['UpbitAPI'] = None):
         """
         Args:
             mode: "live" 또는 "dryrun"
+            upbit_api: UpbitAPI 인스턴스 (Live 모드에서 Upbit 동기화에 필요)
         """
         if mode not in ["live", "dryrun"]:
             raise ValueError(f"잘못된 모드: {mode} (live 또는 dryrun만 가능)")
@@ -35,6 +40,9 @@ class PositionManager:
             self.POSITIONS_LIVE_PATH if mode == "live"
             else self.POSITIONS_DRYRUN_PATH
         )
+
+        # Upbit API (Live 모드에서만 사용)
+        self.upbit_api = upbit_api
 
         # 포지션 캐시
         self.positions: Dict[str, Dict[str, Any]] = {}
@@ -369,6 +377,109 @@ class PositionManager:
         profit_pct = (total_profit_krw / total_invested * 100) if total_invested > 0 else 0
 
         return total_profit_krw, profit_pct
+
+    def sync_with_upbit(self) -> Dict[str, Any]:
+        """
+        Upbit API와 동기화
+
+        프로그램 시작 시 최초 1회 호출하여:
+        1. Upbit에서 실제 보유 자산 조회
+        2. 로컬 포지션 파일과 비교
+        3. balance, avg_buy_price 등 Upbit 데이터로 업데이트
+
+        Returns:
+            동기화 결과 딕셔너리
+                {
+                    'synced_positions': List[str],  # 동기화된 심볼들
+                    'new_positions': List[str],     # 새로 발견된 포지션
+                    'removed_positions': List[str], # 제거된 포지션
+                    'krw_balance': float
+                }
+
+        Raises:
+            RuntimeError: Live 모드가 아니거나 upbit_api가 없을 때
+        """
+        if self.mode != "live":
+            raise RuntimeError("Upbit 동기화는 Live 모드에서만 가능합니다.")
+
+        if self.upbit_api is None:
+            raise RuntimeError("UpbitAPI 인스턴스가 설정되지 않았습니다.")
+
+        print("🔄 Upbit 동기화 시작...")
+
+        # Upbit 계좌 정보 조회
+        accounts = self.upbit_api.get_accounts()
+
+        synced_positions = []
+        new_positions = []
+        removed_positions = []
+        krw_balance = 0.0
+
+        # Upbit 보유 자산 처리
+        for account in accounts:
+            currency = account['currency']
+            balance = float(account['balance'])
+            locked = float(account['locked'])
+            avg_buy_price = float(account['avg_buy_price'])
+
+            # KRW 잔고는 별도 처리
+            if currency == 'KRW':
+                krw_balance = balance
+                print(f"   💰 KRW 잔고: {krw_balance:,.0f}원")
+                continue
+
+            # 보유량이 거의 없으면 무시 (먼지)
+            if balance < 0.00000001:
+                continue
+
+            # 심볼 생성 (예: BTC → KRW-BTC)
+            symbol = f"KRW-{currency}"
+
+            # 기존 포지션 확인
+            position = self.get_position(symbol)
+
+            if position:
+                # 기존 포지션 업데이트
+                updates = {
+                    'total_amount': balance,
+                    'average_price': avg_buy_price,
+                    'locked_amount': locked
+                }
+                self.update_position(symbol, updates)
+                synced_positions.append(symbol)
+                print(f"   ✅ 동기화: {symbol} | {balance:.8f} @ {avg_buy_price:,.0f}원")
+            else:
+                # 새 포지션 발견 (Upbit에는 있지만 로컬에 없음)
+                new_positions.append(symbol)
+                print(f"   🆕 새 포지션 발견: {symbol} | {balance:.8f} @ {avg_buy_price:,.0f}원")
+                # 주의: 자동 추가는 하지 않음 (그룹 할당 필요)
+
+        # 로컬에만 있는 포지션 확인 (Upbit에는 없음)
+        upbit_symbols = {f"KRW-{account['currency']}" for account in accounts if account['currency'] != 'KRW'}
+
+        for symbol in list(self.positions.keys()):
+            position = self.positions[symbol]
+
+            if position.get('status') != 'active':
+                continue
+
+            if symbol not in upbit_symbols:
+                # Upbit에 없는 포지션
+                removed_positions.append(symbol)
+                print(f"   ⚠️ Upbit에 없는 포지션: {symbol} (수동 매도되었을 수 있음)")
+                # 주의: 자동 제거는 하지 않음 (사용자 확인 필요)
+
+        print(f"✅ Upbit 동기화 완료")
+        print(f"   - 동기화된 포지션: {len(synced_positions)}개")
+        print(f"   - 새 포지션: {len(new_positions)}개")
+        print(f"   - 제거된 포지션: {len(removed_positions)}개")
+
+        return {
+            'synced_positions': synced_positions,
+            'new_positions': new_positions,
+            'removed_positions': removed_positions,
+            'krw_balance': krw_balance
+        }
 
 
 class VirtualBalanceManager:
