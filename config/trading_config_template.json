@@ -75,11 +75,25 @@
       },
       "profit_settings": {
         "mode": "auto",
-        "target_pct": 5.0
+        "levels": [
+          {
+            "price_ratio": 5.0,
+            "quantity_ratio": 50
+          },
+          {
+            "price_ratio": 10.0,
+            "quantity_ratio": 50
+          }
+        ]
       },
       "loss_settings": {
         "mode": "auto",
-        "stop_loss_pct": -15.0
+        "levels": [
+          {
+            "price_ratio": -15.0,
+            "quantity_ratio": 100
+          }
+        ]
       }
     }
   }

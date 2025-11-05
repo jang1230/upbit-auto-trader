@@ -236,10 +236,26 @@
                   "enum": ["auto", "alert", "disabled"],
                   "description": "Profit-taking mode"
                 },
-                "target_pct": {
-                  "type": "number",
-                  "minimum": 0.1,
-                  "description": "Profit target percentage (required if mode=auto)"
+                "levels": {
+                  "type": "array",
+                  "description": "Profit-taking levels (required if mode=auto)",
+                  "items": {
+                    "type": "object",
+                    "required": ["price_ratio", "quantity_ratio"],
+                    "properties": {
+                      "price_ratio": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Price increase percentage to trigger profit-taking (e.g., 5 for +5%)"
+                      },
+                      "quantity_ratio": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Percentage of current holdings to sell (e.g., 50 for 50%, 100 for all)"
+                      }
+                    }
+                  }
                 }
               }
             },
@@ -252,10 +268,26 @@
                   "enum": ["auto", "alert", "disabled"],
                   "description": "Stop-loss mode"
                 },
-                "stop_loss_pct": {
-                  "type": "number",
-                  "maximum": 0,
-                  "description": "Stop-loss percentage (negative value, required if mode=auto)"
+                "levels": {
+                  "type": "array",
+                  "description": "Stop-loss levels (required if mode=auto)",
+                  "items": {
+                    "type": "object",
+                    "required": ["price_ratio", "quantity_ratio"],
+                    "properties": {
+                      "price_ratio": {
+                        "type": "number",
+                        "maximum": 0,
+                        "description": "Price drop percentage to trigger stop-loss (negative value, e.g., -10 for -10%)"
+                      },
+                      "quantity_ratio": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Percentage of current holdings to sell (e.g., 50 for 50%, 100 for all)"
+                      }
+                    }
+                  }
                 }
               }
             }
