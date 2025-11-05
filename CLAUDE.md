@@ -217,6 +217,188 @@ print(f"Win Rate: {result.win_rate}%")
 
 ---
 
+## V4 Architecture (In Development)
+
+### Overview
+
+V4 introduces a group-based trading system, replacing V3's 2-mode limitation (semi-auto/full-auto) with unlimited independent trading groups.
+
+### Key Architectural Changes
+
+**V3 → V4 Transition**:
+- **Configuration**: Split files → Single unified `trading_config.json`
+- **Trading Modes**: 2 modes → Unlimited groups
+- **Coin Management**: Global settings → Group-level independence
+- **Position Tracking**: Single file → Separate live/dry-run files
+- **DCA Management**: Single level → Multi-level profit/loss
+
+### V4 Core Components
+
+**Phase 1: Data Structures (100% Complete)**
+
+1. **ConfigManager** (`core/config_manager.py`, 512 lines)
+   - Manages `config/trading_config.json` with dictionary-based groups
+   - JSON Schema validation via `config/schemas/trading_config_schema.json`
+   - V3→V4 automatic migration support
+   - Interface:
+     ```python
+     config_mgr = ConfigManager()
+     config = config_mgr.load_config(auto_migrate=True)
+     config_mgr.validate_config(config)
+     config_mgr.save_config(config)
+     ```
+
+2. **PositionManager** (`core/position_manager.py`, 656 lines)
+   - Separate position files for live/dry-run modes
+   - CRUD operations: `create_position()`, `update_position()`, `close_position()`
+   - DCA management: `add_dca()`, multiple buy levels per position
+   - Upbit synchronization: `sync_with_upbit()` for initial balance sync
+   - Interface:
+     ```python
+     pos_mgr = PositionManager(mode="live", upbit_api=api)
+     pos_mgr.sync_with_upbit()  # Initial sync
+     position = pos_mgr.create_position(group_id, symbol, buy_price, amount)
+     pos_mgr.add_dca(position_id, dca_price, dca_amount)
+     ```
+
+3. **TradeHistoryManager** (`core/trade_history_manager.py`, 479 lines)
+   - Records all trades to `data/trade_history.json`
+   - Group-level statistics calculation
+   - Interface:
+     ```python
+     history_mgr = TradeHistoryManager()
+     history_mgr.add_trade(group_id, symbol, trade_type, price, amount, profit_loss)
+     stats = history_mgr.calculate_statistics(group_id)
+     ```
+
+**Phase 2: Backend Core Components (80% Complete)**
+
+4. **GroupManager** (`core/group_manager.py`, 578 lines)
+   - Group lifecycle: `create_group()`, `delete_group()`, `update_group_settings()`
+   - Coin management: `add_coin_to_group()`, `remove_coin_from_group()`, `move_coin()`
+   - Cross-group validation: prevents coin duplication
+   - Interface:
+     ```python
+     group_mgr = GroupManager(config_mgr, pos_mgr)
+     group_mgr.create_group("scalping_group", "Scalping BTC/ETH",
+                           coins=["KRW-BTC", "KRW-ETH"])
+     group_mgr.add_coin_to_group("scalping_group", "KRW-XRP")
+     ```
+
+5. **DailyLossTracker** (`core/daily_loss_tracker.py`, 329 lines)
+   - Daily loss limit enforcement with 09:00 reset
+   - Snapshot-based loss calculation
+   - Callback architecture for alerts and liquidation
+   - Two calculation methods: `daily_only` (09:00 baseline) or `total_account` (initial capital)
+   - Interface:
+     ```python
+     tracker = DailyLossTracker(
+         config=config['daily_loss_limit'],
+         get_valuation_fn=lambda: total_position_value,
+         get_krw_balance_fn=lambda: krw_balance,
+         send_alert_fn=telegram_alert,
+         liquidate_fn=liquidate_all_positions
+     )
+     tracker.check_and_reset()  # Call in main loop
+     if tracker.is_limit_reached():
+         # Stop trading
+     ```
+
+6. **V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
+   - Preset-based auto-buy strategy: Conservative (4H), Balanced (1H), Aggressive (15min)
+   - Technical indicators: RSI (oversold detection), MACD (golden cross), Volume (surge detection)
+   - Group-level strategy assignment
+   - Interface:
+     ```python
+     strategy = V4AutoBuyStrategy(
+         symbol="KRW-BTC",
+         investment_style="balanced"  # or "conservative", "aggressive", "custom"
+     )
+     if strategy.should_buy(candles):
+         # Execute buy
+     indicators = strategy.get_indicator_values(candles)
+     ```
+
+**Phase 2: Pending**
+
+7. **V4TradingEngine** (Not yet implemented)
+   - Will integrate all V4 components
+   - Group-level trading loops
+   - Real-time WebSocket integration
+   - Scheduled tasks (daily reset, snapshot creation)
+
+### V4 Data Flow
+
+```
+ConfigManager → GroupManager → V4TradingEngine
+                      ↓              ↓
+               PositionManager ← WebSocket
+                      ↓              ↓
+               TradeHistory     V4AutoBuyStrategy
+                      ↓              ↓
+               DailyLossTracker  → Risk Check → Order Execution
+```
+
+### V4 Configuration Structure
+
+```json
+{
+  "version": "4.0",
+  "mode": "live",
+  "groups": {
+    "group_1": {
+      "name": "Scalping BTC/ETH",
+      "coins": ["KRW-BTC", "KRW-ETH"],
+      "buy_settings": {
+        "investment_style": "aggressive",
+        "buy_amount_krw": 50000
+      },
+      "dca_settings": {
+        "enabled": true,
+        "levels": [
+          {"price_drop_pct": -3.0, "buy_amount_krw": 50000},
+          {"price_drop_pct": -6.0, "buy_amount_krw": 100000}
+        ]
+      },
+      "profit_loss_settings": {
+        "profit_targets": [
+          {"price_ratio": 1.05, "quantity_ratio": 0.5},
+          {"price_ratio": 1.10, "quantity_ratio": 1.0}
+        ],
+        "stop_losses": [
+          {"price_ratio": 0.95, "quantity_ratio": 1.0}
+        ]
+      }
+    }
+  },
+  "daily_loss_limit": {
+    "enabled": true,
+    "loss_pct": 10.0,
+    "action": "alert"
+  }
+}
+```
+
+### V4 File Locations
+
+**Configuration**:
+- `config/trading_config.json` - Unified V4 configuration
+- `config/trading_config_template.json` - Template for new configs
+- `config/schemas/trading_config_schema.json` - JSON Schema validation
+
+**Runtime Data**:
+- `data/positions_live.json` - Live mode positions
+- `data/positions_dryrun.json` - Dry-run mode positions
+- `data/trade_history.json` - All trade records
+- `data/virtual_balances.json` - Dry-run mode balances
+- `data/daily_snapshot.json` - Daily loss tracking snapshot
+
+**Ignored Files** (`.gitignore`):
+- All runtime data files above
+- User-specific positions and history
+
+---
+
 ## Critical Design Patterns
 
 ### 1. Strategy Pattern
@@ -562,3 +744,84 @@ Already in `.gitignore`:
 - Comprehensive documentation
 - Professional setup for contributors
 - Clear installation and setup process
+
+## Latest Updates
+
+### V4 Phase 1-2 Complete (2025-01-25)
+
+**Branch**: `claude/gui-detailed-design-prep-011CUpFANut7zsN2Ndg8Qxq9`
+
+**Phase 1: Data Structures (100% Complete)**
+
+Created 5 new files for V4 data management:
+
+1. **core/config_manager.py** (512 lines)
+   - Purpose: Unified configuration management for V4
+   - Key features: Dictionary-based groups, JSON Schema validation, V3 migration
+   - Usage: `ConfigManager().load_config(auto_migrate=True)`
+
+2. **core/position_manager.py** (656 lines)
+   - Purpose: Live/Dry-run position tracking with Upbit sync
+   - Key features: CRUD operations, DCA management, `sync_with_upbit()`
+   - Usage: `PositionManager(mode="live", upbit_api=api)`
+
+3. **core/trade_history_manager.py** (479 lines)
+   - Purpose: Trade recording and group-level statistics
+   - Key features: Trade logging, performance metrics, JSON persistence
+   - Usage: `TradeHistoryManager().add_trade(...)`
+
+4. **config/schemas/trading_config_schema.json**
+   - Purpose: JSON Schema for V4 configuration validation
+   - Defines: Required fields, types, constraints, group structure
+
+5. **config/trading_config_template.json**
+   - Purpose: Template for new V4 configurations
+   - Contains: Example group with all settings
+
+**Phase 2: Backend Core (80% Complete)**
+
+Created 3 new files and extended 2 existing files:
+
+6. **core/group_manager.py** (578 lines)
+   - Purpose: Group lifecycle and coin management
+   - Key features: Create/delete groups, add/remove/move coins, validation
+   - Usage: `GroupManager(config_mgr, pos_mgr).create_group(...)`
+
+7. **core/daily_loss_tracker.py** (329 lines)
+   - Purpose: Daily loss limit enforcement with 09:00 reset
+   - Key features: Snapshot-based tracking, callback architecture, alert/liquidate
+   - Usage: `DailyLossTracker(config, get_valuation_fn, ...).check_and_reset()`
+
+8. **core/strategies/v4_auto_buy_strategy.py** (456 lines)
+   - Purpose: Preset-based auto-buy strategy for groups
+   - Key features: 3 presets (Conservative/Balanced/Aggressive), RSI+MACD+Volume
+   - Usage: `V4AutoBuyStrategy(symbol, investment_style="balanced")`
+
+9. **core/strategies/__init__.py** (extended)
+   - Added: V4AutoBuyStrategy to module exports
+
+10. **.gitignore** (updated)
+    - Added: `data/daily_snapshot.json` to runtime data exclusions
+
+**Phase 2: Remaining Work**
+
+- ⏳ **V4TradingEngine**: Main trading loop integrating all V4 components (estimated: 6-10 hours)
+
+**Total Work**:
+- **Lines of Code**: ~3,000 lines across 8 new files
+- **Test Coverage**: All components include `if __name__ == "__main__"` test blocks
+- **Documentation**: Comprehensive docstrings with type hints
+- **Design Docs**: 172KB DESIGN_V4_COMPLETE.md with 18 sections
+
+**Key Architectural Decisions**:
+1. **Dictionary-based groups**: Flexible, unlimited groups without array constraints
+2. **Callback architecture**: DailyLossTracker uses callbacks for maximum flexibility
+3. **Separate files**: Live/dry-run positions stored separately for isolation
+4. **Preset system**: V4AutoBuyStrategy uses presets for ease of use
+5. **Upbit sync**: PositionManager can sync with Upbit API for initial state
+
+**Next Steps**:
+1. Complete V4TradingEngine (Phase 2 completion)
+2. Phase 3: GUI redesign (3-tab structure, group management dialogs)
+3. Phase 4: Integration testing
+4. Phase 5: V3→V4 migration and deployment
