@@ -481,6 +481,23 @@ class PositionManager:
             'krw_balance': krw_balance
         }
 
+    def get_virtual_balances(self) -> Dict[str, float]:
+        """
+        가상 잔고 조회 (Dry-run 모드 전용)
+
+        Returns:
+            딕셔너리 {"KRW": float, "KRW-BTC": float, ...}
+
+        Raises:
+            RuntimeError: Dry-run 모드가 아닐 때
+        """
+        if self.mode != "dryrun":
+            raise RuntimeError("가상 잔고는 Dry-run 모드에서만 조회 가능합니다.")
+
+        # VirtualBalanceManager 인스턴스 생성하여 잔고 로드
+        virtual_mgr = VirtualBalanceManager()
+        return virtual_mgr.balances
+
 
 class VirtualBalanceManager:
     """Dry-run 모드 가상 잔고 관리자"""

@@ -368,18 +368,17 @@ class V4TradingEngine:
                 logger.info(f"✅ {symbol} 매수 완료: {executed_volume:.8f}개 @ {avg_price:,}원 (수수료: {paid_fee:,}원)")
 
             # 거래 기록
-            self.trade_history.add_trade({
-                "group_id": group_id,
-                "group_name": group.get("name", "Unknown"),
-                "symbol": symbol,
-                "trade_type": "buy",
-                "sub_type": "initial",
-                "price": position.get("avg_buy_price"),
-                "amount": position.get("total_amount"),
-                "krw_amount": buy_amount,
-                "timestamp": datetime.now().isoformat(),
-                "dry_run": self.dry_run
-            })
+            self.trade_history.add_trade(
+                group_id=group_id,
+                group_name=group.get("name", "Unknown"),
+                symbol=symbol,
+                action="buy",
+                trade_type="initial",
+                price=position.get("avg_buy_price"),
+                amount=position.get("total_amount"),
+                total_krw=buy_amount,
+                dry_run=self.dry_run
+            )
 
             # 텔레그램 알림
             self._send_telegram_alert(
@@ -526,18 +525,18 @@ class V4TradingEngine:
 
             # 거래 기록
             position = self.position_manager.get_position(symbol)
-            self.trade_history.add_trade({
-                "group_id": group_id,
-                "group_name": group.get("name", "Unknown"),
-                "symbol": symbol,
-                "trade_type": "buy",
-                "sub_type": f"dca_level_{dca_level_num}",
-                "price": position.get("avg_buy_price"),
-                "amount": position.get("total_amount"),
-                "krw_amount": dca_amount,
-                "timestamp": datetime.now().isoformat(),
-                "dry_run": self.dry_run
-            })
+            self.trade_history.add_trade(
+                group_id=group_id,
+                group_name=group.get("name", "Unknown"),
+                symbol=symbol,
+                action="buy",
+                trade_type="dca",
+                price=position.get("avg_buy_price"),
+                amount=position.get("total_amount"),
+                total_krw=dca_amount,
+                dry_run=self.dry_run,
+                dca_level=dca_level_num  # 추가 정보
+            )
 
         except Exception as e:
             logger.error(f"❌ {symbol} DCA 실행 오류: {e}", exc_info=True)
@@ -680,19 +679,18 @@ class V4TradingEngine:
                     return
 
             # 거래 기록
-            self.trade_history.add_trade({
-                "group_id": group_id,
-                "group_name": group.get("name", "Unknown"),
-                "symbol": symbol,
-                "trade_type": "sell",
-                "sub_type": reason,
-                "price": current_price if self.dry_run else avg_price,
-                "amount": sell_amount,
-                "krw_amount": sell_value,
-                "profit_loss": profit,
-                "timestamp": datetime.now().isoformat(),
-                "dry_run": self.dry_run
-            })
+            self.trade_history.add_trade(
+                group_id=group_id,
+                group_name=group.get("name", "Unknown"),
+                symbol=symbol,
+                action="sell",
+                trade_type=reason,  # "profit" or "loss"
+                price=current_price if self.dry_run else avg_price,
+                amount=sell_amount,
+                total_krw=sell_value,
+                dry_run=self.dry_run,
+                profit_loss=profit  # 추가 정보
+            )
 
             # 텔레그램 알림
             emoji = "🎉" if profit > 0 else "😢"
