@@ -130,23 +130,18 @@ class ConfigManager:
         if not version.startswith('4.'):
             raise ConfigValidationError(f"잘못된 버전: {version} (4.x.x 필요)")
 
-        # 그룹 검증
-        groups = config.get('groups', [])
-        if not isinstance(groups, list):
-            raise ConfigValidationError("groups는 배열이어야 합니다.")
-
-        # 그룹 ID 중복 검사
-        group_ids = [g['id'] for g in groups if 'id' in g]
-        if len(group_ids) != len(set(group_ids)):
-            raise ConfigValidationError("그룹 ID가 중복되었습니다.")
+        # 그룹 검증 (딕셔너리 구조)
+        groups = config.get('groups', {})
+        if not isinstance(groups, dict):
+            raise ConfigValidationError("groups는 딕셔너리여야 합니다.")
 
         # 코인 중복 할당 검사
         all_coins = []
-        for group in groups:
+        for group_id, group in groups.items():
             coins = group.get('coins', [])
             for coin in coins:
                 if coin in all_coins:
-                    raise ConfigValidationError(f"코인 {coin}이 여러 그룹에 할당되었습니다.")
+                    raise ConfigValidationError(f"코인 {coin}이 여러 그룹에 할당되었습니다 (그룹: {group_id}).")
                 all_coins.append(coin)
 
         # JSON 스키마 검증 (선택적 - jsonschema 패키지가 있으면)
@@ -179,7 +174,11 @@ class ConfigManager:
             config = {
                 "version": "4.0.0",
                 "global_settings": {
-                    "observation_mode": False,
+                    "trading_day_reset_hour": 9,
+                    "max_positions": {
+                        "enabled": False,
+                        "limit": 3
+                    },
                     "min_krw_balance": {
                         "enabled": True,
                         "amount": 50000
@@ -197,7 +196,7 @@ class ConfigManager:
                     },
                     "dry_run": True
                 },
-                "groups": []
+                "groups": {}
             }
             self.save_config(config)
 
@@ -227,7 +226,11 @@ class ConfigManager:
         v4_config = {
             "version": "4.0.0",
             "global_settings": {
-                "observation_mode": False,
+                "trading_day_reset_hour": 9,
+                "max_positions": {
+                    "enabled": False,
+                    "limit": 3
+                },
                 "min_krw_balance": {
                     "enabled": False,
                     "amount": 50000
@@ -245,7 +248,7 @@ class ConfigManager:
                 },
                 "dry_run": True  # 안전하게 dry-run으로 시작
             },
-            "groups": []
+            "groups": {}
         }
 
         # V3 DCA 설정 마이그레이션 (반자동 모드)
@@ -254,28 +257,33 @@ class ConfigManager:
                 with open(self.V3_DCA_CONFIG, 'r', encoding='utf-8') as f:
                     dca_config = json.load(f)
 
+                group_id = "semi_auto_v3"
                 semi_auto_group = {
-                    "id": f"group_{int(time.time() * 1000)}",
                     "name": "반자동 모드 (V3 마이그레이션)",
+                    "observation_only": False,
                     "coins": [],  # 사용자가 수동으로 추가
                     "buy_settings": {
                         "mode": "manual"
                     },
                     "dca_settings": {
                         "mode": "auto",
-                        "levels": dca_config.get('dca_levels', [
-                            {"drop_pct": -3.0, "buy_ratio": 1.5},
-                            {"drop_pct": -7.0, "buy_ratio": 2.0},
-                            {"drop_pct": -12.0, "buy_ratio": 3.0}
-                        ])
+                        "levels": [
+                            {"price_ratio": -3.0, "quantity_ratio": 100},
+                            {"price_ratio": -7.0, "quantity_ratio": 100},
+                            {"price_ratio": -12.0, "quantity_ratio": 100}
+                        ]
                     },
                     "profit_settings": {
                         "mode": "auto",
-                        "target_pct": dca_config.get('profit_target_pct', 5.0)
+                        "levels": [
+                            {"price_ratio": dca_config.get('profit_target_pct', 5.0), "quantity_ratio": 100}
+                        ]
                     },
                     "loss_settings": {
                         "mode": "auto",
-                        "stop_loss_pct": dca_config.get('stop_loss_pct', -15.0)
+                        "levels": [
+                            {"price_ratio": dca_config.get('stop_loss_pct', -15.0), "quantity_ratio": 100}
+                        ]
                     }
                 }
 
@@ -283,7 +291,7 @@ class ConfigManager:
                 if 'telegram' in dca_config:
                     v4_config['global_settings']['telegram'] = dca_config['telegram']
 
-                v4_config['groups'].append(semi_auto_group)
+                v4_config['groups'][group_id] = semi_auto_group
                 print(f"  ✅ 반자동 모드 그룹 생성: {semi_auto_group['name']}")
 
             except Exception as e:
@@ -295,9 +303,10 @@ class ConfigManager:
                 with open(self.V3_AUTO_CONFIG, 'r', encoding='utf-8') as f:
                     auto_config = json.load(f)
 
+                group_id = "auto_v3"
                 auto_group = {
-                    "id": f"group_{int(time.time() * 1000) + 1}",
                     "name": "자동 모드 (V3 마이그레이션)",
+                    "observation_only": False,
                     "coins": auto_config.get('symbols', []),
                     "buy_settings": {
                         "mode": "auto",
@@ -329,19 +338,23 @@ class ConfigManager:
                     },
                     "dca_settings": {
                         "mode": "auto",
-                        "levels": auto_config.get('dca_levels', [
-                            {"drop_pct": -3.0, "buy_ratio": 1.5},
-                            {"drop_pct": -7.0, "buy_ratio": 2.0},
-                            {"drop_pct": -12.0, "buy_ratio": 3.0}
-                        ])
+                        "levels": [
+                            {"price_ratio": -3.0, "quantity_ratio": 100},
+                            {"price_ratio": -7.0, "quantity_ratio": 100},
+                            {"price_ratio": -12.0, "quantity_ratio": 100}
+                        ]
                     },
                     "profit_settings": {
                         "mode": "auto",
-                        "target_pct": auto_config.get('profit_target_pct', 5.0)
+                        "levels": [
+                            {"price_ratio": auto_config.get('profit_target_pct', 5.0), "quantity_ratio": 100}
+                        ]
                     },
                     "loss_settings": {
                         "mode": "auto",
-                        "stop_loss_pct": auto_config.get('stop_loss_pct', -15.0)
+                        "levels": [
+                            {"price_ratio": auto_config.get('stop_loss_pct', -15.0), "quantity_ratio": 100}
+                        ]
                     }
                 }
 
@@ -349,7 +362,7 @@ class ConfigManager:
                 if 'telegram' in auto_config:
                     v4_config['global_settings']['telegram'] = auto_config['telegram']
 
-                v4_config['groups'].append(auto_group)
+                v4_config['groups'][group_id] = auto_group
                 print(f"  ✅ 자동 모드 그룹 생성: {auto_group['name']}")
 
             except Exception as e:
@@ -391,27 +404,34 @@ class ConfigManager:
         if self.config is None:
             self.load_config()
 
-        for group in self.config.get('groups', []):
-            if group['id'] == group_id:
-                return group
-        return None
+        return self.config.get('groups', {}).get(group_id)
 
-    def get_group_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """코인 심볼로 그룹 조회"""
+    def get_group_by_symbol(self, symbol: str) -> Optional[tuple]:
+        """
+        코인 심볼로 그룹 조회
+
+        Returns:
+            (group_id, group_data) 또는 None
+        """
         if self.config is None:
             self.load_config()
 
-        for group in self.config.get('groups', []):
+        for group_id, group in self.config.get('groups', {}).items():
             if symbol in group.get('coins', []):
-                return group
+                return (group_id, group)
         return None
 
-    def get_all_groups(self) -> list:
-        """모든 그룹 반환"""
+    def get_all_groups(self) -> Dict[str, Dict[str, Any]]:
+        """
+        모든 그룹 반환
+
+        Returns:
+            딕셔너리 {group_id: group_data}
+        """
         if self.config is None:
             self.load_config()
 
-        return self.config.get('groups', [])
+        return self.config.get('groups', {})
 
     def update_group(self, group_id: str, updates: Dict[str, Any]) -> None:
         """
@@ -424,24 +444,27 @@ class ConfigManager:
         if self.config is None:
             self.load_config()
 
-        for i, group in enumerate(self.config['groups']):
-            if group['id'] == group_id:
-                self.config['groups'][i].update(updates)
-                self.save_config()
-                return
+        if group_id not in self.config['groups']:
+            raise ValueError(f"그룹을 찾을 수 없습니다: {group_id}")
 
-        raise ValueError(f"그룹을 찾을 수 없습니다: {group_id}")
+        self.config['groups'][group_id].update(updates)
+        self.save_config()
 
-    def add_group(self, group: Dict[str, Any]) -> None:
-        """새 그룹 추가"""
+    def add_group(self, group_id: str, group: Dict[str, Any]) -> None:
+        """
+        새 그룹 추가
+
+        Args:
+            group_id: 그룹 ID (사용자 지정)
+            group: 그룹 데이터
+        """
         if self.config is None:
             self.load_config()
 
-        # ID 자동 생성
-        if 'id' not in group:
-            group['id'] = f"group_{int(time.time() * 1000)}"
+        if group_id in self.config['groups']:
+            raise ValueError(f"그룹 ID가 이미 존재합니다: {group_id}")
 
-        self.config['groups'].append(group)
+        self.config['groups'][group_id] = group
         self.save_config()
 
     def remove_group(self, group_id: str) -> None:
@@ -449,10 +472,11 @@ class ConfigManager:
         if self.config is None:
             self.load_config()
 
-        self.config['groups'] = [
-            g for g in self.config['groups'] if g['id'] != group_id
-        ]
-        self.save_config()
+        if group_id in self.config['groups']:
+            del self.config['groups'][group_id]
+            self.save_config()
+        else:
+            raise ValueError(f"그룹을 찾을 수 없습니다: {group_id}")
 
 
 if __name__ == "__main__":
@@ -480,7 +504,9 @@ if __name__ == "__main__":
     groups = manager.get_all_groups()
     print(f"   - 전체 그룹 수: {len(groups)}")
     if groups:
-        print(f"   - 첫 번째 그룹: {groups[0]['name']}")
+        first_group_id = list(groups.keys())[0]
+        print(f"   - 첫 번째 그룹 ID: {first_group_id}")
+        print(f"   - 첫 번째 그룹명: {groups[first_group_id]['name']}")
     print()
 
     print("✅ 테스트 완료!")
