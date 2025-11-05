@@ -53,8 +53,16 @@ logs/
 # Configuration (contains API keys and user settings)
 config/api_keys.json
 config/settings.json
+config/trading_config.json
+config/backup_v3/
 data/config/.credentials.enc
 data/config/.master.key
+
+# V4 Runtime data (user-specific positions and history)
+data/positions_live.json
+data/positions_dryrun.json
+data/virtual_balances.json
+data/trade_history.json
 
 # Historical data (large files)
 data/historical/*.csv
