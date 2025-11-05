@@ -109,13 +109,13 @@
 ```
 
 **구현 작업**:
-- [ ] `config/schemas/trading_config_schema.json` 생성 (유효성 검증용)
-- [ ] `core/config_manager.py` 신규 작성
+- [x] `config/schemas/trading_config_schema.json` 생성 (유효성 검증용)
+- [x] `core/config_manager.py` 신규 작성 (512 lines)
   - `load_config()` - 설정 로드 및 스키마 검증
   - `save_config()` - 설정 저장
   - `validate_config()` - JSON 스키마 검증
   - `migrate_from_v3()` - V3 설정 → V4 자동 변환
-- [ ] 기본 템플릿 생성 함수 `create_default_config()`
+- [x] 기본 템플릿 생성 함수 `create_default_config()`
 
 **테스트 항목**:
 - ✅ 기본 설정 생성 테스트
@@ -150,14 +150,15 @@
 ```
 
 **구현 작업**:
-- [ ] `core/position_manager.py` 신규 작성
+- [x] `core/position_manager.py` 신규 작성 (656 lines)
   - `load_positions(mode)` - live/dryrun 선택적 로드
   - `save_position(symbol, data, mode)`
   - `update_position(symbol, updates, mode)`
   - `delete_position(symbol, mode)`
   - `get_all_positions(mode)`
   - `get_positions_by_group(group_id, mode)`
-- [ ] Dry-run 전용 잔고 관리
+  - `sync_with_upbit()` - Upbit API 동기화 (Phase 2 추가)
+- [x] Dry-run 전용 잔고 관리
   - `init_virtual_balance(krw_amount)`
   - `update_virtual_balance(krw_delta, coin_delta)`
 
@@ -197,7 +198,7 @@
 ```
 
 **구현 작업**:
-- [ ] `core/trade_history_manager.py` 신규 작성
+- [x] `core/trade_history_manager.py` 신규 작성 (479 lines)
   - `add_trade(trade_data)`
   - `get_trades_by_group(group_id)`
   - `get_trades_by_symbol(symbol)`
@@ -274,12 +275,12 @@ class GroupManager:
 ```
 
 **구현 작업**:
-- [ ] 기본 CRUD 메서드 구현
-- [ ] 그룹 제약사항 검증 로직
+- [x] 기본 CRUD 메서드 구현 (`core/group_manager.py`, 578 lines)
+- [x] 그룹 제약사항 검증 로직
   - 한 코인은 하나의 그룹에만 소속
   - 포지션 보유 중인 코인 그룹 변경 금지
   - 그룹 삭제 시 포지션 확인
-- [ ] 에러 처리 (GroupNotFoundError, CoinAlreadyAssignedError 등)
+- [x] 에러 처리 (GroupNotFoundError, CoinAlreadyAssignedError 등)
 
 **테스트 항목**:
 - ✅ 그룹 생성/수정/삭제
@@ -462,10 +463,10 @@ class V4AutoBuyStrategy(BaseStrategy):
 ```
 
 **구현 작업**:
-- [ ] Preset 시스템 구현
-- [ ] RSI, MACD, Volume 지표 계산
-- [ ] 백테스트 호환성 확인 (미래 데이터 사용 금지)
-- [ ] 전략 파라미터 검증
+- [x] Preset 시스템 구현 (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
+- [x] RSI, MACD, Volume 지표 계산
+- [x] 백테스트 호환성 확인 (미래 데이터 사용 금지)
+- [x] 전략 파라미터 검증
 
 **테스트 항목**:
 - ✅ Preset 적용 테스트
@@ -645,11 +646,11 @@ class V4TradingEngine:
 ```
 
 **구현 작업**:
-- [ ] GroupManager 통합
-- [ ] 전역 제약 로직 구현
-- [ ] 그룹별 WebSocket 관리
-- [ ] 일일 손실 추적 (`core/daily_loss_tracker.py` 신규)
-- [ ] 포지션 관리 로직 업데이트
+- [ ] GroupManager 통합 (V4TradingEngine 미구현)
+- [ ] 전역 제약 로직 구현 (V4TradingEngine 미구현)
+- [ ] 그룹별 WebSocket 관리 (V4TradingEngine 미구현)
+- [x] 일일 손실 추적 (`core/daily_loss_tracker.py` 신규, 329 lines) ✅
+- [ ] 포지션 관리 로직 업데이트 (V4TradingEngine 미구현)
 
 **테스트 항목**:
 - ✅ 그룹별 독립 거래 동작
@@ -741,10 +742,10 @@ class DailyLossTracker:
 ```
 
 **구현 작업**:
-- [ ] 일일 스냅샷 로직
-- [ ] 손실률 계산
-- [ ] 알림/청산 처리
-- [ ] 09:00 자동 리셋
+- [x] 일일 스냅샷 로직 (`core/daily_loss_tracker.py`, 329 lines)
+- [x] 손실률 계산
+- [x] 알림/청산 처리 (Callback 아키텍처)
+- [x] 09:00 자동 리셋
 
 **테스트 항목**:
 - ✅ 손실률 계산 정확성

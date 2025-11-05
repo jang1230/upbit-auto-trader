@@ -5,7 +5,44 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Phase%204%20Complete-success.svg)](docs/PHASE_4_완료_보고서.md)
+[![Status](https://img.shields.io/badge/Status-V4%20Phase%201--2%20Complete%20(80%25)-orange.svg)](docs/DESIGN_V4_COMPLETE.md)
+[![V3 Status](https://img.shields.io/badge/V3-Phase%204%20Complete-success.svg)](docs/PHASE_4_완료_보고서.md)
+
+---
+
+## 🚀 V4 Upgrade in Progress
+
+**현재 작업 중**: V4 무제한 그룹 기반 트레이딩 시스템
+
+### V4 새로운 기능 (개발 중)
+- ✅ **Phase 1 완료 (100%)**: 데이터 구조 및 스키마
+  - 통합 설정 관리 (`ConfigManager`)
+  - 포지션 관리 시스템 (`PositionManager`)
+  - 거래 이력 추적 (`TradeHistoryManager`)
+
+- 🔄 **Phase 2 진행 중 (80%)**: 백엔드 핵심 컴포넌트
+  - ✅ 그룹 관리자 (`GroupManager`)
+  - ✅ 일일 손실 추적기 (`DailyLossTracker`)
+  - ✅ V4 자동매수 전략 (`V4AutoBuyStrategy`)
+  - ✅ Upbit 실시간 동기화
+  - ⏳ V4 트레이딩 엔진 (구현 예정)
+
+- ⏳ **Phase 3 대기 중**: GUI 리팩토링
+- ⏳ **Phase 4 대기 중**: 통합 테스트
+- ⏳ **Phase 5 대기 중**: V3→V4 마이그레이션
+
+### V4 vs V3 주요 차이점
+
+| 기능 | V3 | V4 |
+|------|----|----|
+| 트레이딩 모드 | 2개 (반자동/완전자동) | 무제한 그룹 |
+| 코인 관리 | 전역 설정 | 그룹별 독립 관리 |
+| 매수 전략 | 단일 전략 | 그룹별 프리셋 (Conservative/Balanced/Aggressive) |
+| DCA 설정 | 전역 설정 | 그룹별 독립 설정 |
+| 익절/손절 | 단일 레벨 | 다단계 레벨 지원 |
+| 일일 손실 한도 | 없음 | 09:00 기준 스냅샷 추적 |
+
+📖 **V4 상세 문서**: [DESIGN_V4_COMPLETE.md](docs/DESIGN_V4_COMPLETE.md) (172KB, 18개 섹션)
 
 ---
 
@@ -211,6 +248,63 @@ XRP: +14.42% (84회 거래, 승률 52.4%)
    - 모든 컴포넌트 통합
    - 메인 트레이딩 루프
    - 상태 관리 및 통계 추적
+
+### V4 신규 컴포넌트 (Phase 1-2)
+
+**Phase 1: 데이터 구조**
+
+1. **ConfigManager** (`core/config_manager.py`, 512 lines)
+   - V4 통합 설정 관리
+   - Dictionary 기반 그룹 구조
+   - JSON Schema 검증
+   - V3→V4 자동 마이그레이션
+   - Methods: `load_config()`, `save_config()`, `validate_config()`, `migrate_from_v3()`
+
+2. **PositionManager** (`core/position_manager.py`, 656 lines)
+   - Live/Dry-run 분리 관리
+   - 포지션 CRUD 연산
+   - DCA 추가 매수 관리
+   - Upbit 실시간 동기화 (`sync_with_upbit()`)
+   - Methods: `create_position()`, `update_position()`, `add_dca()`, `close_position()`
+
+3. **TradeHistoryManager** (`core/trade_history_manager.py`, 479 lines)
+   - 거래 기록 관리
+   - 그룹별 통계 계산
+   - JSON 파일 영속화
+   - Methods: `add_trade()`, `get_trades_by_group()`, `calculate_statistics()`
+
+4. **Configuration Schema** (`config/schemas/trading_config_schema.json`)
+   - V4 설정 JSON Schema
+   - 필수 필드 및 타입 정의
+   - 제약 조건 명시
+
+5. **Configuration Template** (`config/trading_config_template.json`)
+   - V4 기본 설정 템플릿
+   - 예제 그룹 구성
+
+**Phase 2: 백엔드 핵심**
+
+6. **GroupManager** (`core/group_manager.py`, 578 lines)
+   - 그룹 생명주기 관리
+   - 코인 중복 검증
+   - 설정 업데이트 및 동기화
+   - Methods: `create_group()`, `delete_group()`, `update_group_settings()`, `add_coin_to_group()`, `move_coin()`
+
+7. **DailyLossTracker** (`core/daily_loss_tracker.py`, 329 lines)
+   - 09:00 기준 일일 스냅샷
+   - 실시간 손실률 계산
+   - 한도 도달 시 알림/청산
+   - Callback 기반 아키텍처
+   - Methods: `check_and_reset()`, `calculate_daily_loss()`, `is_limit_reached()`
+
+8. **V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
+   - 프리셋 기반 자동매수 (Conservative/Balanced/Aggressive)
+   - RSI + MACD + Volume 지표 조합
+   - 타임프레임별 최적화 (4H/1H/15min)
+   - Methods: `should_buy()`, `get_indicator_values()`
+
+**진행 예정**:
+- ⏳ **V4TradingEngine**: 모든 V4 컴포넌트 통합 (Phase 2 완료 예정)
 
 ---
 
