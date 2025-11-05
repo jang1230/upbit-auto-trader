@@ -1,7 +1,11 @@
 {
   "version": "4.0.0",
   "global_settings": {
-    "observation_mode": false,
+    "trading_day_reset_hour": 9,
+    "max_positions": {
+      "enabled": false,
+      "limit": 3
+    },
     "min_krw_balance": {
       "enabled": true,
       "amount": 50000
@@ -19,10 +23,10 @@
     },
     "dry_run": true
   },
-  "groups": [
-    {
-      "id": "group_example",
+  "groups": {
+    "example_group": {
       "name": "예제 그룹 (편집하여 사용)",
+      "observation_only": false,
       "coins": ["KRW-BTC", "KRW-ETH"],
       "buy_settings": {
         "mode": "auto",
@@ -56,16 +60,16 @@
         "mode": "auto",
         "levels": [
           {
-            "drop_pct": -3.0,
-            "buy_ratio": 1.5
+            "price_ratio": -3.0,
+            "quantity_ratio": 100
           },
           {
-            "drop_pct": -7.0,
-            "buy_ratio": 2.0
+            "price_ratio": -5.0,
+            "quantity_ratio": 100
           },
           {
-            "drop_pct": -12.0,
-            "buy_ratio": 3.0
+            "price_ratio": -7.0,
+            "quantity_ratio": 100
           }
         ]
       },
@@ -78,5 +82,5 @@
         "stop_loss_pct": -15.0
       }
     }
-  ]
+  }
 }
