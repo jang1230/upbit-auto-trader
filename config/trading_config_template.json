@@ -1,0 +1,82 @@
+{
+  "version": "4.0.0",
+  "global_settings": {
+    "observation_mode": false,
+    "min_krw_balance": {
+      "enabled": true,
+      "amount": 50000
+    },
+    "daily_loss_limit": {
+      "enabled": false,
+      "loss_pct": 10.0,
+      "calculation_method": "daily_only",
+      "action": "alert"
+    },
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "chat_id": ""
+    },
+    "dry_run": true
+  },
+  "groups": [
+    {
+      "id": "group_example",
+      "name": "예제 그룹 (편집하여 사용)",
+      "coins": ["KRW-BTC", "KRW-ETH"],
+      "buy_settings": {
+        "mode": "auto",
+        "auto_config": {
+          "enabled": true,
+          "investment_style": "balanced",
+          "candle_unit": "60",
+          "indicators": {
+            "rsi": {
+              "enabled": true,
+              "period": 14,
+              "oversold": 30,
+              "overbought": 70
+            },
+            "macd": {
+              "enabled": true,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9
+            },
+            "volume": {
+              "enabled": true,
+              "period": 20,
+              "threshold": 2.0
+            }
+          },
+          "buy_amount_krw": 50000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "drop_pct": -3.0,
+            "buy_ratio": 1.5
+          },
+          {
+            "drop_pct": -7.0,
+            "buy_ratio": 2.0
+          },
+          {
+            "drop_pct": -12.0,
+            "buy_ratio": 3.0
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "target_pct": 5.0
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "stop_loss_pct": -15.0
+      }
+    }
+  ]
+}
