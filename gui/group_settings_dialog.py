@@ -342,10 +342,41 @@ class GroupSettingsDialog(QDialog):
             is_auto_buy = self.auto_buy_radio.isChecked()
             buy_amount = self.buy_amount_input.value()
 
-            group["buy_settings"] = {
-                "investment_style": "balanced" if is_auto_buy else "manual",
-                "buy_amount_krw": buy_amount
-            }
+            if is_auto_buy:
+                # 자동매수 모드: auto_config 필요
+                group["buy_settings"] = {
+                    "mode": "auto",
+                    "auto_config": {
+                        "enabled": True,
+                        "investment_style": "balanced",
+                        "candle_unit": "60",
+                        "indicators": {
+                            "rsi": {
+                                "enabled": True,
+                                "period": 14,
+                                "oversold": 30,
+                                "overbought": 70
+                            },
+                            "macd": {
+                                "enabled": True,
+                                "fast": 12,
+                                "slow": 26,
+                                "signal": 9
+                            },
+                            "volume": {
+                                "enabled": True,
+                                "period": 20,
+                                "threshold": 2.0
+                            }
+                        },
+                        "buy_amount_krw": buy_amount
+                    }
+                }
+            else:
+                # 수동매수 모드: mode만 필요
+                group["buy_settings"] = {
+                    "mode": "manual"
+                }
 
             # DCA 설정
             dca_enabled = self.dca_checkbox.isChecked()
