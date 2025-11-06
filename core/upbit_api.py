@@ -20,8 +20,10 @@ import hashlib
 import jwt
 import requests
 import logging
+import pandas as pd
 from typing import Dict, List, Optional
 from urllib.parse import urlencode, unquote
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -530,6 +532,94 @@ class UpbitAPI:
         except requests.exceptions.RequestException as e:
             logger.error(f"현재가 조회 실패 ({symbol}): {e}")
             return {}
+
+    def get_candles(self, symbol: str, interval: str = "minute1", count: int = 200) -> Optional[pd.DataFrame]:
+        """
+        캔들(OHLCV) 데이터 조회 (시세 조회 API - 인증 불필요, Rate Limit 적용)
+
+        Args:
+            symbol: 마켓 코드 (예: 'KRW-BTC')
+            interval: 캔들 타입
+                - minute1, minute3, minute5, minute10, minute15, minute30, minute60, minute240 (분봉)
+                - day (일봉)
+                - week (주봉)
+                - month (월봉)
+            count: 캔들 개수 (최대 200개)
+
+        Returns:
+            DataFrame: OHLCV 데이터 (컬럼: open, high, low, close, volume)
+                인덱스: timestamp (datetime)
+                실패 시 None 반환
+        """
+        # Rate Limit 적용 (candle: 10 requests/1s)
+        self.limiter.acquire("candle")
+
+        # interval 파싱
+        if interval.startswith("minute"):
+            unit = interval.replace("minute", "")
+            url = f"https://api.upbit.com/v1/candles/minutes/{unit}"
+        elif interval == "day":
+            url = "https://api.upbit.com/v1/candles/days"
+        elif interval == "week":
+            url = "https://api.upbit.com/v1/candles/weeks"
+        elif interval == "month":
+            url = "https://api.upbit.com/v1/candles/months"
+        else:
+            logger.error(f"지원하지 않는 interval: {interval}")
+            return None
+
+        params = {
+            'market': symbol,
+            'count': min(count, 200)  # 최대 200개로 제한
+        }
+
+        try:
+            start_time = time.time()
+            response = requests.get(url, params=params, timeout=10)
+            elapsed = time.time() - start_time
+
+            # 응답 헤더에서 Rate Limit 정보 갱신
+            self.limiter.update_from_header(response.headers.get("Remaining-Req"))
+
+            if 200 <= response.status_code < 300:
+                logger.debug(f"HTTP {response.status_code} | GET /candles/{interval} | {elapsed:.3f}s")
+                data = response.json()
+
+                if not data or len(data) == 0:
+                    logger.warning(f"캔들 데이터 없음: {symbol} ({interval})")
+                    return None
+
+                # DataFrame 변환
+                df = pd.DataFrame(data)
+
+                # 필요한 컬럼만 선택 및 이름 변경
+                df = df[['candle_date_time_kst', 'opening_price', 'high_price', 'low_price',
+                        'trade_price', 'candle_acc_trade_volume']]
+                df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+
+                # timestamp를 datetime으로 변환하고 인덱스로 설정
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df.set_index('timestamp', inplace=True)
+
+                # 오름차순 정렬 (과거 → 현재)
+                df.sort_index(inplace=True)
+
+                return df
+
+            else:
+                logger.warning(f"HTTP {response.status_code} | GET /candles/{interval} | {elapsed:.3f}s")
+                logger.error(f"캔들 조회 실패 ({symbol}, {interval}): {response.text}")
+                return None
+
+        except requests.exceptions.Timeout:
+            logger.error(f"캔들 조회 시간 초과 ({symbol}, {interval}): 10초")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"캔들 조회 실패 ({symbol}, {interval}): {e}")
+            return None
+        except Exception as e:
+            logger.error(f"캔들 데이터 변환 실패 ({symbol}, {interval}): {e}")
+            return None
 
 
 # 테스트 코드
