@@ -178,9 +178,14 @@ class MainWindow(QMainWindow):
 
         # 🔧 V4 매니저 초기화
         if V4_AVAILABLE:
-            self.v4_config_manager = V4ConfigManager()
-            self.v4_position_manager = PositionManager(mode="dryrun")  # 기본은 Dry Run
-            self.v4_group_manager = GroupManager(self.v4_config_manager, self.v4_position_manager)
+            # GroupManager가 내부에서 ConfigManager와 PositionManager를 생성
+            self.v4_group_manager = GroupManager(
+                config_path="config/trading_config.json",
+                mode="dryrun"
+            )
+            # GroupManager 내부의 매니저 참조
+            self.v4_config_manager = self.v4_group_manager.config_manager
+            self.v4_position_manager = self.v4_group_manager.position_manager
         else:
             self.v4_config_manager = None
             self.v4_position_manager = None
