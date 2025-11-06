@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView,  # 포지션 테이블용
     QScrollArea, QSizePolicy, QSplitter, QTabWidget,  # Step 2: 사이드바 레이아웃 + 탭
-    QRadioButton, QButtonGroup  # 트레이딩 모드 선택용
+    QRadioButton, QButtonGroup,  # 트레이딩 모드 선택용
+    QDialog  # Step 6: Global Settings Dialog용
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QAction, QFont
