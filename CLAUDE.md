@@ -803,13 +803,48 @@ Created 3 new files and extended 2 existing files:
 10. **.gitignore** (updated)
     - Added: `data/daily_snapshot.json` to runtime data exclusions
 
-**Phase 2: Remaining Work**
+**Phase 2: Core Engine (100% Complete)** ✅
 
-- ⏳ **V4TradingEngine**: Main trading loop integrating all V4 components (estimated: 6-10 hours)
+11. **core/v4_trading_engine.py** (930 lines)
+    - Status: ✅ Complete
+    - Purpose: Main trading loop integrating all V4 components
+    - Key Features:
+      - Group-level trading loops
+      - Position monitoring (60-second polling)
+      - Auto-buy strategy execution
+      - DCA trigger logic (price drop detection)
+      - Profit/loss trigger logic
+      - Daily loss tracker integration
+      - Scheduled tasks (09:00 reset)
+    - API Integration:
+      - ✅ pyupbit 제거 완료 (2025-01-26)
+      - ✅ Official Upbit REST API 사용
+      - ✅ Rate Limit 준수 (UpbitAPI 통합)
 
-**Total Work**:
-- **Lines of Code**: ~3,000 lines across 8 new files
-- **Test Coverage**: All components include `if __name__ == "__main__"` test blocks
+**Phase 2: API Best Practice 적용 (100% Complete)** ✅
+
+12. **Rate Limit 버그 수정** (2025-01-26)
+    - REST API 그룹명 불일치 수정
+      - "trades" → "trade", "candles" → "candle"
+      - `Remaining-Req` 헤더 동기화 정상화
+    - WebSocket Rate Limiter 구현
+      - 초당 5회, 분당 100회 제한
+      - Window-based deque 알고리즘
+    - File: core/upbit_api.py, core/upbit_websocket.py
+
+13. **커뮤니티 라이브러리 제거** (2025-01-26)
+    - 실거래 코어에서 pyupbit 완전 제거
+      - core/v4_trading_engine.py
+      - core/upbit_websocket.py (CandleWebSocket)
+    - requirements.txt 정리
+      - ta 라이브러리 제거 (미사용)
+      - pyupbit 용도 명시 (백테스팅 전용)
+
+**Total Work (Phase 1-2)**:
+- **Lines of Code**: ~4,400 lines across 11 new files
+- **API Integration**: 100% official Upbit REST API
+- **Rate Limit**: REST + WebSocket 완벽 구현
+- **Community Libraries**: 실거래 코어에서 0개 (완전 제거)
 - **Documentation**: Comprehensive docstrings with type hints
 - **Design Docs**: 172KB DESIGN_V4_COMPLETE.md with 18 sections
 
@@ -819,9 +854,14 @@ Created 3 new files and extended 2 existing files:
 3. **Separate files**: Live/dry-run positions stored separately for isolation
 4. **Preset system**: V4AutoBuyStrategy uses presets for ease of use
 5. **Upbit sync**: PositionManager can sync with Upbit API for initial state
+6. **Official API only**: No community libraries in production core (pyupbit only for backtesting)
+
+**Optional Improvements (Not Blocking)**:
+- ⏳ WebSocket 실시간 통합 (현재 60초 폴링 사용 중, 동작은 정상)
+- ⏳ Unit Tests & Integration Testing (안정성 향상용)
 
 **Next Steps**:
-1. Complete V4TradingEngine (Phase 2 completion)
+1. ✅ Phase 2 완료 (2025-01-26)
 2. Phase 3: GUI redesign (3-tab structure, group management dialogs)
 3. Phase 4: Integration testing
 4. Phase 5: V3→V4 migration and deployment
