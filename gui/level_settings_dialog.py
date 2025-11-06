@@ -110,7 +110,7 @@ class LevelSettingsDialog(QDialog):
         self.dca_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.dca_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.dca_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.dca_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.dca_table.setSelectionMode(QTableWidget.SingleSelection)  # 단일 셀 선택
         layout.addWidget(self.dca_table)
 
         return tab
@@ -151,7 +151,7 @@ class LevelSettingsDialog(QDialog):
         self.profit_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.profit_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.profit_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.profit_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.profit_table.setSelectionMode(QTableWidget.SingleSelection)  # 단일 셀 선택
         layout.addWidget(self.profit_table)
 
         return tab
@@ -192,7 +192,7 @@ class LevelSettingsDialog(QDialog):
         self.loss_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.loss_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.loss_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.loss_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.loss_table.setSelectionMode(QTableWidget.SingleSelection)  # 단일 셀 선택
         layout.addWidget(self.loss_table)
 
         return tab
