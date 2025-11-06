@@ -191,8 +191,8 @@ class MainWindow(QMainWindow):
         self.take_profit_pct = self.dca_config.take_profit_pct
         self.max_daily_loss_pct = 10.0  # 일일 최대 손실은 별도 관리
 
-        self.setWindowTitle("Upbit DCA Trader")
-        self.setMinimumSize(1200, 750)  # Step 2: 사이드바 레이아웃으로 증가
+        self.setWindowTitle("Upbit DCA Trader V4")
+        self.setMinimumSize(1600, 850)  # V4: 그룹 시스템으로 화면 확대
 
         self._init_ui()
         self._init_menu()
@@ -229,46 +229,7 @@ class MainWindow(QMainWindow):
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        # 🔧 0. 트레이딩 모드 선택 (사이드바 최상단)
-        mode_group = QGroupBox("🎯 트레이딩 모드")
-        mode_layout = QVBoxLayout()
-        mode_layout.setSpacing(5)
-        
-        # 모드 선택 라디오 버튼
-        self.semi_auto_radio = QRadioButton("반자동 (Upbit 앱 수동매수 → 봇 자동관리)")
-        self.full_auto_radio = QRadioButton("완전 자동 (봇 자동매수 + 자동관리)")
-        
-        # 버튼 그룹 생성
-        self.mode_button_group = QButtonGroup()
-        self.mode_button_group.addButton(self.semi_auto_radio, 0)
-        self.mode_button_group.addButton(self.full_auto_radio, 1)
-        
-        # 기본값: 반자동
-        self.semi_auto_radio.setChecked(True)
-        
-        # 폰트 설정
-        self.semi_auto_radio.setFont(QFont("맑은 고딕", 9))
-        self.full_auto_radio.setFont(QFont("맑은 고딕", 9))
-        
-        # 시그널 연결
-        self.semi_auto_radio.toggled.connect(self._on_mode_changed)
-        self.full_auto_radio.toggled.connect(self._on_mode_changed)  # 🔧 완전 자동 버튼도 연결
-
-        mode_layout.addWidget(self.semi_auto_radio)
-        mode_layout.addWidget(self.full_auto_radio)
-        
-        # 모드 설명 추가
-        mode_info = QLabel(
-            "💡 반자동: Upbit 앱 수동매수 → 봇 감지 → DCA/익절/손절 자동실행\n"
-            "💡 완전 자동: 봇이 상위코인 모니터링 → 시그널 감지 → 자동매수 → 자동관리"
-        )
-        mode_info.setFont(QFont("맑은 고딕", 8))
-        mode_info.setStyleSheet("color: #666; padding: 3px;")
-        mode_info.setWordWrap(True)
-        mode_layout.addWidget(mode_info)
-        
-        mode_group.setLayout(mode_layout)
-        sidebar_layout.addWidget(mode_group)
+        # 🔧 V4: 트레이딩 모드 선택 삭제 (그룹 시스템으로 대체)
 
         # 🔧 1. 상태 패널 (사이드바 상단)
         status_group = QGroupBox("📊 상태")
@@ -358,77 +319,23 @@ class MainWindow(QMainWindow):
         settings_group.setLayout(settings_layout)
         sidebar_layout.addWidget(settings_group)
 
-        # 🔧 3.5. 완전 자동 모드 설정 (사이드바 - 완전 자동 선택 시만 표시)
-        self.auto_settings_group = QGroupBox("🤖 완전 자동 설정")
-        auto_settings_layout = QVBoxLayout()
-        
-        # 완전 자동 설정 요약
-        auto_summary_layout = QFormLayout()
-        
-        # 매수 금액
-        self.auto_buy_amount_label = QLabel(f"{self.auto_trading_config.buy_amount:,.0f}원")
-        self.auto_buy_amount_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.auto_buy_amount_label.setStyleSheet("color: #2196F3;")
-        auto_summary_layout.addRow("💰 매수금액:", self.auto_buy_amount_label)
-        
-        # 모니터링 코인
-        monitoring_text = f"상위 {self.auto_trading_config.top_n}개" if self.auto_trading_config.monitoring_mode == "top_marketcap" else f"{len(self.auto_trading_config.custom_symbols)}개"
-        self.auto_monitoring_label = QLabel(monitoring_text)
-        self.auto_monitoring_label.setFont(QFont("Consolas", 9))
-        auto_summary_layout.addRow("📊 모니터링:", self.auto_monitoring_label)
-        
-        # 스캔 주기
-        self.auto_scan_label = QLabel(f"{self.auto_trading_config.scan_interval}초")
-        self.auto_scan_label.setFont(QFont("Consolas", 9))
-        auto_summary_layout.addRow("⏱️ 스캔주기:", self.auto_scan_label)
-        
-        # 리스크 관리 요약
-        risk_items = []
-        if self.auto_trading_config.max_positions_enabled:
-            risk_items.append(f"포지션 {self.auto_trading_config.max_positions_limit}개")
-        if self.auto_trading_config.daily_trades_enabled:
-            risk_items.append(f"거래 {self.auto_trading_config.daily_trades_limit}회/일")
-        if self.auto_trading_config.min_krw_balance_enabled:
-            risk_items.append(f"잔고 {self.auto_trading_config.min_krw_balance_amount:,.0f}원")
-        if self.auto_trading_config.stop_on_loss_enabled:
-            risk_items.append(f"손실 {self.auto_trading_config.stop_on_loss_daily_pct}%")
-        
-        risk_text = ", ".join(risk_items) if risk_items else "없음"
-        self.auto_risk_label = QLabel(risk_text)
-        self.auto_risk_label.setFont(QFont("맑은 고딕", 8))
-        self.auto_risk_label.setWordWrap(True)
-        self.auto_risk_label.setStyleSheet("color: #F44336;")
-        auto_summary_layout.addRow("🛡️ 리스크:", self.auto_risk_label)
-        
-        auto_settings_layout.addLayout(auto_summary_layout)
-        
-        # 설정 변경 버튼
-        auto_config_btn = QPushButton("⚙️ 설정 변경")
-        auto_config_btn.setStyleSheet("background-color: #673AB7; color: white; padding: 5px; font-weight: bold;")
-        auto_config_btn.clicked.connect(self._open_auto_trading_config)
-        auto_settings_layout.addWidget(auto_config_btn)
-        
-        self.auto_settings_group.setLayout(auto_settings_layout)
-        sidebar_layout.addWidget(self.auto_settings_group)
-        
-        # 초기에는 숨김 (반자동 모드가 기본)
-        self.auto_settings_group.setVisible(False)
+        # 🔧 V4: 완전 자동 모드 설정 삭제 (그룹 시스템으로 대체)
 
         # 🔧 4. 실행 버튼들 (사이드바 하단)
         button_group = QGroupBox("⚙️ 제어")
         button_layout = QVBoxLayout()
 
-        # 코인 선택 버튼 (반자동 모드에서만 표시)
-        self.coin_selection_btn = QPushButton("🎯 코인 선택")
-        self.coin_selection_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px; font-weight: bold;")
-        self.coin_selection_btn.clicked.connect(self._open_coin_selection)
-        button_layout.addWidget(self.coin_selection_btn)
+        # 🔧 V4: 그룹 관리 버튼 추가
+        group_management_btn = QPushButton("📁 그룹 관리")
+        group_management_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px; font-weight: bold;")
+        group_management_btn.clicked.connect(self._open_group_management)
+        button_layout.addWidget(group_management_btn)
 
-        # DCA 설정 변경 버튼
-        advanced_dca_btn = QPushButton("⚙️ DCA 설정 변경")
-        advanced_dca_btn.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px; font-weight: bold;")
-        advanced_dca_btn.clicked.connect(self._open_advanced_dca)
-        button_layout.addWidget(advanced_dca_btn)
+        # 🔧 V4: 전역 설정 버튼 추가
+        global_settings_btn = QPushButton("⚙️ 전역 설정")
+        global_settings_btn.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px; font-weight: bold;")
+        global_settings_btn.clicked.connect(self._open_global_settings)
+        button_layout.addWidget(global_settings_btn)
 
         # 🔧 MyAsset 구독 상태 라벨
         self.myasset_status_label = QLabel("🔄 실시간 감지 준비 중...")
@@ -471,6 +378,30 @@ class MainWindow(QMainWindow):
         main_panel_layout.setContentsMargins(5, 5, 5, 5)
         main_panel_layout.setSpacing(10)
 
+        # 🔧 V4: Dry Run 배너 (최상단)
+        self.mode_banner = QWidget()
+        mode_banner_layout = QHBoxLayout(self.mode_banner)
+        mode_banner_layout.setContentsMargins(15, 10, 15, 10)
+
+        # 모드 텍스트 + 잔고
+        self.mode_banner_label = QLabel("🟢 Dry Run 모드 (페이퍼 트레이딩) | 가상 잔고: 1,000,000원")
+        self.mode_banner_label.setFont(QFont("맑은 고딕", 11, QFont.Bold))
+        mode_banner_layout.addWidget(self.mode_banner_label)
+
+        mode_banner_layout.addStretch()
+
+        # 모드 전환 버튼
+        self.mode_toggle_btn = QPushButton("⚠️ 실거래로 전환")
+        self.mode_toggle_btn.setFont(QFont("맑은 고딕", 9, QFont.Bold))
+        self.mode_toggle_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px 15px; border-radius: 3px;")
+        self.mode_toggle_btn.clicked.connect(self._toggle_trading_mode)
+        mode_banner_layout.addWidget(self.mode_toggle_btn)
+
+        # 배너 스타일 (Dry Run: 녹색, 실거래: 빨강)
+        self.mode_banner.setStyleSheet("background-color: #d4edda; border: 2px solid #c3e6cb; border-radius: 5px;")
+
+        main_panel_layout.addWidget(self.mode_banner)
+
         # 🔧 상단: 포지션 현황 (간결)
         top_layout = QHBoxLayout()
 
@@ -495,11 +426,11 @@ class MainWindow(QMainWindow):
         self.position_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
         position_layout.addWidget(self.position_summary_label)
 
-        # 포지션 테이블 생성
+        # 🔧 V4: 포지션 테이블 생성 (11개 컬럼)
         self.position_table = QTableWidget()
-        self.position_table.setColumnCount(8)  # 🔧 매수금액 컬럼 추가 (7 → 8)
+        self.position_table.setColumnCount(11)
         self.position_table.setHorizontalHeaderLabels([
-            "심볼", "상태", "진입가", "현재가", "수량", "매수금액", "평가손익", "손익률(%)"  # 🔧 "매수금액" 추가
+            "그룹", "심볼", "매수", "DCA", "익절", "손절", "평균가", "현재가", "수량", "평가손익", "수익률(%)"
         ])
 
         # 테이블 스타일 설정
@@ -2228,6 +2159,47 @@ class MainWindow(QMainWindow):
     def _on_myasset_status_update(self, status_msg: str):
         """MyAsset 상태 업데이트"""
         self.myasset_status_label.setText(status_msg)
+
+    # ========================================
+    # V4 GUI 핸들러
+    # ========================================
+
+    def _toggle_trading_mode(self):
+        """Dry Run ↔ 실거래 모드 전환 (임시 구현)"""
+        # TODO: Phase 3에서 실제 모드 전환 로직 구현
+        QMessageBox.information(
+            self,
+            "모드 전환",
+            "모드 전환 기능은 Phase 3에서 구현 예정입니다.\n"
+            "현재는 Dry Run 모드로 동작합니다.",
+            QMessageBox.Ok
+        )
+
+    def _open_group_management(self):
+        """그룹 관리 다이얼로그 열기 (임시 구현)"""
+        # TODO: Phase 3 Step 2에서 GroupManagementDialog 구현
+        QMessageBox.information(
+            self,
+            "그룹 관리",
+            "그룹 관리 다이얼로그는 Phase 3 Step 2에서 구현 예정입니다.\n"
+            "- 그룹 생성/삭제\n"
+            "- 코인 추가/제거\n"
+            "- 관찰 전용 모드 설정",
+            QMessageBox.Ok
+        )
+
+    def _open_global_settings(self):
+        """전역 설정 다이얼로그 열기 (임시 구현)"""
+        # TODO: Phase 3 Step 3에서 GlobalSettingsDialog 구현
+        QMessageBox.information(
+            self,
+            "전역 설정",
+            "전역 설정 다이얼로그는 Phase 3 Step 3에서 구현 예정입니다.\n"
+            "- Daily Loss Limit 설정\n"
+            "- Telegram 알림 설정\n"
+            "- API Keys 관리",
+            QMessageBox.Ok
+        )
 
     # ========================================
     # 종료 처리
