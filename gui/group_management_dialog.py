@@ -559,18 +559,36 @@ class GroupManagementDialog(QDialog):
         if not self.selected_group_id:
             return
 
-        # TODO: Phase 3 Step 3에서 GroupSettingsDialog 구현
-        QMessageBox.information(
-            self,
-            "그룹 설정",
-            f"그룹 설정 다이얼로그는 Phase 3 Step 3에서 구현 예정입니다.\n\n"
-            f"현재 그룹: {self.group_name_edit.text()}\n\n"
-            "설정 항목:\n"
-            "- 매수 방식 (자동/수동)\n"
-            "- DCA 설정\n"
-            "- 익절/손절 레벨",
-            QMessageBox.Ok
-        )
+        try:
+            from gui.group_settings_dialog import GroupSettingsDialog
+
+            group_name = self.group_name_edit.text()
+
+            dialog = GroupSettingsDialog(
+                self.config_manager,
+                self.selected_group_id,
+                group_name,
+                parent=self
+            )
+
+            # 설정 저장 시그널 연결
+            dialog.settings_saved.connect(self._on_settings_saved)
+
+            dialog.exec()
+
+        except Exception as e:
+            logger.error(f"❌ 그룹 설정 다이얼로그 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"그룹 설정 다이얼로그를 열 수 없습니다.\n{e}"
+            )
+
+    def _on_settings_saved(self):
+        """그룹 설정 저장 완료 시"""
+        logger.info("✅ 그룹 설정 저장 완료")
+        # 그룹 변경 시그널 전파 (메인 윈도우 업데이트)
+        self.groups_changed.emit()
 
 
 # 테스트 코드
