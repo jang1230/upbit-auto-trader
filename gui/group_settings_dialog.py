@@ -381,43 +381,52 @@ class GroupSettingsDialog(QDialog):
             # DCA 설정
             dca_enabled = self.dca_checkbox.isChecked()
             if "dca_settings" not in group:
-                group["dca_settings"] = {
-                    "enabled": dca_enabled,
-                    "levels": [
-                        {"price_drop_pct": -3.0, "buy_amount_krw": 50000},
-                        {"price_drop_pct": -6.0, "buy_amount_krw": 50000},
-                        {"price_drop_pct": -10.0, "buy_amount_krw": 100000}
+                group["dca_settings"] = {"mode": "disabled"}
+
+            if dca_enabled:
+                group["dca_settings"]["mode"] = "auto"
+                # 기본 레벨이 없으면 생성
+                if "levels" not in group["dca_settings"] or len(group["dca_settings"]["levels"]) == 0:
+                    group["dca_settings"]["levels"] = [
+                        {"price_ratio": -3.0, "quantity_ratio": 100},
+                        {"price_ratio": -5.0, "quantity_ratio": 100},
+                        {"price_ratio": -7.0, "quantity_ratio": 100}
                     ]
-                }
             else:
-                group["dca_settings"]["enabled"] = dca_enabled
+                group["dca_settings"]["mode"] = "disabled"
 
             # 익절/손절 설정
             profit_enabled = self.profit_checkbox.isChecked()
             loss_enabled = self.loss_checkbox.isChecked()
 
-            if "profit_loss_settings" not in group:
-                group["profit_loss_settings"] = {
-                    "profit_targets": [],
-                    "stop_losses": []
-                }
+            # 익절 설정
+            if "profit_settings" not in group:
+                group["profit_settings"] = {"mode": "disabled"}
 
-            # 익절 기본값 (사용 안 함 → 사용으로 전환 시)
-            if profit_enabled and len(group["profit_loss_settings"].get("profit_targets", [])) == 0:
-                group["profit_loss_settings"]["profit_targets"] = [
-                    {"price_ratio": 1.05, "quantity_ratio": 0.5},
-                    {"price_ratio": 1.10, "quantity_ratio": 1.0}
-                ]
-            elif not profit_enabled:
-                group["profit_loss_settings"]["profit_targets"] = []
+            if profit_enabled:
+                group["profit_settings"]["mode"] = "auto"
+                # 기본 레벨이 없으면 생성
+                if "levels" not in group["profit_settings"] or len(group["profit_settings"]["levels"]) == 0:
+                    group["profit_settings"]["levels"] = [
+                        {"price_ratio": 5.0, "quantity_ratio": 50},
+                        {"price_ratio": 10.0, "quantity_ratio": 50}
+                    ]
+            else:
+                group["profit_settings"]["mode"] = "disabled"
 
-            # 손절 기본값 (사용 안 함 → 사용으로 전환 시)
-            if loss_enabled and len(group["profit_loss_settings"].get("stop_losses", [])) == 0:
-                group["profit_loss_settings"]["stop_losses"] = [
-                    {"price_ratio": 0.95, "quantity_ratio": 1.0}
-                ]
-            elif not loss_enabled:
-                group["profit_loss_settings"]["stop_losses"] = []
+            # 손절 설정
+            if "loss_settings" not in group:
+                group["loss_settings"] = {"mode": "disabled"}
+
+            if loss_enabled:
+                group["loss_settings"]["mode"] = "auto"
+                # 기본 레벨이 없으면 생성
+                if "levels" not in group["loss_settings"] or len(group["loss_settings"]["levels"]) == 0:
+                    group["loss_settings"]["levels"] = [
+                        {"price_ratio": -15.0, "quantity_ratio": 100}
+                    ]
+            else:
+                group["loss_settings"]["mode"] = "disabled"
 
             # 저장
             self.config_manager.save_config(config)
