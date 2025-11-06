@@ -2066,6 +2066,32 @@ class MainWindow(QMainWindow):
         self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
         self._add_log("🔄 보유 종목 조회 중...")
 
+        # ========================================
+        # 🔧 V4: dry_run 모드 체크
+        # ========================================
+        if V4_AVAILABLE and self.v4_config_manager:
+            try:
+                config = self.v4_config_manager.load_config()
+                is_dry_run = config.get("global_settings", {}).get("dry_run", True)
+
+                if is_dry_run:
+                    # Dry-run 모드: V4 가상 포지션 로드
+                    logger.info("🟢 [Step 2] Dry-run 모드: 가상 포지션 로드")
+                    self._add_log("🟢 Dry-run 모드: 가상 포지션 로드")
+                    self._load_v4_positions()
+                    self._step3_prepare_myasset()
+                    return
+                else:
+                    # Live 모드: 실제 계좌 조회
+                    logger.info("🔴 [Step 2] Live 모드: 실제 계좌 조회")
+                    self._add_log("🔴 Live 모드: 실제 계좌 조회")
+            except Exception as e:
+                logger.error(f"❌ [Step 2] V4 설정 로드 실패: {e}")
+                # V4 설정 실패 시 Live 모드로 fallback
+
+        # ========================================
+        # Live 모드: 실제 Upbit API 호출
+        # ========================================
         # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
         access_key = self.config_manager.get_upbit_access_key()
         secret_key = self.config_manager.get_upbit_secret_key()
