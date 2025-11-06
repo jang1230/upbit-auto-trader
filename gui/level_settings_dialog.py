@@ -80,7 +80,9 @@ class LevelSettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
 
         # 설명
-        desc_label = QLabel("💡 DCA (Dollar Cost Averaging): 가격이 하락할 때 추가 매수하여 평균 단가를 낮춥니다.")
+        desc_label = QLabel("💡 DCA (Dollar Cost Averaging): 가격이 하락할 때 추가 매수하여 평균 단가를 낮춥니다.\n"
+                           "• 하락률: 최초 매수가 대비 하락 퍼센트 (예: -3, -5, -7)\n"
+                           "• 수량 비율: 최초 매수 금액 대비 비율 (100 = 같은 금액, 200 = 2배)")
         desc_label.setFont(QFont("맑은 고딕", 9))
         desc_label.setStyleSheet("background-color: #e3f2fd; padding: 10px; border-radius: 5px;")
         desc_label.setWordWrap(True)
@@ -104,7 +106,7 @@ class LevelSettingsDialog(QDialog):
         # 테이블
         self.dca_table = QTableWidget()
         self.dca_table.setColumnCount(3)
-        self.dca_table.setHorizontalHeaderLabels(["No", "하락률 (%)", "매수 금액 (KRW)"])
+        self.dca_table.setHorizontalHeaderLabels(["No", "하락률 (%)", "수량 비율 (%)"])
         self.dca_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.dca_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.dca_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -119,7 +121,9 @@ class LevelSettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
 
         # 설명
-        desc_label = QLabel("💡 익절 (Take Profit): 목표 수익률 도달 시 자동으로 매도합니다.")
+        desc_label = QLabel("💡 익절 (Take Profit): 목표 수익률 도달 시 자동으로 매도합니다.\n"
+                           "• 수익률: 평균 매수가 대비 수익 퍼센트 (예: 2, 4, 6)\n"
+                           "• 수량 비율: 현재 남은 수량 대비 매도 비율 (50 = 50% 매도, 100 = 전량 매도)")
         desc_label.setFont(QFont("맑은 고딕", 9))
         desc_label.setStyleSheet("background-color: #e8f5e9; padding: 10px; border-radius: 5px;")
         desc_label.setWordWrap(True)
@@ -143,7 +147,7 @@ class LevelSettingsDialog(QDialog):
         # 테이블
         self.profit_table = QTableWidget()
         self.profit_table.setColumnCount(3)
-        self.profit_table.setHorizontalHeaderLabels(["No", "가격 비율", "수량 비율"])
+        self.profit_table.setHorizontalHeaderLabels(["No", "수익률 (%)", "수량 비율 (%)"])
         self.profit_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.profit_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.profit_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -158,7 +162,9 @@ class LevelSettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
 
         # 설명
-        desc_label = QLabel("💡 손절 (Stop Loss): 손실이 일정 수준 이상 발생 시 자동으로 매도합니다.")
+        desc_label = QLabel("💡 손절 (Stop Loss): 손실이 일정 수준 이상 발생 시 자동으로 매도합니다.\n"
+                           "• 손실률: 평균 매수가 대비 손실 퍼센트 (예: -15, -20)\n"
+                           "• 수량 비율: 현재 남은 수량 대비 매도 비율 (50 = 50% 매도, 100 = 전량 매도)")
         desc_label.setFont(QFont("맑은 고딕", 9))
         desc_label.setStyleSheet("background-color: #ffebee; padding: 10px; border-radius: 5px;")
         desc_label.setWordWrap(True)
@@ -182,7 +188,7 @@ class LevelSettingsDialog(QDialog):
         # 테이블
         self.loss_table = QTableWidget()
         self.loss_table.setColumnCount(3)
-        self.loss_table.setHorizontalHeaderLabels(["No", "가격 비율", "수량 비율"])
+        self.loss_table.setHorizontalHeaderLabels(["No", "손실률 (%)", "수량 비율 (%)"])
         self.loss_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.loss_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.loss_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -208,13 +214,14 @@ class LevelSettingsDialog(QDialog):
             self._populate_dca_table(dca_levels)
 
             # 익절 레벨 로드
-            profit_loss_settings = group.get("profit_loss_settings", {})
-            profit_targets = profit_loss_settings.get("profit_targets", [])
-            self._populate_profit_table(profit_targets)
+            profit_settings = group.get("profit_settings", {})
+            profit_levels = profit_settings.get("levels", [])
+            self._populate_profit_table(profit_levels)
 
             # 손절 레벨 로드
-            stop_losses = profit_loss_settings.get("stop_losses", [])
-            self._populate_loss_table(stop_losses)
+            loss_settings = group.get("loss_settings", {})
+            loss_levels = loss_settings.get("levels", [])
+            self._populate_loss_table(loss_levels)
 
             logger.info(f"✅ 레벨 로드 완료: {self.group_id}")
 
@@ -234,54 +241,60 @@ class LevelSettingsDialog(QDialog):
             self.dca_table.setItem(i, 0, no_item)
 
             # 하락률 (%)
-            drop_item = QTableWidgetItem(str(level.get("price_drop_pct", -3.0)))
+            price_ratio = level.get("price_ratio", -3.0)
+            drop_item = QTableWidgetItem(str(int(price_ratio)))
             drop_item.setTextAlignment(Qt.AlignCenter)
             self.dca_table.setItem(i, 1, drop_item)
 
-            # 매수 금액 (KRW)
-            amount_item = QTableWidgetItem(str(level.get("buy_amount_krw", 50000)))
-            amount_item.setTextAlignment(Qt.AlignCenter)
-            self.dca_table.setItem(i, 2, amount_item)
+            # 수량 비율 (%)
+            quantity_ratio = level.get("quantity_ratio", 100)
+            qty_item = QTableWidgetItem(str(int(quantity_ratio)))
+            qty_item.setTextAlignment(Qt.AlignCenter)
+            self.dca_table.setItem(i, 2, qty_item)
 
-    def _populate_profit_table(self, targets: List[Dict[str, Any]]):
+    def _populate_profit_table(self, levels: List[Dict[str, Any]]):
         """익절 테이블 채우기"""
-        self.profit_table.setRowCount(len(targets))
+        self.profit_table.setRowCount(len(levels))
 
-        for i, target in enumerate(targets):
+        for i, level in enumerate(levels):
             # No
             no_item = QTableWidgetItem(str(i + 1))
             no_item.setTextAlignment(Qt.AlignCenter)
             no_item.setFlags(no_item.flags() & ~Qt.ItemIsEditable)
             self.profit_table.setItem(i, 0, no_item)
 
-            # 가격 비율
-            price_item = QTableWidgetItem(str(target.get("price_ratio", 1.05)))
+            # 수익률 (%)
+            price_ratio = level.get("price_ratio", 5.0)
+            price_item = QTableWidgetItem(str(int(price_ratio)))
             price_item.setTextAlignment(Qt.AlignCenter)
             self.profit_table.setItem(i, 1, price_item)
 
-            # 수량 비율
-            qty_item = QTableWidgetItem(str(target.get("quantity_ratio", 0.5)))
+            # 수량 비율 (%)
+            quantity_ratio = level.get("quantity_ratio", 50)
+            qty_item = QTableWidgetItem(str(int(quantity_ratio)))
             qty_item.setTextAlignment(Qt.AlignCenter)
             self.profit_table.setItem(i, 2, qty_item)
 
-    def _populate_loss_table(self, losses: List[Dict[str, Any]]):
+    def _populate_loss_table(self, levels: List[Dict[str, Any]]):
         """손절 테이블 채우기"""
-        self.loss_table.setRowCount(len(losses))
+        self.loss_table.setRowCount(len(levels))
 
-        for i, loss in enumerate(losses):
+        for i, level in enumerate(levels):
             # No
             no_item = QTableWidgetItem(str(i + 1))
             no_item.setTextAlignment(Qt.AlignCenter)
             no_item.setFlags(no_item.flags() & ~Qt.ItemIsEditable)
             self.loss_table.setItem(i, 0, no_item)
 
-            # 가격 비율
-            price_item = QTableWidgetItem(str(loss.get("price_ratio", 0.95)))
+            # 손실률 (%)
+            price_ratio = level.get("price_ratio", -15.0)
+            price_item = QTableWidgetItem(str(int(price_ratio)))
             price_item.setTextAlignment(Qt.AlignCenter)
             self.loss_table.setItem(i, 1, price_item)
 
-            # 수량 비율
-            qty_item = QTableWidgetItem(str(loss.get("quantity_ratio", 1.0)))
+            # 수량 비율 (%)
+            quantity_ratio = level.get("quantity_ratio", 100)
+            qty_item = QTableWidgetItem(str(int(quantity_ratio)))
             qty_item.setTextAlignment(Qt.AlignCenter)
             self.loss_table.setItem(i, 2, qty_item)
 
@@ -297,13 +310,13 @@ class LevelSettingsDialog(QDialog):
         self.dca_table.setItem(row_count, 0, no_item)
 
         # 기본값
-        drop_item = QTableWidgetItem("-3.0")
+        drop_item = QTableWidgetItem("-3")
         drop_item.setTextAlignment(Qt.AlignCenter)
         self.dca_table.setItem(row_count, 1, drop_item)
 
-        amount_item = QTableWidgetItem("50000")
-        amount_item.setTextAlignment(Qt.AlignCenter)
-        self.dca_table.setItem(row_count, 2, amount_item)
+        qty_item = QTableWidgetItem("100")
+        qty_item.setTextAlignment(Qt.AlignCenter)
+        self.dca_table.setItem(row_count, 2, qty_item)
 
         self._update_row_numbers(self.dca_table)
 
@@ -319,11 +332,11 @@ class LevelSettingsDialog(QDialog):
         self.profit_table.setItem(row_count, 0, no_item)
 
         # 기본값
-        price_item = QTableWidgetItem("1.05")
+        price_item = QTableWidgetItem("5")
         price_item.setTextAlignment(Qt.AlignCenter)
         self.profit_table.setItem(row_count, 1, price_item)
 
-        qty_item = QTableWidgetItem("0.5")
+        qty_item = QTableWidgetItem("50")
         qty_item.setTextAlignment(Qt.AlignCenter)
         self.profit_table.setItem(row_count, 2, qty_item)
 
@@ -341,11 +354,11 @@ class LevelSettingsDialog(QDialog):
         self.loss_table.setItem(row_count, 0, no_item)
 
         # 기본값
-        price_item = QTableWidgetItem("0.95")
+        price_item = QTableWidgetItem("-15")
         price_item.setTextAlignment(Qt.AlignCenter)
         self.loss_table.setItem(row_count, 1, price_item)
 
-        qty_item = QTableWidgetItem("1.0")
+        qty_item = QTableWidgetItem("100")
         qty_item.setTextAlignment(Qt.AlignCenter)
         self.loss_table.setItem(row_count, 2, qty_item)
 
@@ -372,10 +385,10 @@ class LevelSettingsDialog(QDialog):
         try:
             # 검증
             dca_levels = self._get_dca_levels()
-            profit_targets = self._get_profit_targets()
-            stop_losses = self._get_stop_losses()
+            profit_levels = self._get_profit_levels()
+            loss_levels = self._get_loss_levels()
 
-            if not self._validate_levels(dca_levels, profit_targets, stop_losses):
+            if not self._validate_levels(dca_levels, profit_levels, loss_levels):
                 return
 
             # 설정 업데이트
@@ -389,14 +402,18 @@ class LevelSettingsDialog(QDialog):
 
             # DCA 설정 업데이트
             if "dca_settings" not in group:
-                group["dca_settings"] = {"enabled": True}
+                group["dca_settings"] = {"mode": "auto"}
             group["dca_settings"]["levels"] = dca_levels
 
-            # 익절/손절 설정 업데이트
-            if "profit_loss_settings" not in group:
-                group["profit_loss_settings"] = {}
-            group["profit_loss_settings"]["profit_targets"] = profit_targets
-            group["profit_loss_settings"]["stop_losses"] = stop_losses
+            # 익절 설정 업데이트
+            if "profit_settings" not in group:
+                group["profit_settings"] = {"mode": "auto"}
+            group["profit_settings"]["levels"] = profit_levels
+
+            # 손절 설정 업데이트
+            if "loss_settings" not in group:
+                group["loss_settings"] = {"mode": "auto"}
+            group["loss_settings"]["levels"] = loss_levels
 
             # 저장
             self.config_manager.save_config(config)
@@ -426,127 +443,127 @@ class LevelSettingsDialog(QDialog):
         """DCA 테이블에서 레벨 읽기"""
         levels = []
         for i in range(self.dca_table.rowCount()):
-            drop_item = self.dca_table.item(i, 1)
-            amount_item = self.dca_table.item(i, 2)
+            price_item = self.dca_table.item(i, 1)
+            qty_item = self.dca_table.item(i, 2)
 
-            if drop_item and amount_item:
+            if price_item and qty_item:
                 levels.append({
-                    "price_drop_pct": float(drop_item.text()),
-                    "buy_amount_krw": int(amount_item.text())
+                    "price_ratio": float(price_item.text()),
+                    "quantity_ratio": int(qty_item.text())
                 })
         return levels
 
-    def _get_profit_targets(self) -> List[Dict[str, Any]]:
+    def _get_profit_levels(self) -> List[Dict[str, Any]]:
         """익절 테이블에서 레벨 읽기"""
-        targets = []
+        levels = []
         for i in range(self.profit_table.rowCount()):
             price_item = self.profit_table.item(i, 1)
             qty_item = self.profit_table.item(i, 2)
 
             if price_item and qty_item:
-                targets.append({
+                levels.append({
                     "price_ratio": float(price_item.text()),
-                    "quantity_ratio": float(qty_item.text())
+                    "quantity_ratio": int(qty_item.text())
                 })
-        return targets
+        return levels
 
-    def _get_stop_losses(self) -> List[Dict[str, Any]]:
+    def _get_loss_levels(self) -> List[Dict[str, Any]]:
         """손절 테이블에서 레벨 읽기"""
-        losses = []
+        levels = []
         for i in range(self.loss_table.rowCount()):
             price_item = self.loss_table.item(i, 1)
             qty_item = self.loss_table.item(i, 2)
 
             if price_item and qty_item:
-                losses.append({
+                levels.append({
                     "price_ratio": float(price_item.text()),
-                    "quantity_ratio": float(qty_item.text())
+                    "quantity_ratio": int(qty_item.text())
                 })
-        return losses
+        return levels
 
     def _validate_levels(self, dca_levels: List[Dict[str, Any]],
-                        profit_targets: List[Dict[str, Any]],
-                        stop_losses: List[Dict[str, Any]]) -> bool:
+                        profit_levels: List[Dict[str, Any]],
+                        loss_levels: List[Dict[str, Any]]) -> bool:
         """레벨 검증"""
         try:
             # DCA 검증: 하락률은 음수이고 순서대로 감소
             for i, level in enumerate(dca_levels):
-                price_drop = level["price_drop_pct"]
-                buy_amount = level["buy_amount_krw"]
+                price_ratio = level["price_ratio"]
+                quantity_ratio = level["quantity_ratio"]
 
-                if price_drop >= 0:
+                if price_ratio >= 0:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"DCA 레벨 {i+1}: 하락률은 음수여야 합니다. (현재: {price_drop}%)"
+                        f"DCA 레벨 {i+1}: 하락률은 음수여야 합니다. (현재: {price_ratio}%)"
                     )
                     return False
 
-                if buy_amount <= 0:
+                if quantity_ratio <= 0:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"DCA 레벨 {i+1}: 매수 금액은 양수여야 합니다. (현재: {buy_amount}원)"
+                        f"DCA 레벨 {i+1}: 수량 비율은 양수여야 합니다. (현재: {quantity_ratio}%)"
                     )
                     return False
 
-                if i > 0 and price_drop >= dca_levels[i-1]["price_drop_pct"]:
+                if i > 0 and price_ratio >= dca_levels[i-1]["price_ratio"]:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
                         f"DCA 레벨 {i+1}: 하락률이 이전 레벨보다 작아야 합니다.\n"
-                        f"이전: {dca_levels[i-1]['price_drop_pct']}%, 현재: {price_drop}%"
+                        f"이전: {dca_levels[i-1]['price_ratio']}%, 현재: {price_ratio}%"
                     )
                     return False
 
-            # 익절 검증: 가격 비율 > 1.0, 순서대로 증가
-            for i, target in enumerate(profit_targets):
-                price_ratio = target["price_ratio"]
-                qty_ratio = target["quantity_ratio"]
+            # 익절 검증: 수익률 > 0, 순서대로 증가
+            for i, level in enumerate(profit_levels):
+                price_ratio = level["price_ratio"]
+                quantity_ratio = level["quantity_ratio"]
 
-                if price_ratio <= 1.0:
+                if price_ratio <= 0:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"익절 레벨 {i+1}: 가격 비율은 1.0보다 커야 합니다. (현재: {price_ratio})"
+                        f"익절 레벨 {i+1}: 수익률은 양수여야 합니다. (현재: {price_ratio}%)"
                     )
                     return False
 
-                if qty_ratio <= 0 or qty_ratio > 1.0:
+                if quantity_ratio <= 0 or quantity_ratio > 100:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"익절 레벨 {i+1}: 수량 비율은 0 < ratio <= 1.0 범위여야 합니다. (현재: {qty_ratio})"
+                        f"익절 레벨 {i+1}: 수량 비율은 1~100 범위여야 합니다. (현재: {quantity_ratio}%)"
                     )
                     return False
 
-                if i > 0 and price_ratio <= profit_targets[i-1]["price_ratio"]:
+                if i > 0 and price_ratio <= profit_levels[i-1]["price_ratio"]:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"익절 레벨 {i+1}: 가격 비율이 이전 레벨보다 커야 합니다.\n"
-                        f"이전: {profit_targets[i-1]['price_ratio']}, 현재: {price_ratio}"
+                        f"익절 레벨 {i+1}: 수익률이 이전 레벨보다 커야 합니다.\n"
+                        f"이전: {profit_levels[i-1]['price_ratio']}%, 현재: {price_ratio}%"
                     )
                     return False
 
-            # 손절 검증: 가격 비율 < 1.0
-            for i, loss in enumerate(stop_losses):
-                price_ratio = loss["price_ratio"]
-                qty_ratio = loss["quantity_ratio"]
+            # 손절 검증: 손실률 < 0
+            for i, level in enumerate(loss_levels):
+                price_ratio = level["price_ratio"]
+                quantity_ratio = level["quantity_ratio"]
 
-                if price_ratio >= 1.0:
+                if price_ratio >= 0:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"손절 레벨 {i+1}: 가격 비율은 1.0보다 작아야 합니다. (현재: {price_ratio})"
+                        f"손절 레벨 {i+1}: 손실률은 음수여야 합니다. (현재: {price_ratio}%)"
                     )
                     return False
 
-                if qty_ratio <= 0 or qty_ratio > 1.0:
+                if quantity_ratio <= 0 or quantity_ratio > 100:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"손절 레벨 {i+1}: 수량 비율은 0 < ratio <= 1.0 범위여야 합니다. (현재: {qty_ratio})"
+                        f"손절 레벨 {i+1}: 수량 비율은 1~100 범위여야 합니다. (현재: {quantity_ratio}%)"
                     )
                     return False
 
