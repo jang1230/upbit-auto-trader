@@ -29,17 +29,25 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QAction, QFont
 from gui.settings_dialog import SettingsDialog
-from gui.config_manager import ConfigManager
-from gui.trading_worker import TradingEngineWorker
-from gui.multi_coin_worker import MultiCoinTradingWorker  # 🔧 다중 코인 워커 추가
-from gui.auto_trading_worker import AutoTradingWorker  # 🔧 완전 자동 워커 추가
-from gui.semi_auto_worker import SemiAutoWorker  # 🔧 반자동 워커 추가 (수동매수 + 자동관리)
 from gui.dca_simulator import DcaSimulatorDialog
 from gui.advanced_dca_dialog import AdvancedDcaDialog
-from gui.dca_config import DcaConfigManager
 from gui.coin_selection_dialog import CoinSelectionDialog  # 🔧 코인 선택 다이얼로그
-from gui.auto_trading_config import AutoTradingConfig  # 🔧 완전 자동 모드 설정
 from core.utils import format_price  # 🔧 가격 포맷팅 유틸리티
+
+# V4 Backend Components
+from core.config_manager import ConfigManager  # V4 버전
+from core.group_manager import GroupManager
+from core.upbit_api import UpbitAPI
+from gui.v4_worker import V4Worker
+
+# V3 Legacy (보존 - API 키 검증 등에 필요)
+from gui.config_manager import ConfigManager as V3ConfigManager  # V3 버전 (검증 메서드용)
+# from gui.trading_worker import TradingEngineWorker
+# from gui.multi_coin_worker import MultiCoinTradingWorker
+# from gui.auto_trading_worker import AutoTradingWorker
+# from gui.semi_auto_worker import SemiAutoWorker
+# from gui.dca_config import DcaConfigManager
+# from gui.auto_trading_config import AutoTradingConfig
 
 
 class BalanceWorker(QThread):
@@ -161,14 +169,24 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.config_manager = ConfigManager()
-        self.dca_config_manager = DcaConfigManager()  # 고급 DCA 설정 관리자
-        self.dca_config = self.dca_config_manager.load()  # DCA 설정 로드
-        
-        # 🔧 트레이딩 모드 및 완전 자동 설정
-        self.trading_mode = "semi_auto"  # "semi_auto" | "full_auto"
-        self.auto_trading_config = AutoTradingConfig.from_file('auto_trading_config.json')  # 완전 자동 설정
-        self.scan_interval = 60  # 🔧 반자동 모드 fallback 스캔 주기 (초, MyAsset WebSocket 보조용)
+        # V4 Configuration & Managers
+        self.config_path = "config/trading_config.json"
+        self.config_manager = ConfigManager(self.config_path)
+        self.config = self.config_manager.load_config()
+        self.global_settings = self.config.get("global_settings", {})
+
+        # V4 Group Manager
+        self.group_manager = GroupManager(self.config_path)
+
+        # V3 ConfigManager (API 키 검증 등에 필요)
+        self.v3_config_manager = V3ConfigManager()
+
+        # V3 Legacy 설정 (UI 호환성 유지)
+        # self.dca_config_manager = DcaConfigManager()
+        # self.dca_config = self.dca_config_manager.load()
+        # self.trading_mode = "semi_auto"
+        # self.auto_trading_config = AutoTradingConfig.from_file('auto_trading_config.json')
+        # self.scan_interval = 60
         
         self.is_running = False
         self.balance_worker = None  # 잔고 조회 워커 스레드
@@ -185,14 +203,13 @@ class MainWindow(QMainWindow):
         # 🔧 거래 내역 저장
         self.trade_history = []  # Trade 객체 리스트
 
-        # 리스크 관리 파라미터 (고급 DCA 설정에서 관리)
-        # 🔧 모든 DCA 관련 설정은 self.dca_config에서 가져옴
-        self.stop_loss_pct = self.dca_config.stop_loss_pct
-        self.take_profit_pct = self.dca_config.take_profit_pct
-        self.max_daily_loss_pct = 10.0  # 일일 최대 손실은 별도 관리
+        # V3 Legacy - 리스크 관리 파라미터 (V4에서는 그룹별/전역 설정으로 이동)
+        # self.stop_loss_pct = self.dca_config.stop_loss_pct
+        # self.take_profit_pct = self.dca_config.take_profit_pct
+        # self.max_daily_loss_pct = 10.0
 
-        self.setWindowTitle("Upbit DCA Trader")
-        self.setMinimumSize(1200, 750)  # Step 2: 사이드바 레이아웃으로 증가
+        self.setWindowTitle("Upbit DCA Trader V4")
+        self.setMinimumSize(1600, 850)  # V4: 윈도우 크기 증가
 
         self._init_ui()
         self._init_menu()
@@ -202,26 +219,59 @@ class MainWindow(QMainWindow):
         # 🔧 순차적 초기화 시작 (500ms 후)
         QTimer.singleShot(500, self._start_sequential_initialization)
 
+    def _get_all_coins_from_groups(self):
+        """
+        V4 그룹에서 모든 코인 리스트 가져오기 (V3 호환용)
+
+        Returns:
+            List[str]: 모든 그룹의 코인 리스트 (중복 제거)
+        """
+        try:
+            all_groups = self.group_manager.get_all_groups()
+            all_coins = []
+
+            for group in all_groups.values():
+                coins = group.get("coins", [])
+                all_coins.extend(coins)
+
+            # 중복 제거하고 정렬
+            unique_coins = list(set(all_coins))
+            unique_coins.sort()
+
+            return unique_coins
+        except Exception as e:
+            logger.error(f"코인 리스트 가져오기 실패: {e}")
+            return []
+
     def _init_ui(self):
-        """UI 초기화 - Step 2: 좌측 사이드바 + 우측 메인 패널"""
+        """UI 초기화 - V4: Dry Run 배너 + 좌측 사이드바 + 우측 메인 패널"""
         # 중앙 위젯
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # 🔧 메인 레이아웃: 좌우 분할 (QSplitter 사용)
+        # V4: 메인 레이아웃을 QVBoxLayout으로 변경 (배너 + 스플리터)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # ===========================================
+        # V4 Step 1: Dry Run 배너 (최상단 고정)
+        # ===========================================
+        self._create_dry_run_banner(main_layout)
+
+        # 🔧 좌우 분할 스플리터
         main_splitter = QSplitter(Qt.Horizontal)
-        main_layout = QHBoxLayout(central_widget)
         main_layout.addWidget(main_splitter)
 
         # ========================================
-        # 좌측 사이드바 (설정 영역) - 3.png 기준으로 좁게 조정
+        # 좌측 사이드바 (설정 영역) - V4 스펙
         # ========================================
         sidebar_widget = QWidget()
-        sidebar_widget.setMaximumWidth(200)  # 더 좁게 (3.png 참고)
-        sidebar_widget.setMinimumWidth(180)
+        sidebar_widget.setMaximumWidth(280)  # V4: 충분한 크기
+        sidebar_widget.setMinimumWidth(250)
         sidebar_layout = QVBoxLayout(sidebar_widget)
-        sidebar_layout.setContentsMargins(3, 5, 3, 5)
-        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(5, 8, 5, 8)
+        sidebar_layout.setSpacing(10)
 
         # 사이드바를 스크롤 가능하게 (설정이 많을 경우 대비)
         sidebar_scroll = QScrollArea()
@@ -229,48 +279,11 @@ class MainWindow(QMainWindow):
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        # 🔧 0. 트레이딩 모드 선택 (사이드바 최상단)
-        mode_group = QGroupBox("🎯 트레이딩 모드")
-        mode_layout = QVBoxLayout()
-        mode_layout.setSpacing(5)
-        
-        # 모드 선택 라디오 버튼
-        self.semi_auto_radio = QRadioButton("반자동 (Upbit 앱 수동매수 → 봇 자동관리)")
-        self.full_auto_radio = QRadioButton("완전 자동 (봇 자동매수 + 자동관리)")
-        
-        # 버튼 그룹 생성
-        self.mode_button_group = QButtonGroup()
-        self.mode_button_group.addButton(self.semi_auto_radio, 0)
-        self.mode_button_group.addButton(self.full_auto_radio, 1)
-        
-        # 기본값: 반자동
-        self.semi_auto_radio.setChecked(True)
-        
-        # 폰트 설정
-        self.semi_auto_radio.setFont(QFont("맑은 고딕", 9))
-        self.full_auto_radio.setFont(QFont("맑은 고딕", 9))
-        
-        # 시그널 연결
-        self.semi_auto_radio.toggled.connect(self._on_mode_changed)
-        self.full_auto_radio.toggled.connect(self._on_mode_changed)  # 🔧 완전 자동 버튼도 연결
+        # ===========================================
+        # V4 Step 5: 사이드바 정리
+        # ===========================================
 
-        mode_layout.addWidget(self.semi_auto_radio)
-        mode_layout.addWidget(self.full_auto_radio)
-        
-        # 모드 설명 추가
-        mode_info = QLabel(
-            "💡 반자동: Upbit 앱 수동매수 → 봇 감지 → DCA/익절/손절 자동실행\n"
-            "💡 완전 자동: 봇이 상위코인 모니터링 → 시그널 감지 → 자동매수 → 자동관리"
-        )
-        mode_info.setFont(QFont("맑은 고딕", 8))
-        mode_info.setStyleSheet("color: #666; padding: 3px;")
-        mode_info.setWordWrap(True)
-        mode_layout.addWidget(mode_info)
-        
-        mode_group.setLayout(mode_layout)
-        sidebar_layout.addWidget(mode_group)
-
-        # 🔧 1. 상태 패널 (사이드바 상단)
+        # 1. 상태 패널
         status_group = QGroupBox("📊 상태")
         status_layout = QVBoxLayout()
 
@@ -278,177 +291,61 @@ class MainWindow(QMainWindow):
         self.status_label.setFont(QFont("맑은 고딕", 11, QFont.Bold))
         status_layout.addWidget(self.status_label)
 
-        # 선택된 코인 개수로 초기화
-        selected_coin_count = len(self.config_manager.get_selected_coins())
-        self.symbol_label = QLabel(f"다중 코인 ({selected_coin_count}개)")
+        # V4: 그룹 수와 코인 수 표시
+        groups = self.group_manager.get_all_groups()
+        selected_coin_count = len(self._get_all_coins_from_groups())
+        self.symbol_label = QLabel(f"총 {selected_coin_count}개 코인\n({len(groups)}개 그룹)")
         self.symbol_label.setFont(QFont("맑은 고딕", 9))
         status_layout.addWidget(self.symbol_label)
 
         status_group.setLayout(status_layout)
         sidebar_layout.addWidget(status_group)
 
-        # 🔧 2. 계좌 정보 패널 (사이드바)
-        account_group = QGroupBox("💰 계좌 정보")
+        # 2. 계좌 정보 패널
+        account_group = QGroupBox("💰 계좌")
         account_layout = QVBoxLayout()
 
         self.total_asset_label = QLabel("총 자산: 로딩 중...")
         self.total_asset_label.setFont(QFont("맑은 고딕", 9))
         account_layout.addWidget(self.total_asset_label)
 
-        # 🔧 수익률/최대낙폭은 포지션 테이블 위에 표시 (중복 제거)
-        # 레이블은 생성하되 화면에 추가하지 않음 (기존 코드 호환성 유지)
-        self.profit_label = QLabel("수익률: 0.00%")
-        self.mdd_label = QLabel("최대 낙폭: 0.00%")
+        self.profit_label = QLabel("수익률: +0.00%")
+        self.profit_label.setFont(QFont("맑은 고딕", 9))
+        account_layout.addWidget(self.profit_label)
+
+        # 새로고침 버튼
+        refresh_btn = QPushButton("🔄 새로고침")
+        refresh_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 5px;")
+        refresh_btn.clicked.connect(self._refresh_account_info)
+        account_layout.addWidget(refresh_btn)
 
         account_group.setLayout(account_layout)
         sidebar_layout.addWidget(account_group)
 
-        # 🔧 3. DCA 전략 설정 (사이드바 - 읽기 전용 요약)
-        settings_group = QGroupBox("📊 DCA 전략")
-        settings_layout = QVBoxLayout()
-
-        # DCA 설정 요약 정보
-        summary_layout = QFormLayout()
-
-        # 익절 목표 (읽기 전용)
-        if self.dca_config.is_multi_level_tp_enabled():
-            tp_count = len(self.dca_config.take_profit_levels)
-            tp_text = f"다단계 ({tp_count}레벨)"
-        else:
-            tp_text = f"+{self.dca_config.take_profit_pct}%"
-
-        self.take_profit_label = QLabel(tp_text)
-        self.take_profit_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.take_profit_label.setStyleSheet("color: #4CAF50;")
-        summary_layout.addRow("🎯 익절:", self.take_profit_label)
-
-        # 손절 방어 (읽기 전용)
-        if self.dca_config.is_multi_level_sl_enabled():
-            sl_count = len(self.dca_config.stop_loss_levels)
-            sl_text = f"다단계 ({sl_count}레벨)"
-        else:
-            sl_text = f"-{self.dca_config.stop_loss_pct}%"
-
-        self.stop_loss_label = QLabel(sl_text)
-        self.stop_loss_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.stop_loss_label.setStyleSheet("color: #F44336;")
-        summary_layout.addRow("🛑 손절:", self.stop_loss_label)
-
-        # DCA 레벨 정보 (읽기 전용)
-        min_drop = min(level.drop_pct for level in self.dca_config.levels)
-        max_drop = max(level.drop_pct for level in self.dca_config.levels)
-        self.dca_levels_label = QLabel(f"{len(self.dca_config.levels)}단계 ({min_drop}%~{max_drop}%)")
-        self.dca_levels_label.setFont(QFont("Consolas", 9))
-        summary_layout.addRow("📊 레벨:", self.dca_levels_label)
-
-        # 총 투자금 (읽기 전용)
-        total_investment = sum(level.order_amount for level in self.dca_config.levels)
-        self.total_investment_label = QLabel(f"{total_investment:,}원")
-        self.total_investment_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.total_investment_label.setStyleSheet("color: #2196F3;")
-        summary_layout.addRow("💰 투자금:", self.total_investment_label)
-
-        # DCA 활성화 상태 (읽기 전용)
-        self.dca_status_label = QLabel("✅ 활성화" if self.dca_config.enabled else "❌ 비활성화")
-        self.dca_status_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.dca_status_label.setStyleSheet("color: #4CAF50;" if self.dca_config.enabled else "color: #999;")
-        summary_layout.addRow("⚙️ 상태:", self.dca_status_label)
-
-        settings_layout.addLayout(summary_layout)
-        settings_group.setLayout(settings_layout)
-        sidebar_layout.addWidget(settings_group)
-
-        # 🔧 3.5. 완전 자동 모드 설정 (사이드바 - 완전 자동 선택 시만 표시)
-        self.auto_settings_group = QGroupBox("🤖 완전 자동 설정")
-        auto_settings_layout = QVBoxLayout()
-        
-        # 완전 자동 설정 요약
-        auto_summary_layout = QFormLayout()
-        
-        # 매수 금액
-        self.auto_buy_amount_label = QLabel(f"{self.auto_trading_config.buy_amount:,.0f}원")
-        self.auto_buy_amount_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.auto_buy_amount_label.setStyleSheet("color: #2196F3;")
-        auto_summary_layout.addRow("💰 매수금액:", self.auto_buy_amount_label)
-        
-        # 모니터링 코인
-        monitoring_text = f"상위 {self.auto_trading_config.top_n}개" if self.auto_trading_config.monitoring_mode == "top_marketcap" else f"{len(self.auto_trading_config.custom_symbols)}개"
-        self.auto_monitoring_label = QLabel(monitoring_text)
-        self.auto_monitoring_label.setFont(QFont("Consolas", 9))
-        auto_summary_layout.addRow("📊 모니터링:", self.auto_monitoring_label)
-        
-        # 스캔 주기
-        self.auto_scan_label = QLabel(f"{self.auto_trading_config.scan_interval}초")
-        self.auto_scan_label.setFont(QFont("Consolas", 9))
-        auto_summary_layout.addRow("⏱️ 스캔주기:", self.auto_scan_label)
-        
-        # 리스크 관리 요약
-        risk_items = []
-        if self.auto_trading_config.max_positions_enabled:
-            risk_items.append(f"포지션 {self.auto_trading_config.max_positions_limit}개")
-        if self.auto_trading_config.daily_trades_enabled:
-            risk_items.append(f"거래 {self.auto_trading_config.daily_trades_limit}회/일")
-        if self.auto_trading_config.min_krw_balance_enabled:
-            risk_items.append(f"잔고 {self.auto_trading_config.min_krw_balance_amount:,.0f}원")
-        if self.auto_trading_config.stop_on_loss_enabled:
-            risk_items.append(f"손실 {self.auto_trading_config.stop_on_loss_daily_pct}%")
-        
-        risk_text = ", ".join(risk_items) if risk_items else "없음"
-        self.auto_risk_label = QLabel(risk_text)
-        self.auto_risk_label.setFont(QFont("맑은 고딕", 8))
-        self.auto_risk_label.setWordWrap(True)
-        self.auto_risk_label.setStyleSheet("color: #F44336;")
-        auto_summary_layout.addRow("🛡️ 리스크:", self.auto_risk_label)
-        
-        auto_settings_layout.addLayout(auto_summary_layout)
-        
-        # 설정 변경 버튼
-        auto_config_btn = QPushButton("⚙️ 설정 변경")
-        auto_config_btn.setStyleSheet("background-color: #673AB7; color: white; padding: 5px; font-weight: bold;")
-        auto_config_btn.clicked.connect(self._open_auto_trading_config)
-        auto_settings_layout.addWidget(auto_config_btn)
-        
-        self.auto_settings_group.setLayout(auto_settings_layout)
-        sidebar_layout.addWidget(self.auto_settings_group)
-        
-        # 초기에는 숨김 (반자동 모드가 기본)
-        self.auto_settings_group.setVisible(False)
-
-        # 🔧 4. 실행 버튼들 (사이드바 하단)
+        # 3. 제어 버튼
         button_group = QGroupBox("⚙️ 제어")
         button_layout = QVBoxLayout()
 
-        # 코인 선택 버튼 (반자동 모드에서만 표시)
-        self.coin_selection_btn = QPushButton("🎯 코인 선택")
-        self.coin_selection_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px; font-weight: bold;")
-        self.coin_selection_btn.clicked.connect(self._open_coin_selection)
-        button_layout.addWidget(self.coin_selection_btn)
+        # V4: 그룹 관리 버튼
+        group_manage_btn = QPushButton("📁 그룹관리")
+        group_manage_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px; font-weight: bold;")
+        group_manage_btn.clicked.connect(self._open_group_management)
+        button_layout.addWidget(group_manage_btn)
 
-        # DCA 설정 변경 버튼
-        advanced_dca_btn = QPushButton("⚙️ DCA 설정 변경")
-        advanced_dca_btn.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px; font-weight: bold;")
-        advanced_dca_btn.clicked.connect(self._open_advanced_dca)
-        button_layout.addWidget(advanced_dca_btn)
-
-        # 🔧 MyAsset 구독 상태 라벨
-        self.myasset_status_label = QLabel("🔄 실시간 감지 준비 중...")
-        self.myasset_status_label.setFont(QFont("맑은 고딕", 9))
-        self.myasset_status_label.setStyleSheet(
-            "padding: 8px; background-color: #FFF9C4; color: #F57F17; "
-            "border-radius: 3px; border: 1px solid #FBC02D;"
-        )
-        self.myasset_status_label.setWordWrap(True)
-        button_layout.addWidget(self.myasset_status_label)
+        # V4: 전역 설정 버튼
+        global_settings_btn = QPushButton("⚙️ 전역설정")
+        global_settings_btn.setStyleSheet("background-color: #673AB7; color: white; padding: 8px; font-weight: bold;")
+        global_settings_btn.clicked.connect(self._open_global_settings)
+        button_layout.addWidget(global_settings_btn)
 
         # 시작 버튼
-        self.start_btn = QPushButton("▶ 전체 DCA 시작")
+        self.start_btn = QPushButton("▶ 시작")
         self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
-        self.start_btn.setEnabled(False)  # 🔧 초기에 비활성화 (MyAsset 준비 완료까지)
         self.start_btn.clicked.connect(self._start_trading)
         button_layout.addWidget(self.start_btn)
 
         # 중지 버튼
-        self.stop_btn = QPushButton("■ 전체 DCA 중지")
+        self.stop_btn = QPushButton("■ 중지")
         self.stop_btn.setStyleSheet("background-color: #f44336; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop_trading)
@@ -471,15 +368,10 @@ class MainWindow(QMainWindow):
         main_panel_layout.setContentsMargins(5, 5, 5, 5)
         main_panel_layout.setSpacing(10)
 
-        # 🔧 상단: 포지션 현황 (간결)
-        top_layout = QHBoxLayout()
-
-        self.price_label = QLabel("포지션: 없음")
-        self.price_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        self.price_label.setStyleSheet("padding: 8px; background-color: #f5f5f5; border-radius: 3px;")
-        top_layout.addWidget(self.price_label)
-
-        main_panel_layout.addLayout(top_layout)
+        # ===========================================
+        # V4 Step 2: 포지션 요약 패널
+        # ===========================================
+        self._create_position_summary_panel(main_panel_layout)
 
         # 🔧 중단: 탭 위젯 (활성 포지션 + 거래 내역)
         tab_widget = QTabWidget()
@@ -495,22 +387,52 @@ class MainWindow(QMainWindow):
         self.position_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
         position_layout.addWidget(self.position_summary_label)
 
-        # 포지션 테이블 생성
+        # ===========================================
+        # V4 Step 4: 11개 컬럼 테이블
+        # ===========================================
         self.position_table = QTableWidget()
-        self.position_table.setColumnCount(8)  # 🔧 매수금액 컬럼 추가 (7 → 8)
+        self.position_table.setColumnCount(11)  # V4: 11개 컬럼
         self.position_table.setHorizontalHeaderLabels([
-            "심볼", "상태", "진입가", "현재가", "수량", "매수금액", "평가손익", "손익률(%)"  # 🔧 "매수금액" 추가
+            "그룹", "심볼", "매수", "DCA", "익절", "손절",
+            "평균가", "현재가", "수량", "평가손익", "수익률(%)"
         ])
 
         # 테이블 스타일 설정
-        self.position_table.setFont(QFont("Consolas", 10))
+        self.position_table.setFont(QFont("맑은 고딕", 10))  # 한글 가독성 개선
         self.position_table.setAlternatingRowColors(True)
         self.position_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 읽기 전용
         self.position_table.setSelectionBehavior(QTableWidget.SelectRows)  # 행 단위 선택
 
-        # 컬럼 너비 자동 조정
+        # V4: 행 높이 설정 (가독성 개선)
+        self.position_table.verticalHeader().setDefaultSectionSize(35)  # 기본 행 높이 35px
+        self.position_table.verticalHeader().setMinimumSectionSize(30)  # 최소 행 높이 30px
+
+        # V4 컬럼 너비 설정 (1320px 메인 패널에 맞춤)
         header = self.position_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Stretch)
+        header.setDefaultSectionSize(100)  # 기본 컬럼 너비
+        header.setMinimumSectionSize(60)  # 최소 컬럼 너비
+        header.setSectionResizeMode(0, QHeaderView.Fixed)  # 그룹
+        header.resizeSection(0, 100)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)  # 심볼
+        header.resizeSection(1, 90)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)  # 매수
+        header.resizeSection(2, 70)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)  # DCA
+        header.resizeSection(3, 70)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)  # 익절
+        header.resizeSection(4, 70)
+        header.setSectionResizeMode(5, QHeaderView.Fixed)  # 손절
+        header.resizeSection(5, 70)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)  # 평균가
+        header.resizeSection(6, 150)
+        header.setSectionResizeMode(7, QHeaderView.Fixed)  # 현재가
+        header.resizeSection(7, 150)
+        header.setSectionResizeMode(8, QHeaderView.Fixed)  # 수량
+        header.resizeSection(8, 110)
+        header.setSectionResizeMode(9, QHeaderView.Fixed)  # 평가손익
+        header.resizeSection(9, 140)
+        header.setSectionResizeMode(10, QHeaderView.Fixed)  # 수익률
+        header.resizeSection(10, 120)
 
         # 🔧 테이블 정렬 활성화 (컬럼 헤더 클릭 시 정렬)
         self.position_table.setSortingEnabled(True)
@@ -536,10 +458,14 @@ class MainWindow(QMainWindow):
         ])
         
         # 테이블 스타일 설정
-        self.trade_history_table.setFont(QFont("Consolas", 9))
+        self.trade_history_table.setFont(QFont("맑은 고딕", 10))  # 한글 가독성 개선
         self.trade_history_table.setAlternatingRowColors(True)
         self.trade_history_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.trade_history_table.setSelectionBehavior(QTableWidget.SelectRows)
+
+        # V4: 행 높이 설정 (가독성 개선)
+        self.trade_history_table.verticalHeader().setDefaultSectionSize(32)  # 기본 행 높이 32px
+        self.trade_history_table.verticalHeader().setMinimumSectionSize(28)  # 최소 행 높이 28px
         
         # 컬럼 너비 설정
         trade_header = self.trade_history_table.horizontalHeader()
@@ -596,14 +522,170 @@ class MainWindow(QMainWindow):
         # 메인 패널을 스플리터에 추가
         main_splitter.addWidget(main_panel_widget)
 
-        # 스플리터 비율 설정 (좌측 350px : 우측 나머지)
+        # 스플리터 비율 설정 (좌측 280px : 우측 나머지)
         main_splitter.setStretchFactor(0, 0)  # 사이드바 고정
         main_splitter.setStretchFactor(1, 1)  # 메인 패널 확장
+        main_splitter.setSizes([280, 1320])  # 초기 크기: 사이드바 280px, 메인 1320px (총 1600px)
 
         # 초기 로그 메시지
-        self._add_log("🚀 Upbit DCA Trader GUI 시작")
+        self._add_log("🚀 Upbit DCA Trader V4 GUI 시작")
         self._add_log("📌 좌측 사이드바에서 설정을 확인하세요")
         self._add_log("ℹ️ 설정 메뉴(상단)에서 API 키와 Telegram을 설정하세요")
+
+    def _create_dry_run_banner(self, parent_layout):
+        """
+        V4 Dry Run 배너 생성
+
+        최상단에 고정되는 배너:
+        - Dry Run 모드: 녹색 배경
+        - 실거래 모드: 빨간색 배경
+        """
+        # 배너 프레임
+        self.dry_run_banner = QWidget()
+        self.dry_run_banner.setFixedHeight(45)
+        banner_layout = QHBoxLayout(self.dry_run_banner)
+        banner_layout.setContentsMargins(15, 5, 15, 5)
+
+        # ConfigManager에서 dry_run 상태 읽기
+        dry_run = self.config.get("dry_run", True)  # 기본값: True
+
+        # 상태 텍스트
+        self.dry_run_label = QLabel()
+        self.dry_run_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        banner_layout.addWidget(self.dry_run_label)
+
+        banner_layout.addStretch()
+
+        # 전환 버튼
+        self.dry_run_toggle_btn = QPushButton()
+        self.dry_run_toggle_btn.setFont(QFont("맑은 고딕", 9))
+        self.dry_run_toggle_btn.clicked.connect(self._toggle_dry_run_mode)
+        banner_layout.addWidget(self.dry_run_toggle_btn)
+
+        # 초기 표시 업데이트
+        self._update_dry_run_banner()
+
+        parent_layout.addWidget(self.dry_run_banner)
+
+    def _update_dry_run_banner(self):
+        """Dry Run 배너 상태 업데이트"""
+        dry_run = self.config.get("dry_run", True)
+
+        if dry_run:
+            # Dry Run 모드 (녹색)
+            self.dry_run_banner.setStyleSheet("background-color: #d4edda;")
+
+            # 가상 잔고 표시
+            virtual_balance = self.global_settings.get("virtual_initial_balance", 1000000)
+            self.dry_run_label.setText(f"🟢 Dry Run 모드 (페이퍼 트레이딩) | 가상 초기 잔고: {virtual_balance:,}원")
+            self.dry_run_label.setStyleSheet("color: #155724;")
+
+            self.dry_run_toggle_btn.setText("⚠️ 실거래로 전환")
+            self.dry_run_toggle_btn.setStyleSheet(
+                "background-color: #ffc107; color: #000; "
+                "padding: 5px 15px; border-radius: 3px; font-weight: bold;"
+            )
+        else:
+            # 실거래 모드 (빨간색)
+            self.dry_run_banner.setStyleSheet("background-color: #f8d7da;")
+
+            # KRW 잔고 표시 (실제 잔고는 나중에 업데이트)
+            self.dry_run_label.setText("🔴 실거래 모드 (실제 거래 실행 중) | KRW 잔고: 로딩 중...")
+            self.dry_run_label.setStyleSheet("color: #721c24;")
+
+            self.dry_run_toggle_btn.setText("ℹ️ Dry Run으로 전환")
+            self.dry_run_toggle_btn.setStyleSheet(
+                "background-color: #28a745; color: #fff; "
+                "padding: 5px 15px; border-radius: 3px; font-weight: bold;"
+            )
+
+    def _toggle_dry_run_mode(self):
+        """Dry Run 모드 전환"""
+        current_dry_run = self.config.get("dry_run", True)
+
+        if current_dry_run:
+            # Dry Run → 실거래 전환 확인
+            reply = QMessageBox.warning(
+                self,
+                "⚠️ 실거래 모드 전환",
+                "실거래 모드로 전환하시겠습니까?\n\n"
+                "실제 자금으로 거래가 실행됩니다!\n"
+                "API 키와 설정을 다시 확인하세요.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self.config["dry_run"] = False
+                self.config_manager.save_config(self.config)
+                self._update_dry_run_banner()
+                self._add_log("🔴 실거래 모드로 전환되었습니다!")
+        else:
+            # 실거래 → Dry Run 전환 (안전하므로 바로 전환)
+            self.config["dry_run"] = True
+            self.config_manager.save_config(self.config)
+            self._update_dry_run_banner()
+            self._add_log("🟢 Dry Run 모드로 전환되었습니다.")
+
+    def _create_position_summary_panel(self, parent_layout):
+        """
+        V4 포지션 요약 패널 생성
+
+        형식: "포지션 요약: X개 그룹 | Y개 코인 | 평가손익: ±Z원"
+        """
+        # 포지션 요약 프레임
+        self.position_summary_panel = QWidget()
+        self.position_summary_panel.setFixedHeight(40)
+        self.position_summary_panel.setStyleSheet("background-color: #f0f8ff; border-radius: 5px;")
+
+        summary_layout = QHBoxLayout(self.position_summary_panel)
+        summary_layout.setContentsMargins(15, 5, 15, 5)
+
+        # 포지션 요약 라벨
+        self.position_summary_label = QLabel("포지션 요약: 0개 그룹 | 0개 코인 | 평가손익: 0원")
+        self.position_summary_label.setFont(QFont("맑은 고딕", 11, QFont.Bold))
+        self.position_summary_label.setStyleSheet("color: #333;")
+        summary_layout.addWidget(self.position_summary_label)
+
+        summary_layout.addStretch()
+
+        parent_layout.addWidget(self.position_summary_panel)
+
+    def _update_position_summary_panel(self):
+        """포지션 요약 패널 업데이트"""
+        try:
+            # V4 그룹 매니저에서 정보 가져오기
+            all_groups = self.group_manager.get_all_groups()
+            group_count = len(all_groups)
+
+            # 모든 그룹의 코인 수집
+            all_coins = set()
+            for group_data in all_groups.values():
+                all_coins.update(group_data.get("coins", []))
+
+            coin_count = len(all_coins)
+
+            # 평가손익 계산 (실제 포지션 데이터 필요 - 추후 구현)
+            total_pnl = 0  # 임시값
+
+            # 라벨 업데이트
+            if total_pnl >= 0:
+                pnl_text = f"+{total_pnl:,}원"
+                pnl_color = "#d32f2f"  # 빨간색
+            else:
+                pnl_text = f"{total_pnl:,}원"
+                pnl_color = "#1976d2"  # 파란색
+
+            self.position_summary_label.setText(
+                f"포지션 요약: {group_count}개 그룹 | {coin_count}개 코인 | 평가손익: {pnl_text}"
+            )
+
+            # 손익에 따라 라벨 색상 변경
+            self.position_summary_label.setStyleSheet(f"color: {pnl_color}; font-weight: bold;")
+
+        except Exception as e:
+            logger.error(f"포지션 요약 패널 업데이트 실패: {e}")
+            self.position_summary_label.setText("포지션 요약: 데이터 로드 실패")
 
     def _init_menu(self):
         """메뉴 초기화"""
@@ -672,48 +754,157 @@ class MainWindow(QMainWindow):
             self.auto_settings_group.setVisible(True)
             self.coin_selection_btn.setVisible(False)  # 🔧 코인 선택 버튼 숨김
             self._add_log("🔄 완전 자동 모드로 변경")
-            self._add_log(f"💡 시가총액 상위 {self.auto_trading_config.top_n}개 코인을 자동 모니터링합니다")
+            # V4: 그룹별 자동 매수 시스템
+            self._add_log("💡 V4 그룹별 자동 매수 시스템 활성화")
         
         # 상태 업데이트
         self._update_status()
     
     def _open_auto_trading_config(self):
         """완전 자동 모드 설정 다이얼로그 열기"""
-        from gui.auto_trading_config_dialog import AutoTradingConfigDialog
-        
-        dialog = AutoTradingConfigDialog(self.auto_trading_config, self)
-        if dialog.exec():
-            # 설정이 변경되면 업데이트
-            self.auto_trading_config = dialog.get_config()
-            self.auto_trading_config.to_file('auto_trading_config.json')
-            self._update_auto_config_display()
-            self._add_log("✅ 완전 자동 설정이 업데이트되었습니다")
-    
+        # V3 전용 메서드 - V4에서는 그룹별 설정 사용으로 미사용
+        self._add_log("⚠️ V4에서는 그룹별 설정을 사용합니다. config/trading_config.json을 직접 수정해주세요.")
+
+        # from gui.auto_trading_config_dialog import AutoTradingConfigDialog
+        #
+        # dialog = AutoTradingConfigDialog(self.auto_trading_config, self)
+        # if dialog.exec():
+        #     # 설정이 변경되면 업데이트
+        #     self.auto_trading_config = dialog.get_config()
+        #     self.auto_trading_config.to_file('auto_trading_config.json')
+        #     self._update_auto_config_display()
+        #     self._add_log("✅ 완전 자동 설정이 업데이트되었습니다")
+
+    def _open_group_management(self):
+        """V4 그룹 관리 다이얼로그 열기"""
+        from gui.group_management_dialog import GroupManagementDialog
+
+        try:
+            dialog = GroupManagementDialog(self.group_manager, self)
+            if dialog.exec():
+                # 그룹 변경 후 UI 업데이트
+                self._add_log("✅ 그룹 설정이 업데이트되었습니다")
+
+                # 사이드바 그룹 정보 업데이트
+                selected_coin_count = len(self._get_all_coins_from_groups())
+                groups = self.group_manager.get_all_groups()
+                self.symbol_label.setText(f"총 {selected_coin_count}개 코인\n({len(groups)}개 그룹)")
+
+                # 포지션 요약 패널 업데이트
+                self._update_position_summary_panel()
+
+        except Exception as e:
+            self._add_log(f"❌ 그룹 관리 다이얼로그 오류: {e}")
+            logger.error(f"그룹 관리 다이얼로그 오류: {e}", exc_info=True)
+
+    def _refresh_account_info(self):
+        """V4 계좌 정보 새로고침"""
+        try:
+            self._add_log("🔄 계좌 정보 새로고침 중...")
+
+            # API 키 확인
+            access_key = self.v3_config_manager.get_upbit_access_key()
+            secret_key = self.v3_config_manager.get_upbit_secret_key()
+
+            # API 키가 있으면 실제 잔고 조회
+            if access_key and secret_key:
+                # UpbitAPI 생성
+                upbit_api = UpbitAPI(access_key, secret_key)
+
+                # KRW 잔고 조회
+                balances = upbit_api.get_balances()
+                krw_balance = 0
+
+                for balance in balances:
+                    if balance['currency'] == 'KRW':
+                        krw_balance = float(balance['balance'])
+                        break
+
+                # 총 자산 계산 (KRW + 코인 평가액)
+                total_asset = krw_balance
+                for balance in balances:
+                    if balance['currency'] != 'KRW':
+                        avg_buy_price = float(balance['avg_buy_price'])
+                        amount = float(balance['balance'])
+                        total_asset += avg_buy_price * amount
+
+                # 초기 자산 대비 수익률 계산
+                initial_balance = self.global_settings.get("virtual_initial_balance", 1000000)
+                profit_rate = ((total_asset - initial_balance) / initial_balance) * 100
+
+                # UI 업데이트
+                self.total_asset_label.setText(f"총 자산: {total_asset:,.0f}원")
+
+                if profit_rate >= 0:
+                    self.profit_label.setText(f"수익률: +{profit_rate:.2f}%")
+                    self.profit_label.setStyleSheet("color: #d32f2f; font-weight: bold;")
+                else:
+                    self.profit_label.setText(f"수익률: {profit_rate:.2f}%")
+                    self.profit_label.setStyleSheet("color: #1976d2; font-weight: bold;")
+
+                self._add_log(f"✅ 계좌 정보 새로고침 완료 (자산: {total_asset:,.0f}원, 수익률: {profit_rate:+.2f}%)")
+
+            else:
+                # API 키 미설정 또는 Dry Run 모드 - 가상 데이터 표시
+                virtual_balance = self.global_settings.get("virtual_initial_balance", 1000000)
+                self.total_asset_label.setText(f"총 자산: {virtual_balance:,.0f}원 (가상)")
+                self.profit_label.setText("수익률: +0.00%")
+                self._add_log("✅ API 키 미설정 또는 Dry Run 모드 - 가상 계좌 정보 표시")
+
+        except Exception as e:
+            self._add_log(f"❌ 계좌 정보 새로고침 실패: {e}")
+            logger.error(f"계좌 정보 새로고침 실패: {e}", exc_info=True)
+            QMessageBox.warning(self, "오류", f"계좌 정보를 새로고침할 수 없습니다:\n{str(e)}")
+
+    def _open_global_settings(self):
+        """V4 전역 설정 다이얼로그 열기"""
+        # TODO: Phase 3-5에서 GlobalSettingsDialog 구현 예정
+
+        try:
+            self._add_log("⚙️ 전역 설정 다이얼로그 (구현 예정)")
+
+            QMessageBox.information(
+                self,
+                "전역 설정",
+                "전역 설정 다이얼로그는 Phase 3-5에서 구현 예정입니다.\n\n"
+                "현재 설정:\n"
+                f"- Dry Run: {self.config.get('dry_run', True)}\n"
+                f"- 가상 초기 잔고: {self.global_settings.get('virtual_initial_balance', 1000000):,}원\n"
+                f"- 일일 손실 제한: {self.global_settings.get('daily_loss', {}).get('enabled', False)}"
+            )
+
+        except Exception as e:
+            self._add_log(f"❌ 전역 설정 오류: {e}")
+            logger.error(f"전역 설정 오류: {e}", exc_info=True)
+
     def _update_auto_config_display(self):
         """완전 자동 설정 표시 업데이트"""
-        # 매수 금액
-        self.auto_buy_amount_label.setText(f"{self.auto_trading_config.buy_amount:,.0f}원")
-        
-        # 모니터링 코인
-        monitoring_text = f"상위 {self.auto_trading_config.top_n}개" if self.auto_trading_config.monitoring_mode == "top_marketcap" else f"{len(self.auto_trading_config.custom_symbols)}개"
-        self.auto_monitoring_label.setText(monitoring_text)
-        
-        # 스캔 주기
-        self.auto_scan_label.setText(f"{self.auto_trading_config.scan_interval}초")
-        
-        # 리스크 관리 요약
-        risk_items = []
-        if self.auto_trading_config.max_positions_enabled:
-            risk_items.append(f"포지션 {self.auto_trading_config.max_positions_limit}개")
-        if self.auto_trading_config.daily_trades_enabled:
-            risk_items.append(f"거래 {self.auto_trading_config.daily_trades_limit}회/일")
-        if self.auto_trading_config.min_krw_balance_enabled:
-            risk_items.append(f"잔고 {self.auto_trading_config.min_krw_balance_amount:,.0f}원")
-        if self.auto_trading_config.stop_on_loss_enabled:
-            risk_items.append(f"손실 {self.auto_trading_config.stop_on_loss_daily_pct}%")
-        
-        risk_text = ", ".join(risk_items) if risk_items else "없음"
-        self.auto_risk_label.setText(risk_text)
+        # V3 전용 메서드 - V4에서는 그룹별 설정 사용으로 미사용
+        pass
+
+        # # 매수 금액
+        # self.auto_buy_amount_label.setText(f"{self.auto_trading_config.buy_amount:,.0f}원")
+        #
+        # # 모니터링 코인
+        # monitoring_text = f"상위 {self.auto_trading_config.top_n}개" if self.auto_trading_config.monitoring_mode == "top_marketcap" else f"{len(self.auto_trading_config.custom_symbols)}개"
+        # self.auto_monitoring_label.setText(monitoring_text)
+        #
+        # # 스캔 주기
+        # self.auto_scan_label.setText(f"{self.auto_trading_config.scan_interval}초")
+        #
+        # # 리스크 관리 요약
+        # risk_items = []
+        # if self.auto_trading_config.max_positions_enabled:
+        #     risk_items.append(f"포지션 {self.auto_trading_config.max_positions_limit}개")
+        # if self.auto_trading_config.daily_trades_enabled:
+        #     risk_items.append(f"거래 {self.auto_trading_config.daily_trades_limit}회/일")
+        # if self.auto_trading_config.min_krw_balance_enabled:
+        #     risk_items.append(f"잔고 {self.auto_trading_config.min_krw_balance_amount:,.0f}원")
+        # if self.auto_trading_config.stop_on_loss_enabled:
+        #     risk_items.append(f"손실 {self.auto_trading_config.stop_on_loss_daily_pct}%")
+        #
+        # risk_text = ", ".join(risk_items) if risk_items else "없음"
+        # self.auto_risk_label.setText(risk_text)
 
     # ========================================
     # 리스크 관리 설정 핸들러
@@ -761,8 +952,8 @@ class MainWindow(QMainWindow):
 
     def _open_coin_selection(self):
         """코인 선택 다이얼로그 열기"""
-        # 현재 선택된 코인 리스트 가져오기
-        selected_coins = self.config_manager.get_selected_coins()
+        # V4: 그룹에서 코인 리스트 가져오기
+        selected_coins = self._get_all_coins_from_groups()
 
         # 코인 선택 다이얼로그 열기
         dialog = CoinSelectionDialog(self, selected_coins=selected_coins)
@@ -796,8 +987,8 @@ class MainWindow(QMainWindow):
 
     def _open_dca_simulator(self):
         """DCA 시뮬레이터 열기"""
-        # DCA Simulator 다이얼로그 열기 (첫 번째 레벨 금액 사용)
-        first_level_amount = self.dca_config.levels[0].order_amount if self.dca_config.levels else 10000
+        # V4: 기본 금액 사용 (그룹별로 다를 수 있음)
+        first_level_amount = 10000  # 기본값
 
         # 기본 시뮬레이션 가격: 1억원 (BTC 기준, 사용자가 시뮬레이터에서 변경 가능)
         default_price = 100000000
@@ -824,70 +1015,73 @@ class MainWindow(QMainWindow):
     
     def _on_dca_config_changed(self, config):
         """DCA 설정 변경 시그널 핸들러 (저장 시 자동 호출)"""
-        self._add_log("⚙️ 고급 DCA 설정이 저장되었습니다")
-        
-        # DCA 설정 업데이트
-        self.dca_config = config
-        self.stop_loss_pct = config.stop_loss_pct
-        self.take_profit_pct = config.take_profit_pct
-        
-        # 🔧 메인 화면의 읽기 전용 라벨들 자동 업데이트
-        # 익절 라벨 (다단계/단일 구분)
-        if config.is_multi_level_tp_enabled():
-            tp_count = len(config.take_profit_levels)
-            self.take_profit_label.setText(f"다단계 ({tp_count}레벨)")
-        else:
-            self.take_profit_label.setText(f"+{config.take_profit_pct}%")
-        
-        # 손절 라벨 (다단계/단일 구분)
-        if config.is_multi_level_sl_enabled():
-            sl_count = len(config.stop_loss_levels)
-            self.stop_loss_label.setText(f"다단계 ({sl_count}레벨)")
-        else:
-            self.stop_loss_label.setText(f"-{config.stop_loss_pct}%")
-        
-        # DCA 레벨 정보 업데이트
-        min_drop = min(level.drop_pct for level in config.levels)
-        max_drop = max(level.drop_pct for level in config.levels)
-        self.dca_levels_label.setText(f"{len(config.levels)}단계 ({min_drop}%~{max_drop}%)")
-        
-        # 총 투자금 업데이트
-        total_investment = sum(level.order_amount for level in config.levels)
-        self.total_investment_label.setText(f"{total_investment:,}원")
-        
-        # DCA 상태 업데이트
-        self.dca_status_label.setText("✅ 활성화" if config.enabled else "❌ 비활성화")
-        self.dca_status_label.setStyleSheet("color: #4CAF50;" if config.enabled else "color: #999;")
-        
-        # 로그 출력
-        self._add_log(f"  📊 DCA 레벨: {len(config.levels)}단계")
-        
-        # 익절 표시 (다단계/단일 구분)
-        if config.is_multi_level_tp_enabled():
-            tp_count = len(config.take_profit_levels)
-            self._add_log(f"  🎯 익절: 다단계 ({tp_count}레벨)")
-        else:
-            self._add_log(f"  🎯 익절: +{config.take_profit_pct}%")
-        
-        # 손절 표시 (다단계/단일 구분)
-        if config.is_multi_level_sl_enabled():
-            sl_count = len(config.stop_loss_levels)
-            self._add_log(f"  🛑 손절: 다단계 ({sl_count}레벨)")
-        else:
-            self._add_log(f"  🛑 손절: -{config.stop_loss_pct}%")
-        
-        self._add_log(f"  💰 총 투자금: {total_investment:,}원")
-        
-        # 레벨 정보 출력 (처음 3개)
-        for level_config in config.levels[:3]:
-            self._add_log(f"     레벨 {level_config.level}: {level_config.drop_pct}% 하락 → {level_config.order_amount:,}원")
-        if len(config.levels) > 3:
-            self._add_log(f"     ... 외 {len(config.levels) - 3}개 레벨")
-        
-        # 🔧 실행 중인 엔진에 DCA 설정 실시간 반영
-        if self.is_running and self.trading_worker:
-            self._add_log("🔄 실행 중인 엔진에 DCA 설정 업데이트 전송...")
-            self.trading_worker.update_dca_config(config)
+        # V3 전용 메서드 - V4에서는 그룹별 설정 사용으로 미사용
+        pass
+
+        # self._add_log("⚙️ 고급 DCA 설정이 저장되었습니다")
+        #
+        # # DCA 설정 업데이트
+        # self.dca_config = config
+        # self.stop_loss_pct = config.stop_loss_pct
+        # self.take_profit_pct = config.take_profit_pct
+        #
+        # # 🔧 메인 화면의 읽기 전용 라벨들 자동 업데이트
+        # # 익절 라벨 (다단계/단일 구분)
+        # if config.is_multi_level_tp_enabled():
+        #     tp_count = len(config.take_profit_levels)
+        #     self.take_profit_label.setText(f"다단계 ({tp_count}레벨)")
+        # else:
+        #     self.take_profit_label.setText(f"+{config.take_profit_pct}%")
+        #
+        # # 손절 라벨 (다단계/단일 구분)
+        # if config.is_multi_level_sl_enabled():
+        #     sl_count = len(config.stop_loss_levels)
+        #     self.stop_loss_label.setText(f"다단계 ({sl_count}레벨)")
+        # else:
+        #     self.stop_loss_label.setText(f"-{config.stop_loss_pct}%")
+        #
+        # # DCA 레벨 정보 업데이트
+        # min_drop = min(level.drop_pct for level in config.levels)
+        # max_drop = max(level.drop_pct for level in config.levels)
+        # self.dca_levels_label.setText(f"{len(config.levels)}단계 ({min_drop}%~{max_drop}%)")
+        #
+        # # 총 투자금 업데이트
+        # total_investment = sum(level.order_amount for level in config.levels)
+        # self.total_investment_label.setText(f"{total_investment:,}원")
+        #
+        # # DCA 상태 업데이트
+        # self.dca_status_label.setText("✅ 활성화" if config.enabled else "❌ 비활성화")
+        # self.dca_status_label.setStyleSheet("color: #4CAF50;" if config.enabled else "color: #999;")
+        #
+        # # 로그 출력
+        # self._add_log(f"  📊 DCA 레벨: {len(config.levels)}단계")
+        #
+        # # 익절 표시 (다단계/단일 구분)
+        # if config.is_multi_level_tp_enabled():
+        #     tp_count = len(config.take_profit_levels)
+        #     self._add_log(f"  🎯 익절: 다단계 ({tp_count}레벨)")
+        # else:
+        #     self._add_log(f"  🎯 익절: +{config.take_profit_pct}%")
+        #
+        # # 손절 표시 (다단계/단일 구분)
+        # if config.is_multi_level_sl_enabled():
+        #     sl_count = len(config.stop_loss_levels)
+        #     self._add_log(f"  🛑 손절: 다단계 ({sl_count}레벨)")
+        # else:
+        #     self._add_log(f"  🛑 손절: -{config.stop_loss_pct}%")
+        #
+        # self._add_log(f"  💰 총 투자금: {total_investment:,}원")
+        #
+        # # 레벨 정보 출력 (처음 3개)
+        # for level_config in config.levels[:3]:
+        #     self._add_log(f"     레벨 {level_config.level}: {level_config.drop_pct}% 하락 → {level_config.order_amount:,}원")
+        # if len(config.levels) > 3:
+        #     self._add_log(f"     ... 외 {len(config.levels) - 3}개 레벨")
+        #
+        # # 🔧 실행 중인 엔진에 DCA 설정 실시간 반영
+        # if self.is_running and self.trading_worker:
+        #     self._add_log("🔄 실행 중인 엔진에 DCA 설정 업데이트 전송...")
+        #     self.trading_worker.update_dca_config(config)
 
     # ========================================
     # 설정 및 다이얼로그
@@ -903,7 +1097,9 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self):
         """설정 변경 시"""
-        self.config_manager.reload()
+        # V4: load_config()로 다시 로드
+        self.config = self.config_manager.load_config()
+        self.global_settings = self.config.get("global_settings", {})
         self._add_log("📝 설정이 다시 로드되었습니다")
         self._update_status()
 
@@ -948,7 +1144,7 @@ class MainWindow(QMainWindow):
             self._add_log("🔑 API 키 검증 중...")
             self.statusbar.showMessage("API 키 검증 중...")
 
-            if not self.config_manager.validate_upbit_keys():
+            if not self.v3_config_manager.validate_upbit_keys():
                 self._add_log("❌ API 키 검증 실패")
                 QMessageBox.warning(
                     self,
@@ -968,7 +1164,7 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("준비")
 
         # Telegram 검증 (선택사항)
-        if not self.config_manager.validate_telegram_config():
+        if not self.v3_config_manager.validate_telegram_config():
             reply = QMessageBox.question(
                 self,
                 "Telegram 미설정",
@@ -1030,131 +1226,50 @@ class MainWindow(QMainWindow):
             
             self._add_log("")
 
-            # 🔧 다중 코인 트레이딩 설정 생성
-            # 사용자가 선택한 코인 리스트 가져오기
-            selected_coins = self.config_manager.get_selected_coins()
-            coin_count = len(selected_coins)
+            # ========================================
+            # 🚀 V4 Trading Engine 시작
+            # ========================================
 
-            # 선택된 코인 로그 출력
-            coins_str = ", ".join([coin.replace('KRW-', '') for coin in selected_coins])
-            self._add_log(f"🎯 선택된 코인: {coins_str} ({coin_count}개)")
-            self._add_log(f"💰 총 투자 자본: {coin_count * 1000000:,}원 (코인당 1,000,000원)")
-            self._add_log("")
+            # V4 그룹 정보 로드
+            groups = self.group_manager.get_all_groups()
+            active_groups = [g for g in groups.values() if not g.get("observation_only", False)]
 
-            config = {
-                # 사용자가 선택한 코인 심볼
-                'symbols': selected_coins,
-                # 총 투자 자본 (코인당 균등 배분)
-                'total_capital': coin_count * 1000000,  # 코인당 100만원
-                'strategy': {
-                    'period': 20,
-                    'std_dev': 2.5
-                },
-                'risk_management': {
-                    'stop_loss_pct': self.dca_config.stop_loss_pct,
-                    'take_profit_pct': self.dca_config.take_profit_pct,
-                    'max_daily_loss_pct': self.max_daily_loss_pct
-                },
-                # 코인당 주문 금액
-                'order_amount': self.dca_config.levels[0].order_amount if self.dca_config.levels else 100000,
-                
-                # ========================================
-                # 🔄 모드 전환: 아래 주석을 바꾸면 페이퍼/실거래 전환
-                # ========================================
-                # 'dry_run': True,   # ✅ 페이퍼 트레이딩 모드 (안전)
-                'dry_run': False,  # 🚨 실거래 모드 (실제 주문!)
-                
-                'access_key': self.config_manager.get_upbit_access_key(),
-                'secret_key': self.config_manager.get_upbit_secret_key(),
-                'telegram': {
-                    'token': self.config_manager.get_telegram_bot_token(),
-                    'chat_id': self.config_manager.get_telegram_chat_id()
-                },
-                # DCA 설정
-                'dca_config': self.dca_config
-            }
+            self._add_log(f"📊 활성 그룹: {len(active_groups)}개 / 전체: {len(groups)}개")
 
-            # 리스크 설정 표시 (다단계/단일 구분)
-            tp_info = f"다단계 ({len(self.dca_config.take_profit_levels)}레벨)" if self.dca_config.is_multi_level_tp_enabled() else f"{self.dca_config.take_profit_pct}%"
-            sl_info = f"다단계 ({len(self.dca_config.stop_loss_levels)}레벨)" if self.dca_config.is_multi_level_sl_enabled() else f"{self.dca_config.stop_loss_pct}%"
-            self._add_log(f"📊 리스크 설정: 손절 {sl_info}, 익절 {tp_info}")
-            self._add_log(f"💰 DCA 레벨: {len(self.dca_config.levels)}단계 ({'활성화' if self.dca_config.enabled else '비활성화'})")
-            
-            if self.dca_config.enabled:
-                # DCA 레벨 정보 출력
-                for level_config in self.dca_config.levels[:3]:  # 처음 3개만 표시
-                    self._add_log(f"   레벨 {level_config.level}: {level_config.drop_pct}% 하락 시 {level_config.order_amount:,}원 매수")
-                if len(self.dca_config.levels) > 3:
-                    self._add_log(f"   ... 외 {len(self.dca_config.levels) - 3}개 레벨")
+            # 그룹별 코인 수 계산
+            total_coins = sum(len(g.get("coins", [])) for g in active_groups)
+            self._add_log(f"🎯 관리 코인: 총 {total_coins}개")
 
-            # 🔧 트레이딩 모드별 워커 생성
-            if self.trading_mode == "semi_auto":
-                # ===================================================================
-                # 🔧 반자동 모드: SemiAutoWorker (수동매수 + 자동DCA/익절/손절)
-                # ===================================================================
-                self._add_log("🎯 모드: 반자동 (수동매수 + 자동관리)")
-                self._add_log("   - Upbit 앱에서 수동 매수 시 자동 감지")
-                self._add_log("   - DCA/익절/손절 자동 실행")
-                self._add_log(f"   - 스캔 주기: {self.scan_interval}초")
-                
-                self.trading_worker = SemiAutoWorker(
-                    access_key=self.config_manager.get_upbit_access_key(),
-                    secret_key=self.config_manager.get_upbit_secret_key(),
-                    dca_config=self.dca_config,
-                    dry_run=config['dry_run'],
-                    scan_interval=self.scan_interval,
-                    balance_update_callback=self.balance_update_callback  # 🔧 잔고 갱신 콜백 전달
-                )
-                
-                # 반자동 모드 시그널 연결
-                self.trading_worker.started.connect(self._on_trading_started)
-                self.trading_worker.finished.connect(self._on_trading_stopped)
-                self.trading_worker.log_signal.connect(self._on_trading_log)
-                self.trading_worker.error_signal.connect(self._on_trading_error)
-                self.trading_worker.status_signal.connect(self._on_auto_trading_status)
-                self.trading_worker.position_update_signal.connect(self._on_position_update)
-                self.trading_worker.trade_signal.connect(self._on_trade_executed)  # 🔧 거래 내역 기록
-                
-                # ===================================================================
-                # 📦 보존된 코드: MultiCoinTradingWorker (Bollinger Bands 전략)
-                # 나중에 "모드 3" 등으로 활성화 가능
-                # ===================================================================
-                # self.trading_worker = MultiCoinTradingWorker(config)
-                # self.trading_worker.started.connect(self._on_trading_started)
-                # self.trading_worker.stopped.connect(self._on_trading_stopped)
-                # self.trading_worker.log_message.connect(self._on_trading_log)
-                # self.trading_worker.portfolio_update.connect(self._on_portfolio_update)
-                # self.trading_worker.coin_update.connect(self._on_coin_update)
-                # self.trading_worker.trade_executed.connect(self._on_trade_executed)
-                # self.trading_worker.error_occurred.connect(self._on_trading_error)
-                
-            else:  # full_auto
-                # 완전 자동 모드: AutoTradingWorker
-                self._add_log("🤖 모드: 완전 자동 (자동매수 + 자동관리)")
-                self._add_log(f"   매수 금액: {self.auto_trading_config.buy_amount:,.0f}원")
-                self._add_log(f"   모니터링: 상위 {self.auto_trading_config.top_n}개")
-                self._add_log(f"   스캔 주기: {self.auto_trading_config.scan_interval}초")
-                
-                self.trading_worker = AutoTradingWorker(
-                    access_key=self.config_manager.get_upbit_access_key(),
-                    secret_key=self.config_manager.get_upbit_secret_key(),
-                    auto_config=self.auto_trading_config,
-                    dca_config=self.dca_config,
-                    dry_run=config['dry_run'],
-                    balance_update_callback=self.balance_update_callback  # 🔧 잔고 갱신 콜백 전달
-                )
-                
-                # 완전 자동 모드 시그널 연결
-                # QThread 기본 시그널
-                self.trading_worker.started.connect(self._on_trading_started)
-                self.trading_worker.finished.connect(self._on_trading_stopped)
-                
-                # AutoTradingWorker 커스텀 시그널
-                self.trading_worker.log_signal.connect(self._on_trading_log)
-                self.trading_worker.error_signal.connect(self._on_trading_error)
-                self.trading_worker.status_signal.connect(self._on_auto_trading_status)
-                self.trading_worker.position_update_signal.connect(self._on_position_update)
-                self.trading_worker.trade_signal.connect(self._on_auto_trade_executed)
+            # 전역 설정 표시
+            if self.global_settings.get("observation_mode", False):
+                self._add_log("⚠️ 관찰 전용 모드")
+
+            if self.global_settings.get("dry_run", False):
+                self._add_log("🧪 Dry-run 모드 (가상 거래)")
+            else:
+                self._add_log("💰 Live 모드 (실거래)")
+
+            # Upbit API 인스턴스 생성
+            upbit_api = UpbitAPI(
+                access_key=self.v3_config_manager.get_upbit_access_key(),
+                secret_key=self.v3_config_manager.get_upbit_secret_key()
+            )
+
+            # V4Worker 생성
+            self._add_log("🔧 V4 거래 엔진 초기화 중...")
+            self.trading_worker = V4Worker(
+                config_path=self.config_path,
+                upbit_api=upbit_api
+            )
+
+            # 시그널 연결 (V3 호환)
+            self.trading_worker.started.connect(self._on_trading_started)
+            self.trading_worker.finished.connect(self._on_trading_stopped)
+            self.trading_worker.log_signal.connect(self._on_trading_log)
+            self.trading_worker.error_signal.connect(self._on_trading_error)
+            self.trading_worker.status_signal.connect(self._on_auto_trading_status)
+            self.trading_worker.position_update_signal.connect(self._on_position_update)
+            self.trading_worker.trade_signal.connect(self._on_trade_executed)
 
             # UI 상태 업데이트
             self.is_running = True
@@ -1259,7 +1374,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_balance(self):
         """잔고 새로고침 (비동기)"""
-        if not self.config_manager.validate_upbit_keys():
+        if not self.v3_config_manager.validate_upbit_keys():
             QMessageBox.warning(
                 self,
                 "설정 오류",
@@ -1279,8 +1394,8 @@ class MainWindow(QMainWindow):
 
         # 워커 스레드 생성 및 실행
         self.balance_worker = BalanceWorker(
-            self.config_manager.get_upbit_access_key(),
-            self.config_manager.get_upbit_secret_key()
+            self.v3_config_manager.get_upbit_access_key(),
+            self.v3_config_manager.get_upbit_secret_key()
         )
 
         # 시그널 연결
@@ -1445,7 +1560,7 @@ class MainWindow(QMainWindow):
 
     def _on_coin_update(self, symbol: str, coin_status: dict):
         """
-        개별 코인 상태 업데이트 처리 → 포지션 테이블 업데이트
+        개별 코인 상태 업데이트 처리 → 포지션 테이블 업데이트 (V3 레거시 - V4에서는 사용 안 함)
 
         Args:
             symbol: 코인 심볼 (예: 'KRW-BTC')
@@ -1458,6 +1573,12 @@ class MainWindow(QMainWindow):
                 - entry_time: 진입시각
         """
         try:
+            # 🔧 V4 모드에서는 _on_position_update를 사용하므로 이 함수는 무시
+            if hasattr(self, 'trading_worker') and self.trading_worker and hasattr(self.trading_worker, '__class__'):
+                worker_class_name = self.trading_worker.__class__.__name__
+                if worker_class_name == 'V4Worker':
+                    # V4 모드에서는 _update_position_row_v4를 사용
+                    return
             # 심볼에서 'KRW-' 제거
             symbol_short = symbol.replace('KRW-', '')
 
@@ -1844,29 +1965,227 @@ class MainWindow(QMainWindow):
 
     def _on_position_update(self, position_data: dict):
         """
-        완전 자동 모드 포지션 업데이트 처리 (AutoTradingWorker)
+        V4 포지션 업데이트 처리 (V4Worker)
 
         Args:
-            position_data: 포지션 정보
-                - symbol: 심볼
-                - position: 보유 수량
-                - entry_price: 진입가
-                - current_price: 현재가
-                - profit_loss: 평가손익
-                - return_pct: 손익률
-                - entry_time: 진입 시각
+            position_data: V4Worker가 보낸 포지션 정보
+                - positions: Dict[symbol, position_dict] - 모든 포지션
+                - total_count: int - 총 포지션 수
+                - timestamp: float - 업데이트 시각
         """
         try:
-            symbol = position_data.get('symbol', '')
-            # 기존 _on_coin_update와 동일한 로직 재사용
-            self._on_coin_update(symbol, position_data)
+            positions = position_data.get('positions', {})
+
+            if not positions:
+                # 포지션이 없으면 테이블 클리어
+                self.position_table.setRowCount(0)
+                return
+
+            # 기존 테이블의 심볼 목록 수집
+            existing_symbols = set()
+            for row in range(self.position_table.rowCount()):
+                symbol_item = self.position_table.item(row, 1)  # 컬럼 1: 심볼
+                if symbol_item:
+                    existing_symbols.add(symbol_item.text())
+
+            # 각 포지션을 테이블에 업데이트
+            for symbol, pos in positions.items():
+                self._update_position_row_v4(symbol, pos, existing_symbols)
+
+            # 더 이상 존재하지 않는 포지션 제거
+            current_symbols = set(positions.keys())
+            symbols_to_remove = existing_symbols - current_symbols
+
+            for symbol in symbols_to_remove:
+                for row in range(self.position_table.rowCount()):
+                    symbol_item = self.position_table.item(row, 1)
+                    if symbol_item and symbol_item.text() == symbol:
+                        self.position_table.removeRow(row)
+                        break
+
+            # 포지션 요약 업데이트
+            self._update_position_summary_v4(positions)
 
         except KeyboardInterrupt:
-            # 프로그램 종료 시 발생하는 KeyboardInterrupt 무시
             pass
         except Exception as e:
-            logger.error(f"❌ [GUI] 포지션 업데이트 오류 ({symbol}): {e}", exc_info=True)
-            self._add_log(f"⚠️ 포지션 업데이트 오류: {e}")
+            logger.error(f"❌ [GUI] V4 포지션 업데이트 오류: {e}", exc_info=True)
+            self._add_log(f"⚠️ V4 포지션 업데이트 오류: {e}")
+
+    def _update_position_row_v4(self, symbol: str, pos: dict, existing_symbols: set):
+        """
+        V4 포지션 한 행 업데이트
+
+        Args:
+            symbol: 심볼 (예: "KRW-BTC")
+            pos: 포지션 데이터
+            existing_symbols: 기존 테이블에 있는 심볼들
+        """
+        # 심볼 단축 표기 (KRW- 제거)
+        symbol_short = symbol.replace("KRW-", "")
+
+        # 기존 행 찾기
+        row_index = -1
+        for row in range(self.position_table.rowCount()):
+            item = self.position_table.item(row, 1)  # 컬럼 1: 심볼
+            if item and item.text() == symbol_short:
+                row_index = row
+                break
+
+        # 행이 없으면 새로 추가
+        if row_index == -1:
+            row_index = self.position_table.rowCount()
+            self.position_table.insertRow(row_index)
+
+        # 데이터 추출
+        group_id = pos.get('group_id', '-')
+        average_price = pos.get('average_price', 0)
+        current_price = pos.get('current_price', 0)
+        total_amount = pos.get('total_amount', 0)
+        profit_krw = pos.get('profit_krw', 0)
+        profit_pct = pos.get('profit_pct', 0)
+        dca_count = pos.get('dca_count', 0)
+
+        # 가격 포맷 함수
+        def format_price(price):
+            if price >= 1000:
+                return f"{price:,.0f}"
+            elif price >= 1:
+                return f"{price:,.2f}"
+            else:
+                return f"{price:.8f}"
+
+        # 0: 그룹
+        group_item = QTableWidgetItem(group_id)
+        group_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 0, group_item)
+
+        # 1: 심볼
+        symbol_item = QTableWidgetItem(symbol_short)
+        symbol_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        symbol_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 1, symbol_item)
+
+        # 2: 매수 (초기 매수 상태 - 일단 "✓"로 표시)
+        buy_item = QTableWidgetItem("✓")
+        buy_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        buy_item.setForeground(Qt.darkGreen)
+        self.position_table.setItem(row_index, 2, buy_item)
+
+        # 3: DCA (DCA 횟수)
+        dca_item = QTableWidgetItem(str(dca_count) if dca_count > 0 else "-")
+        dca_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        if dca_count > 0:
+            dca_item.setForeground(Qt.darkBlue)
+        self.position_table.setItem(row_index, 3, dca_item)
+
+        # 4: 익절 (레벨 정보 없음 - 일단 "-")
+        tp_item = QTableWidgetItem("-")
+        tp_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 4, tp_item)
+
+        # 5: 손절 (레벨 정보 없음 - 일단 "-")
+        sl_item = QTableWidgetItem("-")
+        sl_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 5, sl_item)
+
+        # 6: 평균가
+        avg_price_item = QTableWidgetItem(format_price(average_price))
+        avg_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 6, avg_price_item)
+
+        # 7: 현재가
+        curr_price_item = QTableWidgetItem(format_price(current_price))
+        curr_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 7, curr_price_item)
+
+        # 8: 수량
+        amount_item = QTableWidgetItem(f"{total_amount:.8f}")
+        amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.position_table.setItem(row_index, 8, amount_item)
+
+        # 9: 평가손익
+        profit_item = QTableWidgetItem(f"{profit_krw:+,.0f}원")
+        profit_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if profit_krw > 0:
+            profit_item.setForeground(Qt.red)  # 빨강 (수익)
+            profit_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        elif profit_krw < 0:
+            profit_item.setForeground(Qt.blue)  # 파랑 (손실)
+            profit_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        else:
+            profit_item.setForeground(Qt.black)
+        self.position_table.setItem(row_index, 9, profit_item)
+
+        # 10: 수익률
+        pct_item = QTableWidgetItem(f"{profit_pct:+.2f}%")
+        pct_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if profit_pct > 0:
+            pct_item.setForeground(Qt.red)  # 빨강 (수익)
+            pct_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        elif profit_pct < 0:
+            pct_item.setForeground(Qt.blue)  # 파랑 (손실)
+            pct_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        else:
+            pct_item.setForeground(Qt.black)
+        self.position_table.setItem(row_index, 10, pct_item)
+
+    def _update_position_summary_v4(self, positions: dict):
+        """
+        V4 포지션 요약 정보 업데이트
+
+        Args:
+            positions: Dict[symbol, position_dict]
+        """
+        try:
+            # 총 포지션 수
+            total_positions = len(positions)
+
+            # 총 투자금액, 총 평가금액, 총 손익 계산
+            total_invested = sum(pos.get('total_invested_krw', 0) for pos in positions.values())
+            total_value = sum(pos.get('current_value_krw', 0) for pos in positions.values())
+            total_profit = sum(pos.get('profit_krw', 0) for pos in positions.values())
+
+            # 총 수익률
+            total_profit_pct = (total_profit / total_invested * 100) if total_invested > 0 else 0
+
+            # 상단 배너 업데이트
+            # 포지션 요약 레이블 (좌측에 있는 것)
+            if hasattr(self, 'position_summary_label'):
+                self.position_summary_label.setText(
+                    f"보유 종목: {total_positions}개  |  "
+                    f"총 투자금액: {total_invested:,.0f}원  |  "
+                    f"총 평가금액: {total_value:,.0f}원  |  "
+                    f"평가손익: {total_profit:+,.0f}원 ({total_profit_pct:+.2f}%)"
+                )
+
+                # 수익/손실에 따라 색상 변경
+                if total_profit > 0:
+                    self.position_summary_label.setStyleSheet(
+                        "background-color: rgba(76, 175, 80, 0.1); "
+                        "color: #2E7D32; "
+                        "padding: 8px; "
+                        "border-radius: 4px; "
+                        "font-weight: bold;"
+                    )
+                elif total_profit < 0:
+                    self.position_summary_label.setStyleSheet(
+                        "background-color: rgba(244, 67, 54, 0.1); "
+                        "color: #C62828; "
+                        "padding: 8px; "
+                        "border-radius: 4px; "
+                        "font-weight: bold;"
+                    )
+                else:
+                    self.position_summary_label.setStyleSheet(
+                        "background-color: rgba(128, 128, 128, 0.1); "
+                        "color: #555; "
+                        "padding: 8px; "
+                        "border-radius: 4px;"
+                    )
+
+        except Exception as e:
+            logger.error(f"V4 포지션 요약 업데이트 오류: {e}")
 
     def _on_auto_trade_executed(self, trade_data: dict):
         """
@@ -1896,8 +2215,8 @@ class MainWindow(QMainWindow):
 
     def _update_status(self):
         """상태 정보 업데이트"""
-        # 🔧 사이드바 심볼 정보 (선택된 코인 개수로 업데이트)
-        selected_coin_count = len(self.config_manager.get_selected_coins())
+        # V4: 그룹의 코인 개수로 업데이트
+        selected_coin_count = len(self._get_all_coins_from_groups())
         self.symbol_label.setText(f"다중 코인 ({selected_coin_count}개)")
     
     def _update_trade_history_table(self):
@@ -2029,8 +2348,7 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger(__name__)
 
         logger.info("🚀 [Init] 순차적 초기화 시작")
-        self._add_log("🔄 초기화 시작...")
-        self.myasset_status_label.setText("🔄 초기화 중... (1/3) 예수금 조회")
+        self._add_log("🔄 초기화 시작... (1/3) 예수금 조회")
 
         # 단계 1: 예수금 조회
         self._step1_load_balance()
@@ -2043,8 +2361,8 @@ class MainWindow(QMainWindow):
         logger.info("🔄 [Step 1] 예수금 조회 시작")
 
         # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
-        access_key = self.config_manager.get_upbit_access_key()
-        secret_key = self.config_manager.get_upbit_secret_key()
+        access_key = self.v3_config_manager.get_upbit_access_key()
+        secret_key = self.v3_config_manager.get_upbit_secret_key()
 
         if not access_key or not secret_key:
             logger.warning("⚠️ [Step 1] API 키 미설정 - 단계 2로 진행")
@@ -2093,12 +2411,11 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger(__name__)
 
         logger.info("🔄 [Step 2] 보유 종목 조회 시작")
-        self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
-        self._add_log("🔄 보유 종목 조회 중...")
+        self._add_log("🔄 초기화 중... (2/3) 보유 종목 조회")
 
         # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
-        access_key = self.config_manager.get_upbit_access_key()
-        secret_key = self.config_manager.get_upbit_secret_key()
+        access_key = self.v3_config_manager.get_upbit_access_key()
+        secret_key = self.v3_config_manager.get_upbit_secret_key()
 
         if not access_key or not secret_key:
             logger.warning("⚠️ [Step 2] API 키 미설정 - 단계 3으로 진행")
@@ -2170,8 +2487,7 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger(__name__)
 
         logger.info("🔄 [Step 3] 실시간 감지 준비 시작")
-        self.myasset_status_label.setText("🔄 초기화 중... (3/3) 실시간 감지 준비")
-        self._add_log("🔄 실시간 감지 준비 중...")
+        self._add_log("🔄 초기화 중... (3/3) 실시간 감지 준비")
 
         # 기존 _start_myasset_preparation() 로직 호출
         self._start_myasset_preparation()
@@ -2183,16 +2499,12 @@ class MainWindow(QMainWindow):
     def _start_myasset_preparation(self):
         """MyAsset WebSocket 구독 준비 시작 (백그라운드)"""
         # API 키 확인
-        access_key = self.config_manager.get_upbit_access_key()
-        secret_key = self.config_manager.get_upbit_secret_key()
+        access_key = self.v3_config_manager.get_upbit_access_key()
+        secret_key = self.v3_config_manager.get_upbit_secret_key()
 
         if not access_key or not secret_key:
             # API 키 없으면 준비 실패
-            self.myasset_status_label.setText("⚠️ API 키 미설정 (Fallback 모드)")
-            self.myasset_status_label.setStyleSheet(
-                "padding: 8px; background-color: #FFCDD2; color: #C62828; "
-                "border-radius: 3px; border: 1px solid #E53935;"
-            )
+            self._add_log("⚠️ API 키 미설정 (Fallback 모드)")
             self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
             return
 
@@ -2211,13 +2523,6 @@ class MainWindow(QMainWindow):
         self._add_log("ℹ️  참고: 프로그램 시작 직후 첫 매수는 1-3분 지연될 수 있습니다 (Upbit 정책)")
         self._add_log("   이후 매수부터는 즉시 감지됩니다 (평균 15-30초 이내)")
 
-        # 상태 라벨 업데이트
-        self.myasset_status_label.setText("✅ 실시간 감지 준비 완료!")
-        self.myasset_status_label.setStyleSheet(
-            "padding: 8px; background-color: #C8E6C9; color: #2E7D32; "
-            "border-radius: 3px; border: 1px solid #4CAF50;"
-        )
-
     def _on_myasset_preparation_failed(self, error_msg: str):
         """MyAsset 구독 준비 실패"""
         self.myasset_ready = False
@@ -2227,7 +2532,7 @@ class MainWindow(QMainWindow):
 
     def _on_myasset_status_update(self, status_msg: str):
         """MyAsset 상태 업데이트"""
-        self.myasset_status_label.setText(status_msg)
+        self._add_log(status_msg)
 
     # ========================================
     # 종료 처리
@@ -2253,17 +2558,10 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-            # 🔧 모드별 Trading Engine 중지
+            # 🔧 V4 Trading Engine 중지
             if self.trading_worker:
-                self._add_log("⏸️ Trading Engine 중지 중...")
-
-                if self.trading_mode == "semi_auto":
-                    # 반자동 모드: SemiAutoWorker
-                    # SemiAutoWorker는 stop() 메서드 사용
-                    self.trading_worker.stop()
-                else:
-                    # 완전 자동 모드: AutoTradingWorker
-                    self.trading_worker.stop()
+                self._add_log("⏸️ V4 Trading Engine 중지 중...")
+                self.trading_worker.stop()
 
                 # 스레드 종료 대기 (최대 5초로 단축)
                 if not self.trading_worker.wait(5000):
