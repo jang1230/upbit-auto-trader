@@ -445,18 +445,31 @@ class GroupSettingsDialog(QDialog):
 
     def _open_level_detail(self):
         """레벨 상세 설정 다이얼로그 열기"""
-        # TODO: Phase 3 Step 4에서 LevelSettingsDialog 구현
-        QMessageBox.information(
-            self,
-            "레벨 상세 설정",
-            f"레벨 상세 설정 다이얼로그는 Phase 3 Step 4에서 구현 예정입니다.\n\n"
-            f"현재 그룹: {self.group_name}\n\n"
-            "설정 항목:\n"
-            "- DCA 레벨 (하락률, 주문금액)\n"
-            "- 익절 레벨 (수익률, 매도비율)\n"
-            "- 손절 레벨 (손실률, 매도비율)",
-            QMessageBox.Ok
-        )
+        try:
+            from gui.level_settings_dialog import LevelSettingsDialog
+
+            dialog = LevelSettingsDialog(
+                self.config_manager,
+                self.group_id,
+                self.group_name,
+                parent=self
+            )
+            dialog.settings_saved.connect(self._on_level_settings_saved)
+            dialog.exec()
+
+        except Exception as e:
+            logger.error(f"❌ 레벨 상세 설정 다이얼로그 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"레벨 상세 설정 다이얼로그를 열 수 없습니다.\n{e}"
+            )
+
+    def _on_level_settings_saved(self):
+        """레벨 설정 저장 완료 시"""
+        logger.info("✅ 레벨 설정 저장 완료")
+        # 설정 파일이 변경되었으므로 상위 다이얼로그에 알림
+        self.settings_saved.emit()
 
 
 # 테스트 코드
