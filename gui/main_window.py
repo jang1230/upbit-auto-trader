@@ -39,7 +39,18 @@ from gui.advanced_dca_dialog import AdvancedDcaDialog
 from gui.dca_config import DcaConfigManager
 from gui.coin_selection_dialog import CoinSelectionDialog  # 🔧 코인 선택 다이얼로그
 from gui.auto_trading_config import AutoTradingConfig  # 🔧 완전 자동 모드 설정
+from gui.group_management_dialog import GroupManagementDialog  # 🔧 V4 그룹 관리 다이얼로그
 from core.utils import format_price  # 🔧 가격 포맷팅 유틸리티
+
+# 🔧 V4 매니저 import
+try:
+    from core.config_manager import ConfigManager as V4ConfigManager
+    from core.group_manager import GroupManager
+    from core.position_manager import PositionManager
+    V4_AVAILABLE = True
+except ImportError:
+    logger.warning("⚠️ V4 모듈을 불러올 수 없습니다. V4 기능이 비활성화됩니다.")
+    V4_AVAILABLE = False
 
 
 class BalanceWorker(QThread):
@@ -164,7 +175,17 @@ class MainWindow(QMainWindow):
         self.config_manager = ConfigManager()
         self.dca_config_manager = DcaConfigManager()  # 고급 DCA 설정 관리자
         self.dca_config = self.dca_config_manager.load()  # DCA 설정 로드
-        
+
+        # 🔧 V4 매니저 초기화
+        if V4_AVAILABLE:
+            self.v4_config_manager = V4ConfigManager()
+            self.v4_position_manager = PositionManager(mode="dryrun")  # 기본은 Dry Run
+            self.v4_group_manager = GroupManager(self.v4_config_manager, self.v4_position_manager)
+        else:
+            self.v4_config_manager = None
+            self.v4_position_manager = None
+            self.v4_group_manager = None
+
         # 🔧 트레이딩 모드 및 완전 자동 설정
         self.trading_mode = "semi_auto"  # "semi_auto" | "full_auto"
         self.auto_trading_config = AutoTradingConfig.from_file('auto_trading_config.json')  # 완전 자동 설정
@@ -2176,17 +2197,41 @@ class MainWindow(QMainWindow):
         )
 
     def _open_group_management(self):
-        """그룹 관리 다이얼로그 열기 (임시 구현)"""
-        # TODO: Phase 3 Step 2에서 GroupManagementDialog 구현
-        QMessageBox.information(
-            self,
-            "그룹 관리",
-            "그룹 관리 다이얼로그는 Phase 3 Step 2에서 구현 예정입니다.\n"
-            "- 그룹 생성/삭제\n"
-            "- 코인 추가/제거\n"
-            "- 관찰 전용 모드 설정",
-            QMessageBox.Ok
-        )
+        """그룹 관리 다이얼로그 열기"""
+        if not V4_AVAILABLE:
+            QMessageBox.warning(
+                self,
+                "V4 기능 없음",
+                "V4 모듈을 불러올 수 없습니다.\n"
+                "core/config_manager.py, core/group_manager.py 파일을 확인하세요."
+            )
+            return
+
+        try:
+            dialog = GroupManagementDialog(
+                self.v4_config_manager,
+                self.v4_group_manager,
+                parent=self
+            )
+
+            # 그룹 변경 시그널 연결
+            dialog.groups_changed.connect(self._on_groups_changed)
+
+            dialog.exec()
+
+        except Exception as e:
+            logger.error(f"❌ 그룹 관리 다이얼로그 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"그룹 관리 다이얼로그를 열 수 없습니다.\n{e}"
+            )
+
+    def _on_groups_changed(self):
+        """그룹 변경 시 호출 (메인 윈도우 업데이트)"""
+        logger.info("📊 그룹 변경됨, 메인 윈도우 업데이트")
+        # TODO: Phase 3 Step 5에서 포지션 테이블 업데이트 구현
+        self._add_log("✅ 그룹 설정이 업데이트되었습니다.")
 
     def _open_global_settings(self):
         """전역 설정 다이얼로그 열기 (임시 구현)"""
