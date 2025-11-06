@@ -586,6 +586,14 @@ class MainWindow(QMainWindow):
         config_action.triggered.connect(self._open_settings)
         settings_menu.addAction(config_action)
 
+        # 구분선
+        settings_menu.addSeparator()
+
+        # 모드 전환 (Step 7)
+        self.mode_toggle_action = QAction(self._get_mode_toggle_text(), self)
+        self.mode_toggle_action.triggered.connect(self._toggle_mode)
+        settings_menu.addAction(self.mode_toggle_action)
+
         # 도움말 메뉴
         help_menu = menubar.addMenu("도움말")
 
@@ -597,7 +605,7 @@ class MainWindow(QMainWindow):
         """상태바 초기화"""
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
-        self.statusbar.showMessage("준비")
+        self._update_mode_display()  # 모드 표시 초기화
 
     # ========================================
     # 트레이딩 모드 관리
@@ -2472,6 +2480,152 @@ class MainWindow(QMainWindow):
             logger.info("✅ 전역 설정 저장 완료")
             # 설정 변경 후 필요한 동작 (예: DailyLossTracker 재시작 등)
             # TODO: V4TradingEngine 연동 시 처리
+
+    # ========================================
+    # Step 7: 모드 전환 (Live ↔ Dry-run)
+    # ========================================
+
+    def _get_mode_toggle_text(self) -> str:
+        """모드 전환 메뉴 텍스트 반환"""
+        if not V4_AVAILABLE or not self.v4_config_manager:
+            return "🔄 모드 전환"
+
+        try:
+            config = self.v4_config_manager.load_config()
+            is_dry_run = config.get("global_settings", {}).get("dry_run", True)
+
+            if is_dry_run:
+                return "🔄 모드 전환 (현재: 🟢 Dry-run)"
+            else:
+                return "🔄 모드 전환 (현재: 🔴 Live)"
+        except Exception as e:
+            logger.error(f"❌ 모드 텍스트 로드 실패: {e}")
+            return "🔄 모드 전환"
+
+    def _toggle_mode(self):
+        """모드 전환 (Live ↔ Dry-run)"""
+        if not V4_AVAILABLE or not self.v4_config_manager:
+            QMessageBox.warning(
+                self,
+                "V4 미지원",
+                "V4 설정 파일이 없습니다.\n"
+                "그룹 관리에서 새 그룹을 생성하면 V4 설정이 자동 생성됩니다."
+            )
+            return
+
+        # ========================================
+        # 1단계: 실행 중 체크
+        # ========================================
+        if self.is_running:
+            QMessageBox.warning(
+                self,
+                "모드 전환 불가",
+                "거래가 실행 중입니다.\n\n"
+                "먼저 [중지] 버튼을 눌러\n"
+                "거래를 중지한 후 모드를 전환하세요."
+            )
+            return
+
+        # ========================================
+        # 2단계: 현재 모드 확인
+        # ========================================
+        try:
+            config = self.v4_config_manager.load_config()
+            current_dry_run = config.get("global_settings", {}).get("dry_run", True)
+        except Exception as e:
+            logger.error(f"❌ 설정 로드 실패: {e}")
+            QMessageBox.critical(self, "오류", f"설정을 불러올 수 없습니다:\n{e}")
+            return
+
+        # ========================================
+        # 3단계: 전환 확인 다이얼로그
+        # ========================================
+        if not current_dry_run:  # Live → Dry-run
+            reply = QMessageBox.question(
+                self,
+                "가상 거래 모드로 전환",
+                "가상 거래 모드로 전환하시겠습니까?\n\n"
+                "• 실제 거래가 중단됩니다\n"
+                "• 테스트 목적으로만 사용됩니다",
+                QMessageBox.Yes | QMessageBox.No
+            )
+        else:  # Dry-run → Live
+            reply = QMessageBox.warning(
+                self,
+                "실거래 모드로 전환",
+                "⚠️ 실거래 모드로 전환하시겠습니까?\n\n"
+                "주의사항:\n"
+                "• 실제 자금이 사용됩니다\n"
+                "• 모든 거래는 되돌릴 수 없습니다\n"
+                "• 충분히 테스트 후 전환하세요",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # ========================================
+        # 4단계: 모드 전환 처리
+        # ========================================
+        try:
+            new_dry_run = not current_dry_run
+            config["global_settings"]["dry_run"] = new_dry_run
+            self.v4_config_manager.save_config(config)
+
+            # PositionManager 재초기화
+            mode_str = "dryrun" if new_dry_run else "live"
+
+            # Upbit API 가져오기 (API 키가 있으면)
+            upbit_api = None
+            if hasattr(self, 'upbit_api') and self.upbit_api:
+                upbit_api = self.upbit_api
+
+            self.v4_position_manager = PositionManager(mode=mode_str, upbit_api=upbit_api)
+
+            # 포지션 테이블 새로고침
+            self._load_v4_positions()
+
+            # UI 업데이트
+            self._update_mode_display()
+
+            # 완료 메시지
+            mode_name = "🟢 가상 거래 (Dry-run)" if new_dry_run else "🔴 실거래 (Live)"
+            QMessageBox.information(
+                self,
+                "모드 전환 완료",
+                f"✅ {mode_name} 모드로 전환되었습니다.\n\n"
+                f"포지션 테이블이 갱신되었습니다."
+            )
+
+            logger.info(f"✅ 모드 전환 완료: {'Dry-run' if new_dry_run else 'Live'}")
+
+        except Exception as e:
+            logger.error(f"❌ 모드 전환 실패: {e}")
+            QMessageBox.critical(self, "모드 전환 실패", f"모드 전환 중 오류가 발생했습니다:\n{e}")
+
+    def _update_mode_display(self):
+        """모드 표시 업데이트 (메뉴 텍스트 + 상태바)"""
+        if not V4_AVAILABLE or not self.v4_config_manager:
+            self.statusbar.showMessage("준비")
+            return
+
+        try:
+            config = self.v4_config_manager.load_config()
+            is_dry_run = config.get("global_settings", {}).get("dry_run", True)
+
+            # 메뉴 텍스트 업데이트
+            if hasattr(self, 'mode_toggle_action'):
+                self.mode_toggle_action.setText(self._get_mode_toggle_text())
+
+            # 상태바 업데이트
+            if is_dry_run:
+                self.statusbar.showMessage("Mode: 🟢 Dry-run  |  준비 완료")
+            else:
+                self.statusbar.showMessage("Mode: 🔴 Live  |  준비 완료")
+
+        except Exception as e:
+            logger.error(f"❌ 모드 표시 업데이트 실패: {e}")
+            self.statusbar.showMessage("준비")
 
     # ========================================
     # 종료 처리
