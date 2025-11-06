@@ -11,7 +11,6 @@ V4 거래 엔진
 
 import logging
 import time
-import pyupbit
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import threading
@@ -324,7 +323,7 @@ class V4TradingEngine:
         try:
             if self.dry_run or not self.upbit_api:
                 # Dry-run 모드: 가상 주문
-                current_price = pyupbit.get_current_price(symbol)
+                current_price = self._get_current_price_safe(symbol)
                 if not current_price:
                     logger.error(f"❌ {symbol} 현재가 조회 실패")
                     return
@@ -407,7 +406,7 @@ class V4TradingEngine:
             return
 
         # 현재가 조회
-        current_price = pyupbit.get_current_price(symbol)
+        current_price = self._get_current_price_safe(symbol)
         if not current_price:
             return
 
@@ -485,7 +484,7 @@ class V4TradingEngine:
         try:
             if self.dry_run or not self.upbit_api:
                 # Dry-run 모드
-                current_price = pyupbit.get_current_price(symbol)
+                current_price = self._get_current_price_safe(symbol)
                 if not current_price:
                     logger.error(f"❌ {symbol} 현재가 조회 실패")
                     return
@@ -640,7 +639,7 @@ class V4TradingEngine:
         try:
             if self.dry_run or not self.upbit_api:
                 # Dry-run 모드
-                current_price = pyupbit.get_current_price(symbol)
+                current_price = self._get_current_price_safe(symbol)
                 if not current_price:
                     logger.error(f"❌ {symbol} 현재가 조회 실패")
                     return
@@ -733,6 +732,32 @@ class V4TradingEngine:
 
         return True
 
+    def _get_current_price_safe(self, symbol: str) -> Optional[float]:
+        """
+        현재가 안전 조회 (Dry-run/Live 모드 호환)
+
+        Args:
+            symbol: 코인 심볼 (예: 'KRW-BTC')
+
+        Returns:
+            float: 현재가 (실패 시 None)
+        """
+        try:
+            if self.upbit_api:
+                # UpbitAPI 사용 (Live/Dry-run 모두 사용 가능)
+                ticker = self.upbit_api.get_ticker(symbol)
+                if ticker and 'trade_price' in ticker:
+                    return float(ticker['trade_price'])
+                else:
+                    logger.error(f"❌ {symbol} 현재가 조회 실패: ticker 데이터 없음")
+                    return None
+            else:
+                logger.error(f"❌ {symbol} 현재가 조회 실패: UpbitAPI 없음 (Dry-run 모드에서는 UpbitAPI 필요)")
+                return None
+        except Exception as e:
+            logger.error(f"❌ {symbol} 현재가 조회 오류: {e}")
+            return None
+
     def _get_recent_candles(self, symbol: str, candle_unit: str, count: int = 200):
         """
         최근 캔들 데이터 가져오기
@@ -746,16 +771,18 @@ class V4TradingEngine:
             DataFrame: 캔들 데이터
         """
         try:
-            # pyupbit로 캔들 데이터 가져오기
+            if not self.upbit_api:
+                logger.error(f"❌ {symbol} 캔들 조회 실패: UpbitAPI 없음")
+                return None
+
+            # UpbitAPI로 캔들 데이터 가져오기
             interval = f"minute{candle_unit}"
-            candles = pyupbit.get_ohlcv(symbol, interval=interval, count=count)
+            candles = self.upbit_api.get_candles(symbol, interval=interval, count=count)
 
             if candles is None or len(candles) == 0:
                 return None
 
-            # 컬럼명 소문자로 변경 (전략 호환성)
-            candles.columns = [col.lower() for col in candles.columns]
-
+            # 컬럼명은 이미 소문자 (get_candles()에서 변환됨)
             return candles
 
         except Exception as e:
@@ -790,7 +817,7 @@ class V4TradingEngine:
                 if position.get("status") != "active":
                     continue
 
-                current_price = pyupbit.get_current_price(symbol)
+                current_price = self._get_current_price_safe(symbol)
                 if current_price:
                     total_amount = position.get("total_amount", 0)
                     coin_value += current_price * total_amount
