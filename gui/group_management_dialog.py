@@ -337,17 +337,39 @@ class GroupManagementDialog(QDialog):
             config = self.config_manager.load_config()
             existing_groups = config.get("groups", {})
 
+            default_name = f"새 그룹 {len(existing_groups) + 1}"
+
+            # 그룹명 입력 다이얼로그
+            from PySide6.QtWidgets import QInputDialog
+
+            group_name, ok = QInputDialog.getText(
+                self,
+                "새 그룹 생성",
+                "그룹명을 입력하세요:",
+                text=default_name
+            )
+
+            # 사용자가 취소 누르면 생성 안 함
+            if not ok:
+                logger.info("❌ 그룹 생성 취소됨")
+                return
+
+            # 그룹명 검증
+            group_name = group_name.strip()
+            if not group_name:
+                QMessageBox.warning(self, "입력 오류", "그룹명을 입력하세요.")
+                return
+
             new_id = f"group_{len(existing_groups) + 1}"
-            new_name = f"새 그룹 {len(existing_groups) + 1}"
 
             # GroupManager를 통해 그룹 생성
             self.group_manager.create_group(
                 group_id=new_id,
-                name=new_name,
+                name=group_name,
                 coins=[]
             )
 
-            logger.info(f"✅ 새 그룹 생성: {new_id}")
+            logger.info(f"✅ 새 그룹 생성: {new_id} ({group_name})")
 
             # UI 업데이트
             self._load_groups()
