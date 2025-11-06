@@ -462,11 +462,13 @@ class GroupManagementDialog(QDialog):
             # 관찰 전용 모드
             observation_mode = self.observation_checkbox.isChecked()
 
-            # GroupManager를 통해 업데이트
+            # GroupManager를 통해 업데이트 (딕셔너리로 전달)
             self.group_manager.update_group_settings(
                 group_id=self.selected_group_id,
-                name=new_name,
-                observation_mode=observation_mode
+                updates={
+                    'name': new_name,
+                    'observation_mode': observation_mode
+                }
             )
 
             # 코인 업데이트 (기존 코인 제거 후 새로 추가)
