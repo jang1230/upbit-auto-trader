@@ -225,6 +225,9 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._update_status()
 
+        # 🔧 V4: 포지션 로드 (1초 후 - UI 초기화 완료 대기)
+        QTimer.singleShot(1000, self._load_v4_positions)
+
         # 🔧 순차적 초기화 시작 (500ms 후)
         QTimer.singleShot(500, self._start_sequential_initialization)
 
@@ -2235,8 +2238,107 @@ class MainWindow(QMainWindow):
     def _on_groups_changed(self):
         """그룹 변경 시 호출 (메인 윈도우 업데이트)"""
         logger.info("📊 그룹 변경됨, 메인 윈도우 업데이트")
-        # TODO: Phase 3 Step 5에서 포지션 테이블 업데이트 구현
+        # V4: 포지션 테이블 업데이트
+        self._load_v4_positions()
         self._add_log("✅ 그룹 설정이 업데이트되었습니다.")
+
+    def _load_v4_positions(self):
+        """V4: 포지션 데이터 로드 및 테이블 표시"""
+        if not V4_AVAILABLE or not self.v4_position_manager:
+            return
+
+        try:
+            # 모든 포지션 가져오기
+            positions = self.v4_position_manager.get_all_positions()
+
+            # 설정 로드 (그룹명 및 DCA/익절/손절 설정 확인용)
+            config = self.v4_config_manager.load_config()
+            groups = config.get("groups", {})
+
+            # 테이블 초기화
+            self.position_table.setRowCount(0)
+
+            # 포지션이 없으면 종료
+            if not positions:
+                logger.info("📊 활성 포지션 없음")
+                return
+
+            # 각 포지션을 테이블에 추가
+            row_idx = 0
+            for symbol, pos in positions.items():
+                if pos.get("status") != "active":
+                    continue  # 비활성 포지션은 스킵
+
+                # 그룹 정보 가져오기
+                group_id = pos.get("group_id", "")
+                group = groups.get(group_id, {})
+                group_name = group.get("name", group_id)
+
+                # 매수/DCA/익절/손절 설정
+                buy_settings = group.get("buy_settings", {})
+                buy_mode = buy_settings.get("mode", "manual")
+                buy_text = "자동" if buy_mode == "auto" else "수동"
+
+                dca_settings = group.get("dca_settings", {})
+                dca_mode = dca_settings.get("mode", "disabled")
+                dca_text = "ON" if dca_mode == "auto" else "OFF"
+
+                profit_settings = group.get("profit_settings", {})
+                profit_mode = profit_settings.get("mode", "disabled")
+                profit_text = "ON" if profit_mode in ["auto", "alert"] else "OFF"
+
+                loss_settings = group.get("loss_settings", {})
+                loss_mode = loss_settings.get("mode", "disabled")
+                loss_text = "ON" if loss_mode in ["auto", "alert"] else "OFF"
+
+                # 포지션 데이터
+                average_price = pos.get("average_price", 0)
+                current_price = pos.get("current_price", average_price)
+                total_amount = pos.get("total_amount", 0)
+                profit_krw = pos.get("profit_krw", 0)
+                profit_pct = pos.get("profit_pct", 0)
+
+                # 테이블 행 추가
+                self.position_table.insertRow(row_idx)
+
+                # 컬럼 데이터 설정
+                items = [
+                    QTableWidgetItem(group_name),                        # 0: 그룹
+                    QTableWidgetItem(symbol),                            # 1: 심볼
+                    QTableWidgetItem(buy_text),                          # 2: 매수
+                    QTableWidgetItem(dca_text),                          # 3: DCA
+                    QTableWidgetItem(profit_text),                       # 4: 익절
+                    QTableWidgetItem(loss_text),                         # 5: 손절
+                    QTableWidgetItem(f"{average_price:,.0f}"),          # 6: 평균가
+                    QTableWidgetItem(f"{current_price:,.0f}"),          # 7: 현재가
+                    QTableWidgetItem(f"{total_amount:.8f}"),            # 8: 수량
+                    QTableWidgetItem(f"{profit_krw:+,.0f}"),            # 9: 평가손익
+                    QTableWidgetItem(f"{profit_pct:+.2f}%")             # 10: 수익률
+                ]
+
+                # 모든 셀 중앙 정렬
+                for col_idx, item in enumerate(items):
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.position_table.setItem(row_idx, col_idx, item)
+
+                # 수익/손실 색상 적용
+                if profit_krw > 0:
+                    # 수익: 빨간색
+                    items[9].setForeground(QColor("red"))
+                    items[10].setForeground(QColor("red"))
+                elif profit_krw < 0:
+                    # 손실: 파란색
+                    items[9].setForeground(QColor("blue"))
+                    items[10].setForeground(QColor("blue"))
+
+                row_idx += 1
+
+            logger.info(f"✅ V4 포지션 로드 완료: {row_idx}개")
+            self._add_log(f"📊 포지션 {row_idx}개 로드됨")
+
+        except Exception as e:
+            logger.error(f"❌ V4 포지션 로드 실패: {e}")
+            self._add_log(f"⚠️ 포지션 로드 실패: {e}")
 
     def _open_global_settings(self):
         """전역 설정 다이얼로그 열기 (임시 구현)"""
