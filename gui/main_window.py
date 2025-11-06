@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
         self.balance_worker = None  # 잔고 조회 워커 스레드
         self.trading_worker = None  # Trading Engine 워커 스레드
         self.preparation_worker = None  # MyAsset 구독 준비 워커
+        self.price_websocket_worker = None  # 🔧 V4: 가격 WebSocket 워커
         self.myasset_ready = False  # MyAsset 구독 준비 완료 여부
         self.api_keys_validated = False  # 🔧 API 키 검증 완료 플래그 (Step 1 성공 시 True)
         self._shutdown_timer = None  # 비동기 종료 타이머
@@ -2336,9 +2337,121 @@ class MainWindow(QMainWindow):
             logger.info(f"✅ V4 포지션 로드 완료: {row_idx}개")
             self._add_log(f"📊 포지션 {row_idx}개 로드됨")
 
+            # 🔧 WebSocket 시작 (포지션이 있을 때만)
+            if row_idx > 0:
+                self._start_price_websocket(list(positions.keys()))
+
         except Exception as e:
             logger.error(f"❌ V4 포지션 로드 실패: {e}")
             self._add_log(f"⚠️ 포지션 로드 실패: {e}")
+
+    def _start_price_websocket(self, symbols: list):
+        """
+        가격 WebSocket 시작
+
+        Args:
+            symbols: 구독할 심볼 리스트
+        """
+        try:
+            # 기존 워커가 있으면 중지
+            if self.price_websocket_worker and self.price_websocket_worker.isRunning():
+                logger.info("🛑 기존 WebSocket 워커 중지")
+                self.price_websocket_worker.stop()
+                self.price_websocket_worker.wait(3000)  # 3초 대기
+
+            # 새 워커 생성
+            from gui.price_websocket_worker import PriceWebSocketWorker
+
+            self.price_websocket_worker = PriceWebSocketWorker(
+                self.v4_position_manager,
+                parent=self
+            )
+
+            # 시그널 연결
+            self.price_websocket_worker.price_updated.connect(self._on_price_updated)
+            self.price_websocket_worker.connected.connect(self._on_websocket_connected)
+            self.price_websocket_worker.disconnected.connect(self._on_websocket_disconnected)
+            self.price_websocket_worker.error_occurred.connect(self._on_websocket_error)
+
+            # 심볼 설정 및 시작
+            self.price_websocket_worker.set_symbols(symbols)
+            self.price_websocket_worker.start()
+
+            logger.info(f"🚀 가격 WebSocket 시작: {len(symbols)}개 심볼")
+            self._add_log(f"🔌 실시간 가격 업데이트 시작 ({len(symbols)}개 코인)")
+
+        except Exception as e:
+            logger.error(f"❌ WebSocket 시작 실패: {e}", exc_info=True)
+            self._add_log(f"⚠️ 실시간 가격 업데이트 시작 실패: {e}")
+
+    def _on_price_updated(self, symbol: str, current_price: float):
+        """
+        가격 업데이트 시그널 핸들러
+
+        Args:
+            symbol: 심볼 (예: 'KRW-BTC')
+            current_price: 현재가
+        """
+        try:
+            # 테이블에서 해당 심볼 찾기
+            for row in range(self.position_table.rowCount()):
+                symbol_item = self.position_table.item(row, 1)
+                if not symbol_item or symbol_item.text() != symbol:
+                    continue
+
+                # PositionManager에서 업데이트된 포지션 정보 가져오기
+                position = self.v4_position_manager.positions.get(symbol)
+                if not position:
+                    continue
+
+                # 현재가 업데이트 (컬럼 7)
+                price_item = QTableWidgetItem(f"{current_price:,.0f}")
+                price_item.setTextAlignment(Qt.AlignCenter)
+                self.position_table.setItem(row, 7, price_item)
+
+                # 평가손익 업데이트 (컬럼 9)
+                profit_krw = position.get('profit_krw', 0)
+                profit_item = QTableWidgetItem(f"{profit_krw:+,.0f}")
+                profit_item.setTextAlignment(Qt.AlignCenter)
+
+                if profit_krw > 0:
+                    profit_item.setForeground(QColor("red"))
+                elif profit_krw < 0:
+                    profit_item.setForeground(QColor("blue"))
+
+                self.position_table.setItem(row, 9, profit_item)
+
+                # 수익률 업데이트 (컬럼 10)
+                profit_pct = position.get('profit_pct', 0)
+                pct_item = QTableWidgetItem(f"{profit_pct:+.2f}%")
+                pct_item.setTextAlignment(Qt.AlignCenter)
+
+                if profit_pct > 0:
+                    pct_item.setForeground(QColor("red"))
+                elif profit_pct < 0:
+                    pct_item.setForeground(QColor("blue"))
+
+                self.position_table.setItem(row, 10, pct_item)
+
+                break
+
+        except Exception as e:
+            logger.error(f"❌ 가격 업데이트 처리 오류: {e}", exc_info=True)
+
+    def _on_websocket_connected(self):
+        """WebSocket 연결 성공 핸들러"""
+        logger.info("✅ WebSocket 연결 성공")
+        self._add_log("✅ 실시간 가격 업데이트 연결됨")
+
+    def _on_websocket_disconnected(self):
+        """WebSocket 연결 종료 핸들러"""
+        logger.warning("⚠️ WebSocket 연결 종료")
+        self._add_log("⚠️ 실시간 가격 업데이트 종료됨")
+
+    def _on_websocket_error(self, error_msg: str):
+        """WebSocket 에러 핸들러"""
+        logger.error(f"❌ WebSocket 에러: {error_msg}")
+        self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {error_msg}")
 
     def _open_global_settings(self):
         """전역 설정 다이얼로그 열기 (임시 구현)"""
