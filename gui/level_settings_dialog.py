@@ -400,19 +400,19 @@ class LevelSettingsDialog(QDialog):
 
             group = groups[self.group_id]
 
-            # DCA 설정 업데이트
+            # DCA 설정 업데이트 (기존 mode 유지)
             if "dca_settings" not in group:
-                group["dca_settings"] = {"mode": "auto"}
+                group["dca_settings"] = {"mode": "auto", "levels": []}
             group["dca_settings"]["levels"] = dca_levels
 
-            # 익절 설정 업데이트
+            # 익절 설정 업데이트 (기존 mode 유지)
             if "profit_settings" not in group:
-                group["profit_settings"] = {"mode": "auto"}
+                group["profit_settings"] = {"mode": "auto", "levels": []}
             group["profit_settings"]["levels"] = profit_levels
 
-            # 손절 설정 업데이트
+            # 손절 설정 업데이트 (기존 mode 유지)
             if "loss_settings" not in group:
-                group["loss_settings"] = {"mode": "auto"}
+                group["loss_settings"] = {"mode": "auto", "levels": []}
             group["loss_settings"]["levels"] = loss_levels
 
             # 저장

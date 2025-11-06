@@ -293,29 +293,35 @@ class GroupSettingsDialog(QDialog):
 
             # 매수 설정
             buy_settings = group.get("buy_settings", {})
-            buy_amount = buy_settings.get("buy_amount_krw", 50000)
-            investment_style = buy_settings.get("investment_style", "balanced")
+            buy_mode = buy_settings.get("mode", "manual")
 
-            # 매수 방식 판단 (investment_style이 "manual"이면 수동)
-            if investment_style == "manual":
-                self.manual_buy_radio.setChecked(True)
-            else:
+            # 매수 금액 로드
+            if buy_mode == "auto":
+                # 자동 모드: auto_config에서 로드
+                auto_config = buy_settings.get("auto_config", {})
+                buy_amount = auto_config.get("buy_amount_krw", 50000)
                 self.auto_buy_radio.setChecked(True)
+            else:
+                # 수동 모드: buy_settings에서 직접 로드
+                buy_amount = buy_settings.get("buy_amount_krw", 50000)
+                self.manual_buy_radio.setChecked(True)
 
             self.buy_amount_input.setValue(buy_amount)
 
             # DCA 설정
             dca_settings = group.get("dca_settings", {})
-            dca_enabled = dca_settings.get("enabled", True)
-            self.dca_checkbox.setChecked(dca_enabled)
+            dca_mode = dca_settings.get("mode", "disabled")
+            self.dca_checkbox.setChecked(dca_mode == "auto")
 
-            # 익절/손절 설정
-            profit_loss_settings = group.get("profit_loss_settings", {})
-            profit_targets = profit_loss_settings.get("profit_targets", [])
-            stop_losses = profit_loss_settings.get("stop_losses", [])
+            # 익절 설정
+            profit_settings = group.get("profit_settings", {})
+            profit_mode = profit_settings.get("mode", "disabled")
+            self.profit_checkbox.setChecked(profit_mode in ["auto", "alert"])
 
-            self.profit_checkbox.setChecked(len(profit_targets) > 0)
-            self.loss_checkbox.setChecked(len(stop_losses) > 0)
+            # 손절 설정
+            loss_settings = group.get("loss_settings", {})
+            loss_mode = loss_settings.get("mode", "disabled")
+            self.loss_checkbox.setChecked(loss_mode in ["auto", "alert"])
 
             logger.info(f"✅ 그룹 설정 로드: {self.group_id}")
 
@@ -373,9 +379,10 @@ class GroupSettingsDialog(QDialog):
                     }
                 }
             else:
-                # 수동매수 모드: mode만 필요
+                # 수동매수 모드: mode + 매수금액 저장
                 group["buy_settings"] = {
-                    "mode": "manual"
+                    "mode": "manual",
+                    "buy_amount_krw": buy_amount
                 }
 
             # DCA 설정
@@ -427,6 +434,12 @@ class GroupSettingsDialog(QDialog):
                     ]
             else:
                 group["loss_settings"]["mode"] = "disabled"
+
+            # V3 호환성: 옛날 필드 삭제
+            group.pop("observation_mode", None)
+            group.pop("profit_loss_settings", None)
+            if "dca_settings" in group:
+                group["dca_settings"].pop("enabled", None)
 
             # 저장
             self.config_manager.save_config(config)
