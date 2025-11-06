@@ -432,17 +432,19 @@ class CandleWebSocket(UpbitWebSocket):
     REST API를 통해 주기적으로 최신 캔들을 가져옵니다.
     """
 
-    def __init__(self, interval_seconds: int = 60):
+    def __init__(self, interval_seconds: int = 60, upbit_api=None):
         """
         캔들 웹소켓 초기화
 
         Args:
             interval_seconds: 캔들 갱신 주기 (초)
+            upbit_api: UpbitAPI 인스턴스 (캔들 조회용)
         """
         super().__init__()
         self.interval_seconds = interval_seconds
         self.last_candle_time = None
         self.is_running = True  # 종료 flag
+        self.upbit_api = upbit_api
 
     async def disconnect(self):
         """캔들 웹소켓 종료"""
@@ -464,7 +466,9 @@ class CandleWebSocket(UpbitWebSocket):
         Yields:
             Dict: 캔들 데이터
         """
-        import pyupbit
+        if not self.upbit_api:
+            logger.error("❌ CandleWebSocket에 UpbitAPI가 설정되지 않았습니다")
+            return
 
         logger.info(f"🕯️ Candle 구독 시작: {symbols} ({unit}분봉)")
 
@@ -474,8 +478,8 @@ class CandleWebSocket(UpbitWebSocket):
         while self.is_running:
             try:
                 for symbol in symbols:
-                    # 최신 캔들 가져오기
-                    df = pyupbit.get_ohlcv(
+                    # 최신 캔들 가져오기 (UpbitAPI 사용)
+                    df = self.upbit_api.get_candles(
                         symbol,
                         interval=f"minute{unit}",
                         count=1
