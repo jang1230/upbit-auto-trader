@@ -2454,17 +2454,23 @@ class MainWindow(QMainWindow):
         self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {error_msg}")
 
     def _open_global_settings(self):
-        """전역 설정 다이얼로그 열기 (임시 구현)"""
-        # TODO: Phase 3 Step 3에서 GlobalSettingsDialog 구현
-        QMessageBox.information(
-            self,
-            "전역 설정",
-            "전역 설정 다이얼로그는 Phase 3 Step 3에서 구현 예정입니다.\n"
-            "- Daily Loss Limit 설정\n"
-            "- Telegram 알림 설정\n"
-            "- API Keys 관리",
-            QMessageBox.Ok
-        )
+        """전역 설정 다이얼로그 열기"""
+        if not V4_AVAILABLE or not self.v4_config_manager:
+            QMessageBox.warning(
+                self,
+                "V4 미지원",
+                "V4 설정 파일이 없습니다.\n"
+                "그룹 관리에서 새 그룹을 생성하면 V4 설정이 자동 생성됩니다."
+            )
+            return
+
+        from gui.global_settings_dialog import GlobalSettingsDialog
+
+        dialog = GlobalSettingsDialog(self.v4_config_manager, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            logger.info("✅ 전역 설정 저장 완료")
+            # 설정 변경 후 필요한 동작 (예: DailyLossTracker 재시작 등)
+            # TODO: V4TradingEngine 연동 시 처리
 
     # ========================================
     # 종료 처리
