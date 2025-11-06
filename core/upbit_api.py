@@ -42,8 +42,8 @@ class RateLimiter:
         self.cfg = {
             "market": (10, 1),
             "ticker": (10, 1),
-            "trades": (10, 1),
-            "candles": (10, 1),
+            "trade": (10, 1),           # 수정: "trades" → "trade" (Upbit 공식 응답 헤더 일치)
+            "candle": (10, 1),          # 수정: "candles" → "candle" (Upbit 공식 응답 헤더 일치)
             "orderbook": (10, 1),
             "default": (30, 1),
             "order": (8, 1),
@@ -201,9 +201,9 @@ class UpbitAPI:
         if endpoint.startswith("/ticker"):
             return "ticker"
         if endpoint.startswith("/trades"):
-            return "trades"
+            return "trade"      # 수정: "trades" → "trade" (Upbit 공식 응답 헤더 일치)
         if endpoint.startswith("/candles"):
-            return "candles"
+            return "candle"     # 수정: "candles" → "candle" (Upbit 공식 응답 헤더 일치)
         if endpoint.startswith("/orderbook"):
             return "orderbook"
         if endpoint.startswith("/orders/open") and method.upper() == "DELETE":

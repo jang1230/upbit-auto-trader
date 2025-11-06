@@ -35,11 +35,61 @@ import jwt as pyjwt
 from typing import List, Dict, Optional, Callable, AsyncIterator
 from queue import Queue
 from datetime import datetime
+from collections import deque
 
 # websocket-client 라이브러리 (공식 Upbit 예제 호환)
 import websocket
 
 logger = logging.getLogger(__name__)
+
+
+class WebSocketRateLimiter:
+    """
+    WebSocket 메시지 전송 Rate Limiter
+
+    Upbit WebSocket Rate Limit:
+    - 초당 최대 5회
+    - 분당 최대 100회
+
+    초과 시 자동으로 대기 후 전송
+    """
+
+    def __init__(self):
+        """Rate Limiter 초기화"""
+        self.second_window = deque(maxlen=5)    # 최근 5회 timestamp
+        self.minute_window = deque(maxlen=100)  # 최근 100회 timestamp
+
+    async def acquire(self):
+        """
+        메시지 전송 전 Rate Limit 체크
+
+        초당 5회 또는 분당 100회 제한을 초과하면 자동으로 대기
+        """
+        now = time.time()
+
+        # 🔍 초당 5회 제한 체크
+        if len(self.second_window) >= 5:
+            oldest = self.second_window[0]
+            elapsed = now - oldest
+            if elapsed < 1.0:
+                wait_time = 1.0 - elapsed + 0.01
+                logger.debug(f"⏳ WebSocket rate limit (초당 5회): {wait_time:.3f}초 대기")
+                await asyncio.sleep(wait_time)
+                now = time.time()
+
+        # 🔍 분당 100회 제한 체크
+        if len(self.minute_window) >= 100:
+            oldest = self.minute_window[0]
+            elapsed = now - oldest
+            if elapsed < 60.0:
+                wait_time = 60.0 - elapsed + 0.01
+                logger.warning(f"⏳ WebSocket rate limit (분당 100회): {wait_time:.3f}초 대기")
+                await asyncio.sleep(wait_time)
+                now = time.time()
+
+        # 타임스탬프 기록
+        self.second_window.append(now)
+        self.minute_window.append(now)
 
 
 class UpbitWebSocket:
@@ -68,6 +118,9 @@ class UpbitWebSocket:
 
         # 종료 이벤트
         self.stop_event = threading.Event()
+
+        # Rate Limiter (초당 5회, 분당 100회)
+        self.rate_limiter = WebSocketRateLimiter()
 
     def _on_message(self, ws, message):
         """
@@ -274,6 +327,9 @@ class UpbitWebSocket:
             raise ConnectionError("웹소켓이 연결되지 않았습니다.")
 
         try:
+            # Rate Limit 체크 (초당 5회, 분당 100회)
+            await self.rate_limiter.acquire()
+
             # WebSocket send는 thread-safe
             self.ws_app.send(json.dumps(subscribe_fmt))
             self.subscriptions.append(subscribe_fmt)
@@ -518,6 +574,9 @@ class MyAssetWebSocket:
         # 종료 이벤트
         self.stop_event = threading.Event()
 
+        # Rate Limiter (초당 5회, 분당 100회)
+        self.rate_limiter = WebSocketRateLimiter()
+
     def _generate_jwt_token(self) -> str:
         """
         JWT 토큰 생성 (WebSocket 인증용)
@@ -708,6 +767,9 @@ class MyAssetWebSocket:
         ]
 
         try:
+            # Rate Limit 체크 (초당 5회, 분당 100회)
+            await self.rate_limiter.acquire()
+
             # WebSocket send는 thread-safe
             self.ws_app.send(json.dumps(subscribe_fmt))
             logger.info("💰 MyAsset 구독 완료 - 자산 변동 실시간 감지 시작")
