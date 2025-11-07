@@ -201,7 +201,7 @@ class GroupManagementDialog(QDialog):
         # 익절 레벨 테이블
         self.profit_table = QTableWidget()
         self.profit_table.setColumnCount(2)
-        self.profit_table.setHorizontalHeaderLabels(["가격 비율", "판매 수량 비율"])
+        self.profit_table.setHorizontalHeaderLabels(["익절 비율", "판매 수량 (%)"])
         self.profit_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.profit_table.setMinimumHeight(150)
         profit_layout.addWidget(self.profit_table)
@@ -230,7 +230,7 @@ class GroupManagementDialog(QDialog):
         # 손절 레벨 테이블
         self.loss_table = QTableWidget()
         self.loss_table.setColumnCount(2)
-        self.loss_table.setHorizontalHeaderLabels(["가격 비율", "판매 수량 비율"])
+        self.loss_table.setHorizontalHeaderLabels(["손절 퍼센트 (%)", "판매 수량 (%)"])
         self.loss_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.loss_table.setMinimumHeight(150)
         loss_layout.addWidget(self.loss_table)
@@ -395,10 +395,10 @@ class GroupManagementDialog(QDialog):
         if not ok1:
             return
 
-        # 판매 수량 비율 입력 (0.5 = 50% 판매)
-        quantity_ratio, ok2 = QInputDialog.getDouble(
-            self, "익절 레벨 추가", "판매 수량 비율 (예: 0.5 = 50% 판매):",
-            0.5, 0.1, 1.0, 2
+        # 판매 수량 비율 입력 (50 = 50% 판매)
+        quantity_ratio, ok2 = QInputDialog.getInt(
+            self, "익절 레벨 추가", "판매 수량 비율 (예: 50 = 50% 판매):",
+            50, 1, 100, 1
         )
         if not ok2:
             return
@@ -428,7 +428,7 @@ class GroupManagementDialog(QDialog):
 
         # 현재 값 가져오기
         current_price_ratio = float(self.profit_table.item(current_row, 0).text())
-        current_quantity_ratio = float(self.profit_table.item(current_row, 1).text())
+        current_quantity_ratio = int(float(self.profit_table.item(current_row, 1).text()))
 
         # 가격 비율 입력
         price_ratio, ok1 = QInputDialog.getDouble(
@@ -439,9 +439,9 @@ class GroupManagementDialog(QDialog):
             return
 
         # 판매 수량 비율 입력
-        quantity_ratio, ok2 = QInputDialog.getDouble(
-            self, "익절 레벨 수정", "판매 수량 비율 (예: 0.5 = 50% 판매):",
-            current_quantity_ratio, 0.1, 1.0, 2
+        quantity_ratio, ok2 = QInputDialog.getInt(
+            self, "익절 레벨 수정", "판매 수량 비율 (예: 50 = 50% 판매):",
+            current_quantity_ratio, 1, 100, 1
         )
         if not ok2:
             return
@@ -454,26 +454,26 @@ class GroupManagementDialog(QDialog):
         """손절 레벨 추가"""
         from PySide6.QtWidgets import QInputDialog
 
-        # 가격 비율 입력 (0.95 = -5% 손절)
-        price_ratio, ok1 = QInputDialog.getDouble(
-            self, "손절 레벨 추가", "가격 비율 (예: 0.95 = -5% 손절):",
-            0.95, 0.5, 1.0, 2
+        # 손절 퍼센트 입력 (5 = -5% 손절)
+        loss_percent, ok1 = QInputDialog.getInt(
+            self, "손절 레벨 추가", "손절 퍼센트 (예: 5 = -5% 손절):",
+            5, 1, 50, 1
         )
         if not ok1:
             return
 
-        # 판매 수량 비율 입력 (1.0 = 100% 판매)
-        quantity_ratio, ok2 = QInputDialog.getDouble(
-            self, "손절 레벨 추가", "판매 수량 비율 (예: 1.0 = 100% 판매):",
-            1.0, 0.1, 1.0, 2
+        # 판매 수량 비율 입력 (100 = 100% 판매)
+        quantity_ratio, ok2 = QInputDialog.getInt(
+            self, "손절 레벨 추가", "판매 수량 비율 (예: 100 = 100% 판매):",
+            100, 1, 100, 1
         )
         if not ok2:
             return
 
-        # 테이블에 추가
+        # 테이블에 추가 (양수로 표시하지만, 저장 시 음수로 변환)
         row_count = self.loss_table.rowCount()
         self.loss_table.insertRow(row_count)
-        self.loss_table.setItem(row_count, 0, QTableWidgetItem(str(price_ratio)))
+        self.loss_table.setItem(row_count, 0, QTableWidgetItem(str(loss_percent)))
         self.loss_table.setItem(row_count, 1, QTableWidgetItem(str(quantity_ratio)))
 
     def _remove_loss_level(self):
@@ -493,28 +493,28 @@ class GroupManagementDialog(QDialog):
             QMessageBox.warning(self, "경고", "수정할 레벨을 선택하세요.")
             return
 
-        # 현재 값 가져오기
-        current_price_ratio = float(self.loss_table.item(current_row, 0).text())
-        current_quantity_ratio = float(self.loss_table.item(current_row, 1).text())
+        # 현재 값 가져오기 (테이블에는 양수로 저장됨)
+        current_loss_percent = int(float(self.loss_table.item(current_row, 0).text()))
+        current_quantity_ratio = int(float(self.loss_table.item(current_row, 1).text()))
 
-        # 가격 비율 입력
-        price_ratio, ok1 = QInputDialog.getDouble(
-            self, "손절 레벨 수정", "가격 비율 (예: 0.95 = -5% 손절):",
-            current_price_ratio, 0.5, 1.0, 2
+        # 손절 퍼센트 입력
+        loss_percent, ok1 = QInputDialog.getInt(
+            self, "손절 레벨 수정", "손절 퍼센트 (예: 5 = -5% 손절):",
+            current_loss_percent, 1, 50, 1
         )
         if not ok1:
             return
 
         # 판매 수량 비율 입력
-        quantity_ratio, ok2 = QInputDialog.getDouble(
-            self, "손절 레벨 수정", "판매 수량 비율 (예: 1.0 = 100% 판매):",
-            current_quantity_ratio, 0.1, 1.0, 2
+        quantity_ratio, ok2 = QInputDialog.getInt(
+            self, "손절 레벨 수정", "판매 수량 비율 (예: 100 = 100% 판매):",
+            current_quantity_ratio, 1, 100, 1
         )
         if not ok2:
             return
 
         # 테이블 업데이트
-        self.loss_table.setItem(current_row, 0, QTableWidgetItem(str(price_ratio)))
+        self.loss_table.setItem(current_row, 0, QTableWidgetItem(str(loss_percent)))
         self.loss_table.setItem(current_row, 1, QTableWidgetItem(str(quantity_ratio)))
 
     def _on_group_selected(self, current, previous):
@@ -583,7 +583,9 @@ class GroupManagementDialog(QDialog):
                 row_count = self.profit_table.rowCount()
                 self.profit_table.insertRow(row_count)
                 self.profit_table.setItem(row_count, 0, QTableWidgetItem(str(level.get("price_ratio", 1.05))))
-                self.profit_table.setItem(row_count, 1, QTableWidgetItem(str(level.get("quantity_ratio", 0.5))))
+                # quantity_ratio를 정수로 표시
+                quantity_ratio = int(level.get("quantity_ratio", 50))
+                self.profit_table.setItem(row_count, 1, QTableWidgetItem(str(quantity_ratio)))
 
             # 손절 설정
             loss_settings = group_data.get("loss_settings", {})
@@ -592,8 +594,13 @@ class GroupManagementDialog(QDialog):
             for level in loss_targets:
                 row_count = self.loss_table.rowCount()
                 self.loss_table.insertRow(row_count)
-                self.loss_table.setItem(row_count, 0, QTableWidgetItem(str(level.get("price_ratio", 0.95))))
-                self.loss_table.setItem(row_count, 1, QTableWidgetItem(str(level.get("quantity_ratio", 1.0))))
+                # config의 음수 값(-5.0)을 양수(5)로 변환하여 표시
+                price_ratio = level.get("price_ratio", -5.0)
+                loss_percent = abs(price_ratio)  # 음수를 양수로 변환
+                self.loss_table.setItem(row_count, 0, QTableWidgetItem(str(int(loss_percent))))
+                # quantity_ratio를 정수로 표시
+                quantity_ratio = int(level.get("quantity_ratio", 100))
+                self.loss_table.setItem(row_count, 1, QTableWidgetItem(str(quantity_ratio)))
 
             # 코인 체크박스 업데이트
             self._update_coin_checkboxes(group_data.get("coins", []))
@@ -700,6 +707,9 @@ class GroupManagementDialog(QDialog):
             if "buy_settings" not in group_data:
                 group_data["buy_settings"] = {}
 
+            # 매수 모드 (스키마 필수 필드)
+            group_data["buy_settings"]["mode"] = "auto" if self.auto_buy_radio.isChecked() else "manual"
+
             # 투자 성향
             style_map = {0: "conservative", 1: "balanced", 2: "aggressive"}
             group_data["buy_settings"]["investment_style"] = style_map[self.investment_style_combo.currentIndex()]
@@ -716,6 +726,8 @@ class GroupManagementDialog(QDialog):
             if "dca_settings" not in group_data:
                 group_data["dca_settings"] = {}
 
+            # DCA 모드 (스키마 필수 필드)
+            group_data["dca_settings"]["mode"] = "auto" if self.dca_enabled_checkbox.isChecked() else "disabled"
             group_data["dca_settings"]["enabled"] = self.dca_enabled_checkbox.isChecked()
 
             # DCA 레벨 수집
@@ -724,9 +736,12 @@ class GroupManagementDialog(QDialog):
                 price_drop_item = self.dca_table.item(row, 0)
                 buy_amount_item = self.dca_table.item(row, 1)
                 if price_drop_item and buy_amount_item:
+                    # 스키마에 맞게 price_ratio, quantity_ratio 사용
+                    # quantity_ratio는 초기 매수 대비 비율 (100 = 100%, 즉 같은 금액)
+                    # TODO: 나중에 GUI를 quantity_ratio 입력으로 개선 필요
                     dca_levels.append({
-                        "price_drop_pct": float(price_drop_item.text()),
-                        "buy_amount_krw": int(buy_amount_item.text())
+                        "price_ratio": float(price_drop_item.text()),
+                        "quantity_ratio": 100  # 임시로 100% 고정
                     })
             group_data["dca_settings"]["levels"] = dca_levels
 
@@ -742,9 +757,12 @@ class GroupManagementDialog(QDialog):
                 if price_ratio_item and quantity_ratio_item:
                     profit_levels.append({
                         "price_ratio": float(price_ratio_item.text()),
-                        "quantity_ratio": float(quantity_ratio_item.text())
+                        "quantity_ratio": int(quantity_ratio_item.text())
                     })
             group_data["profit_settings"]["levels"] = profit_levels
+
+            # 익절 모드 (스키마 필수 필드)
+            group_data["profit_settings"]["mode"] = "auto" if profit_levels else "disabled"
 
             # 손절 설정
             if "loss_settings" not in group_data:
@@ -756,11 +774,16 @@ class GroupManagementDialog(QDialog):
                 price_ratio_item = self.loss_table.item(row, 0)
                 quantity_ratio_item = self.loss_table.item(row, 1)
                 if price_ratio_item and quantity_ratio_item:
+                    # 테이블에는 양수(5)로 저장되어 있지만, config에는 음수(-5.0)로 저장
+                    loss_percent = float(price_ratio_item.text())
                     loss_levels.append({
-                        "price_ratio": float(price_ratio_item.text()),
-                        "quantity_ratio": float(quantity_ratio_item.text())
+                        "price_ratio": -loss_percent,  # 음수로 변환!
+                        "quantity_ratio": int(quantity_ratio_item.text())
                     })
             group_data["loss_settings"]["levels"] = loss_levels
+
+            # 손절 모드 (스키마 필수 필드)
+            group_data["loss_settings"]["mode"] = "auto" if loss_levels else "disabled"
 
             # 저장
             self.group_manager.update_group_settings(self.current_group_id, group_data)
