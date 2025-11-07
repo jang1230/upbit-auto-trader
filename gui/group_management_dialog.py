@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QListWidget, QCheckBox,
     QScrollArea, QWidget, QRadioButton, QButtonGroup,
     QMessageBox, QSplitter, QGroupBox, QFormLayout,
-    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QTabWidget
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -74,14 +75,12 @@ class GroupManagementDialog(QDialog):
 
         left_widget.setLayout(left_layout)
 
-        # === 우측: 그룹 상세 ===
-        right_widget = QWidget()
-        right_layout = QVBoxLayout()
+        # === 우측: 탭 위젯 ===
+        tab_widget = QTabWidget()
 
-        # 그룹 상세 타이틀
-        detail_label = QLabel("그룹 상세")
-        detail_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        right_layout.addWidget(detail_label)
+        # ============ 탭 1: 기본 설정 ============
+        tab1 = QWidget()
+        tab1_layout = QVBoxLayout()
 
         # 그룹명
         group_name_layout = QHBoxLayout()
@@ -89,29 +88,29 @@ class GroupManagementDialog(QDialog):
         self.group_name_input = QLineEdit()
         self.group_name_input.setPlaceholderText("그룹 이름 입력")
         group_name_layout.addWidget(self.group_name_input)
-        right_layout.addLayout(group_name_layout)
+        tab1_layout.addLayout(group_name_layout)
 
         # 관찰 전용 모드
         self.observation_checkbox = QCheckBox("관찰 전용 모드")
         self.observation_checkbox.setStyleSheet("color: #FF9800;")
-        right_layout.addWidget(self.observation_checkbox)
+        tab1_layout.addWidget(self.observation_checkbox)
 
         # 포함 코인
         coins_label = QLabel("포함 코인:")
         coins_label.setFont(QFont("맑은 고딕", 9, QFont.Bold))
-        right_layout.addWidget(coins_label)
+        tab1_layout.addWidget(coins_label)
 
         # 코인 체크박스 스크롤 영역
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(200)
+        scroll_area.setMinimumHeight(250)
 
         self.coins_widget = QWidget()
         self.coins_layout = QVBoxLayout()
         self.coins_widget.setLayout(self.coins_layout)
         scroll_area.setWidget(self.coins_widget)
 
-        right_layout.addWidget(scroll_area)
+        tab1_layout.addWidget(scroll_area)
 
         # 매수 설정
         buy_group = QGroupBox("매수 설정")
@@ -145,10 +144,17 @@ class GroupManagementDialog(QDialog):
         buy_form_layout.addRow("매수 금액 (KRW):", self.buy_amount_input)
 
         buy_group.setLayout(buy_form_layout)
-        right_layout.addWidget(buy_group)
+        tab1_layout.addWidget(buy_group)
+
+        tab1_layout.addStretch()
+        tab1.setLayout(tab1_layout)
 
         # 자동/수동 전환 시 투자 성향 활성화/비활성화
         self.auto_buy_radio.toggled.connect(self._on_buy_mode_changed)
+
+        # ============ 탭 2: 레벨 설정 ============
+        tab2 = QWidget()
+        tab2_layout = QVBoxLayout()
 
         # DCA 레벨 설정
         dca_group = QGroupBox("DCA 레벨 설정")
@@ -164,7 +170,7 @@ class GroupManagementDialog(QDialog):
         self.dca_table.setColumnCount(2)
         self.dca_table.setHorizontalHeaderLabels(["가격 하락 (%)", "매수 금액 (KRW)"])
         self.dca_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.dca_table.setMaximumHeight(150)
+        self.dca_table.setMinimumHeight(150)
         self.dca_table.setEnabled(False)  # 기본적으로 비활성화
         dca_layout.addWidget(self.dca_table)
 
@@ -186,7 +192,7 @@ class GroupManagementDialog(QDialog):
         dca_layout.addLayout(dca_button_layout)
 
         dca_group.setLayout(dca_layout)
-        right_layout.addWidget(dca_group)
+        tab2_layout.addWidget(dca_group)
 
         # 익절 레벨 설정
         profit_group = QGroupBox("익절 레벨 설정")
@@ -197,7 +203,7 @@ class GroupManagementDialog(QDialog):
         self.profit_table.setColumnCount(2)
         self.profit_table.setHorizontalHeaderLabels(["가격 비율", "판매 수량 비율"])
         self.profit_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.profit_table.setMaximumHeight(150)
+        self.profit_table.setMinimumHeight(150)
         profit_layout.addWidget(self.profit_table)
 
         # 익절 레벨 버튼들
@@ -215,7 +221,7 @@ class GroupManagementDialog(QDialog):
         profit_layout.addLayout(profit_button_layout)
 
         profit_group.setLayout(profit_layout)
-        right_layout.addWidget(profit_group)
+        tab2_layout.addWidget(profit_group)
 
         # 손절 레벨 설정
         loss_group = QGroupBox("손절 레벨 설정")
@@ -226,7 +232,7 @@ class GroupManagementDialog(QDialog):
         self.loss_table.setColumnCount(2)
         self.loss_table.setHorizontalHeaderLabels(["가격 비율", "판매 수량 비율"])
         self.loss_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.loss_table.setMaximumHeight(150)
+        self.loss_table.setMinimumHeight(150)
         loss_layout.addWidget(self.loss_table)
 
         # 손절 레벨 버튼들
@@ -244,21 +250,18 @@ class GroupManagementDialog(QDialog):
         loss_layout.addLayout(loss_button_layout)
 
         loss_group.setLayout(loss_layout)
-        right_layout.addWidget(loss_group)
+        tab2_layout.addWidget(loss_group)
 
-        right_layout.addStretch()
-        right_widget.setLayout(right_layout)
+        tab2_layout.addStretch()
+        tab2.setLayout(tab2_layout)
 
-        # 우측 영역을 스크롤 가능하게 만들기
-        right_scroll = QScrollArea()
-        right_scroll.setWidget(right_widget)
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # 탭 추가
+        tab_widget.addTab(tab1, "기본 설정")
+        tab_widget.addTab(tab2, "레벨 설정")
 
         # 스플리터에 추가
         splitter.addWidget(left_widget)
-        splitter.addWidget(right_scroll)
+        splitter.addWidget(tab_widget)
         splitter.setSizes([200, 1000])
 
         main_layout.addWidget(splitter)
