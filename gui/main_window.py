@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView,  # 포지션 테이블용
     QScrollArea, QSizePolicy, QSplitter, QTabWidget,  # Step 2: 사이드바 레이아웃 + 탭
-    QRadioButton, QButtonGroup  # 트레이딩 모드 선택용
+    QRadioButton, QButtonGroup,  # 트레이딩 모드 선택용
+    QDialog  # 다이얼로그 결과 체크용
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QAction, QFont
@@ -32,6 +33,7 @@ from gui.settings_dialog import SettingsDialog
 from gui.dca_simulator import DcaSimulatorDialog
 from gui.advanced_dca_dialog import AdvancedDcaDialog
 from gui.coin_selection_dialog import CoinSelectionDialog  # 🔧 코인 선택 다이얼로그
+from gui.global_settings_dialog import GlobalSettingsDialog  # V4: 전역 설정 다이얼로그
 from core.utils import format_price  # 🔧 가격 포맷팅 유틸리티
 
 # V4 Backend Components
@@ -884,24 +886,28 @@ class MainWindow(QMainWindow):
 
     def _open_global_settings(self):
         """V4 전역 설정 다이얼로그 열기"""
-        # TODO: Phase 3-5에서 GlobalSettingsDialog 구현 예정
-
         try:
-            self._add_log("⚙️ 전역 설정 다이얼로그 (구현 예정)")
+            self._add_log("⚙️ 전역 설정 다이얼로그 열기")
 
-            QMessageBox.information(
-                self,
-                "전역 설정",
-                "전역 설정 다이얼로그는 Phase 3-5에서 구현 예정입니다.\n\n"
-                "현재 설정:\n"
-                f"- Dry Run: {self.config.get('dry_run', True)}\n"
-                f"- 가상 초기 잔고: {self.global_settings.get('virtual_initial_balance', 1000000):,}원\n"
-                f"- 일일 손실 제한: {self.global_settings.get('daily_loss', {}).get('enabled', False)}"
-            )
+            dialog = GlobalSettingsDialog(self)
+            result = dialog.exec()
+
+            if result == QDialog.Accepted:
+                # 설정이 저장되었으므로 재로드
+                self._add_log("✅ 전역 설정 저장됨 - 설정 재로드")
+                self.config = self.config_manager.load_config()
+                self.global_settings = self.config.get("global_settings", {})
+
+                # Dry Run 배너 업데이트
+                self._update_dry_run_banner()
+
+                # 상태 업데이트
+                self._update_status()
 
         except Exception as e:
             self._add_log(f"❌ 전역 설정 오류: {e}")
             logger.error(f"전역 설정 오류: {e}", exc_info=True)
+            QMessageBox.critical(self, "오류", f"전역 설정을 열 수 없습니다:\n{str(e)}")
 
     def _update_auto_config_display(self):
         """완전 자동 설정 표시 업데이트"""
