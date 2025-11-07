@@ -1872,17 +1872,41 @@ class MainWindow(QMainWindow):
                     self._step3_prepare_myasset()
                     return
                 else:
-                    # Live 모드: 실제 계좌 조회
-                    logger.info("🔴 [Step 2] Live 모드: 실제 계좌 조회")
-                    self._add_log("🔴 Live 모드: 실제 계좌 조회")
+                    # Live 모드: Upbit 동기화 + 포지션 로드
+                    logger.info("🔴 [Step 2] Live 모드: Upbit 동기화 시작")
+                    self._add_log("🔴 Live 모드: Upbit 계좌 동기화 중...")
+
+                    try:
+                        # sync_with_upbit() 호출
+                        if self.v4_position_manager and self.upbit_api:
+                            sync_result = self.v4_position_manager.sync_with_upbit(config)
+                            logger.info(f"✅ [Step 2] Upbit 동기화 완료: {sync_result}")
+                            self._add_log(f"✅ 동기화 완료: {len(sync_result['synced_positions'])}개 업데이트, "
+                                        f"{len(sync_result['new_positions'])}개 신규, "
+                                        f"{len(sync_result['removed_positions'])}개 삭제")
+
+                            # 포지션 테이블 로드
+                            self._load_v4_positions()
+                        else:
+                            logger.warning("⚠️ [Step 2] PositionManager 또는 UpbitAPI가 없음")
+                            self._add_log("⚠️ 포지션 관리자 초기화 필요")
+
+                    except Exception as e:
+                        logger.error(f"❌ [Step 2] Upbit 동기화 실패: {e}")
+                        self._add_log(f"⚠️ Upbit 동기화 실패: {e}")
+
+                    # 단계 3으로 진행
+                    self._step3_prepare_myasset()
+                    return
+
             except Exception as e:
                 logger.error(f"❌ [Step 2] V4 설정 로드 실패: {e}")
                 # V4 설정 실패 시 Live 모드로 fallback
 
         # ========================================
-        # Live 모드: 실제 Upbit API 호출
+        # V4 미지원 시 Fallback: 기존 방식
         # ========================================
-        # 🔧 Step 3와 동일한 방식으로 API 키 가져오기
+        logger.info("🔄 [Step 2] V4 미지원 - 기존 방식으로 포지션 조회")
         access_key = self.config_manager.get_upbit_access_key()
         secret_key = self.config_manager.get_upbit_secret_key()
 
@@ -1894,35 +1918,26 @@ class MainWindow(QMainWindow):
 
         try:
             from core.upbit_api import UpbitAPI
-            from datetime import datetime
 
             logger.info("🔍 [Step 2] UpbitAPI 초기화 및 계좌 조회 중...")
             api = UpbitAPI(access_key, secret_key)
             accounts = api.get_accounts()
             logger.info(f"✅ [Step 2] 계좌 조회 완료: {len(accounts)}개 자산")
 
-            # 🔧 코인 포지션 수집 및 GUI 업데이트
+            # 포지션 수집
             positions_found = []
             for account in accounts:
                 currency = account['currency']
                 if currency != 'KRW':
                     balance = float(account['balance'])
-                    avg_buy_price = float(account['avg_buy_price'])
-
                     if balance > 0:
                         symbol = f'KRW-{currency}'
-                        logger.info(f"💰 [Step 2] 포지션 발견: {symbol}, 수량={balance}, 평단가={avg_buy_price}")
-
-                        # 🔧 V4: GUI 업데이트는 V4 방식으로 재구현 필요
-                        # V3 _on_coin_update 제거됨 (V4 테이블 구조와 충돌)
-                        logger.info(f"🔧 [Step 2] 포지션 발견: {symbol} (V4 테이블 업데이트 대기)")
+                        logger.info(f"💰 [Step 2] 포지션 발견: {symbol}, 수량={balance}")
                         positions_found.append(currency)
 
             if positions_found:
                 logger.info(f"✅ [Step 2] 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
-                logger.info(f"✅ [Step 2] 활성 포지션 테이블에 표시 완료")
-                self._add_log(f"✅ 보유 종목 {len(positions_found)}개 발견: {', '.join(positions_found)}")
-                self._add_log(f"   → 활성 포지션 테이블에 표시 완료")
+                self._add_log(f"✅ 보유 종목 {len(positions_found)}개 발견")
             else:
                 logger.info("📭 [Step 2] 보유 종목 없음")
                 self._add_log("📭 보유 종목 없음")
@@ -2205,13 +2220,19 @@ class MainWindow(QMainWindow):
             current_price: 현재가
         """
         try:
+            if not self.v4_position_manager:
+                return
+
+            # PositionManager에서 가격 업데이트 (수익률 재계산)
+            self.v4_position_manager.update_price(symbol, current_price)
+
             # 테이블에서 해당 심볼 찾기
             for row in range(self.position_table.rowCount()):
                 symbol_item = self.position_table.item(row, 1)
                 if not symbol_item or symbol_item.text() != symbol:
                     continue
 
-                # PositionManager에서 업데이트된 포지션 정보 가져오기
+                # 업데이트된 포지션 정보 가져오기
                 position = self.v4_position_manager.positions.get(symbol)
                 if not position:
                     continue
