@@ -7,6 +7,7 @@ import sys
 import os
 import time
 import logging
+import threading  # Phase 3-6: WebSocket 구독 동기화용
 
 # 🔧 로거 초기화
 logger = logging.getLogger(__name__)
@@ -169,6 +170,158 @@ class MyAssetPreparationWorker(QThread):
             self.status_update.emit("⚠️ 실시간 감지 사용 불가 (Fallback 모드)")
 
 
+class TickerWebSocketWorker(QThread):
+    """
+    Ticker WebSocket 워커 (실시간 현재가 업데이트)
+
+    포지션 테이블의 현재가를 실시간으로 업데이트하기 위한 WebSocket 워커
+    """
+
+    # 시그널 정의
+    ticker_update = Signal(dict)  # Ticker 업데이트: {"symbol": str, "price": float}
+    connection_status = Signal(bool)  # 연결 상태: True(연결됨), False(끊김)
+    error_signal = Signal(str)  # 에러 메시지
+
+    def __init__(self):
+        super().__init__()
+        self.ws = None
+        self.subscribed_symbols = []
+        self.is_running = False
+        self.loop = None  # asyncio 이벤트 루프 저장
+        self.subscription_lock = threading.Lock()  # 구독 업데이트 동기화
+        self.pending_subscription = None  # 대기 중인 구독 업데이트
+
+    def run(self):
+        """WebSocket 이벤트 루프 실행"""
+        import asyncio
+        from core.upbit_websocket import UpbitWebSocket
+
+        try:
+            # asyncio 이벤트 루프 생성
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+
+            # WebSocket 인스턴스 생성
+            self.ws = UpbitWebSocket()
+
+            # 연결
+            connected = self.loop.run_until_complete(self.ws.connect())
+            if not connected:
+                self.error_signal.emit("WebSocket 연결 실패")
+                self.connection_status.emit(False)
+                return
+
+            self.connection_status.emit(True)
+            self.is_running = True
+
+            # 초기 구독 (빈 리스트로 시작)
+            if self.subscribed_symbols:
+                self.loop.run_until_complete(self.ws.subscribe_ticker(self.subscribed_symbols))
+
+            # 메시지 수신 루프
+            self.loop.run_until_complete(self._listen_loop())
+
+        except Exception as e:
+            logger.error(f"TickerWebSocketWorker 오류: {e}", exc_info=True)
+            self.error_signal.emit(f"WebSocket 오류: {str(e)}")
+            self.connection_status.emit(False)
+        finally:
+            self.is_running = False
+            self.loop = None
+            if self.ws:
+                try:
+                    asyncio.get_event_loop().run_until_complete(self.ws.disconnect())
+                except:
+                    pass
+
+    async def _listen_loop(self):
+        """Ticker 메시지 수신 루프 (구독 업데이트 지원)"""
+        import asyncio
+
+        try:
+            # 메시지 수신과 구독 업데이트를 동시에 처리
+            listen_task = None
+
+            while self.is_running:
+                # 대기 중인 구독 업데이트 체크
+                with self.subscription_lock:
+                    if self.pending_subscription is not None:
+                        symbols = self.pending_subscription
+                        self.pending_subscription = None
+
+                        logger.info(f"🔍 [DEBUG] _listen_loop: pending_subscription 발견")
+                        logger.info(f"🔍 [DEBUG] _listen_loop: 구독할 심볼 = {symbols}")
+
+                        # 구독 업데이트
+                        try:
+                            logger.info(f"🔍 [DEBUG] _listen_loop: ws.subscribe_ticker() 호출 시작")
+                            await self.ws.subscribe_ticker(symbols)
+                            logger.info(f"📊 Ticker 구독 업데이트: {len(symbols)}개 심볼")
+                            logger.info(f"🔍 [DEBUG] _listen_loop: ws.subscribe_ticker() 성공")
+                        except Exception as e:
+                            logger.error(f"구독 업데이트 실패: {e}", exc_info=True)
+
+                # 메시지 수신 (0.5초 타임아웃으로 주기적으로 체크)
+                try:
+                    if listen_task is None:
+                        listen_task = asyncio.create_task(self.ws.listen().__anext__())
+
+                    done, pending = await asyncio.wait([listen_task], timeout=0.5)
+
+                    if done:
+                        data = listen_task.result()
+                        listen_task = None  # 다음 메시지를 위해 리셋
+
+                        # 🔍 디버그: 메시지 타입 확인
+                        msg_type = data.get('type')
+                        if msg_type == 'ticker':
+                            symbol = data.get('code')  # 예: "KRW-BTC"
+                            price = data.get('trade_price')
+
+                            logger.info(f"🔍 [DEBUG] Ticker 메시지 수신: {symbol} = {price}원")
+
+                            if symbol and price:
+                                # Qt 시그널 발생 (GUI 스레드로 전달)
+                                self.ticker_update.emit({
+                                    'symbol': symbol,
+                                    'price': price
+                                })
+                                logger.info(f"🔍 [DEBUG] ticker_update 시그널 발생 완료")
+                        else:
+                            logger.info(f"🔍 [DEBUG] 기타 메시지 수신: type={msg_type}")
+                except StopAsyncIteration:
+                    # WebSocket 연결 종료
+                    break
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Ticker 수신 오류: {e}", exc_info=True)
+                    await asyncio.sleep(1)  # 에러 후 1초 대기
+
+        except Exception as e:
+            logger.error(f"Listen loop 오류: {e}", exc_info=True)
+
+    def subscribe_symbols(self, symbols: list):
+        """
+        심볼 구독 (외부에서 호출, thread-safe)
+
+        Args:
+            symbols: 구독할 심볼 리스트 (예: ['KRW-BTC', 'KRW-ETH'])
+        """
+        logger.info(f"🔍 [DEBUG] TickerWebSocketWorker.subscribe_symbols() 호출됨")
+        logger.info(f"🔍 [DEBUG] 받은 심볼 리스트: {symbols}")
+        logger.info(f"🔍 [DEBUG] 심볼 개수: {len(symbols) if symbols else 0}")
+
+        with self.subscription_lock:
+            self.subscribed_symbols = symbols
+            self.pending_subscription = symbols.copy() if symbols else []
+            logger.info(f"🔍 [DEBUG] pending_subscription 설정 완료: {self.pending_subscription}")
+
+    def stop(self):
+        """WebSocket 중지"""
+        self.is_running = False
+
+
 class MainWindow(QMainWindow):
     """
     메인 윈도우
@@ -212,6 +365,10 @@ class MainWindow(QMainWindow):
 
         # Phase 3-6: 실시간 데이터 표시 타이머
         self.balance_refresh_timer = None  # 잔고 자동 갱신 타이머 (30초마다)
+
+        # Phase 3-6: WebSocket 실시간 현재가 업데이트
+        self.ticker_ws_worker = None  # Ticker WebSocket 워커
+        self.current_prices = {}  # 심볼별 현재가 캐시 (thread-safe)
 
         # 🔧 GUI 업데이트 throttling
         self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
@@ -1306,6 +1463,10 @@ class MainWindow(QMainWindow):
             self.trading_worker.position_update_signal.connect(self._on_position_update)
             self.trading_worker.trade_signal.connect(self._on_trade_executed)
 
+            # 🔍 디버그: 신호 연결 완료 확인
+            logger.info(f"🔍 [DEBUG] V4Worker 신호 연결 완료")
+            logger.info(f"🔍 [DEBUG] position_update_signal 연결됨: _on_position_update")
+
             # UI 상태 업데이트
             self.is_running = True
             self.start_btn.setEnabled(False)
@@ -1325,8 +1486,18 @@ class MainWindow(QMainWindow):
             self.balance_refresh_timer.timeout.connect(self._auto_refresh_balance)
             self.balance_refresh_timer.start(30000)  # 30초 = 30000ms
 
-            # TODO: 포지션 실시간 현재가 업데이트는 WebSocket으로 구현 예정
-            # 현재는 V4Worker에서 주기적으로 전송하는 position_update_signal 사용
+            # Phase 3-6: Ticker WebSocket 시작 (실시간 현재가 업데이트)
+            self._add_log("📡 실시간 현재가 WebSocket 시작")
+            self.ticker_ws_worker = TickerWebSocketWorker()
+            
+            # 시그널 연결
+            self.ticker_ws_worker.ticker_update.connect(self._on_ticker_update)
+            self.ticker_ws_worker.connection_status.connect(self._on_ticker_connection_status)
+            self.ticker_ws_worker.error_signal.connect(self._on_ticker_error)
+            
+            # 워커 시작
+            self.ticker_ws_worker.start()
+            self._add_log("✅ 실시간 현재가 WebSocket 시작됨")
 
     def _stop_trading(self):
         """트레이딩 중지 (비동기)"""
@@ -1489,6 +1660,14 @@ class MainWindow(QMainWindow):
             self.balance_refresh_timer.stop()
             self.balance_refresh_timer = None
             self._add_log("⏸️ 잔고 갱신 타이머 중지")
+
+        # Phase 3-6: Ticker WebSocket 중지
+        if self.ticker_ws_worker:
+            self._add_log("📡 실시간 현재가 WebSocket 중지 중...")
+            self.ticker_ws_worker.stop()
+            self.ticker_ws_worker.wait(2000)  # 최대 2초 대기
+            self.ticker_ws_worker = None
+            self._add_log("✅ 실시간 현재가 WebSocket 중지 완료")
 
         self.is_running = False
         self.start_btn.setEnabled(True)
@@ -2024,6 +2203,150 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_log(f"⚠️ 트레이딩 상태 업데이트 오류: {e}")
 
+    # ========================================
+    # Phase 3-6: WebSocket Ticker 시그널 핸들러
+    # ========================================
+
+    def _on_ticker_update(self, ticker_data: dict):
+        """
+        WebSocket Ticker 업데이트 처리 (실시간 현재가)
+
+        Args:
+            ticker_data: {"symbol": "KRW-BTC", "price": 95000000.0}
+        """
+        try:
+            logger.info(f"🔍 [DEBUG] _on_ticker_update 호출됨: {ticker_data}")
+
+            symbol = ticker_data.get('symbol')  # "KRW-BTC"
+            price = ticker_data.get('price')
+
+            if not symbol or not price:
+                logger.warning(f"⚠️ [DEBUG] 심볼 또는 가격 없음: symbol={symbol}, price={price}")
+                return
+
+            # 캐시 업데이트
+            self.current_prices[symbol] = price
+            logger.info(f"🔍 [DEBUG] 현재가 캐시 업데이트: {symbol} = {price}원")
+
+            # 심볼 단축 표기 (KRW-BTC → BTC)
+            symbol_short = symbol.replace("KRW-", "")
+            logger.info(f"🔍 [DEBUG] 심볼 단축: {symbol} → {symbol_short}")
+
+            # 포지션 테이블에서 해당 심볼 찾기
+            found = False
+            for row in range(self.position_table.rowCount()):
+                symbol_item = self.position_table.item(row, 1)  # 컬럼 1: 심볼
+                if not symbol_item or symbol_item.text() != symbol_short:
+                    continue
+
+                found = True
+                logger.info(f"🔍 [DEBUG] 포지션 테이블에서 {symbol_short} 찾음 (row={row})")
+
+                # 평균가 가져오기 (컬럼 6)
+                avg_price_item = self.position_table.item(row, 6)
+                if not avg_price_item:
+                    logger.warning(f"⚠️ [DEBUG] 평균가 항목 없음 (row={row})")
+                    continue
+
+                avg_price_text = avg_price_item.text().replace(",", "")
+                try:
+                    average_price = float(avg_price_text)
+                    logger.info(f"🔍 [DEBUG] 평균가: {average_price}원")
+                except ValueError:
+                    logger.warning(f"⚠️ [DEBUG] 평균가 변환 실패: {avg_price_text}")
+                    continue
+
+                # 수량 가져오기 (컬럼 8)
+                amount_item = self.position_table.item(row, 8)
+                if not amount_item:
+                    logger.warning(f"⚠️ [DEBUG] 수량 항목 없음 (row={row})")
+                    continue
+
+                try:
+                    total_amount = float(amount_item.text())
+                    logger.info(f"🔍 [DEBUG] 수량: {total_amount}")
+                except ValueError:
+                    logger.warning(f"⚠️ [DEBUG] 수량 변환 실패: {amount_item.text()}")
+                    continue
+
+                # 가격 포맷 함수
+                def format_price(p):
+                    if p >= 1000:
+                        return f"{p:,.0f}"
+                    elif p >= 1:
+                        return f"{p:,.2f}"
+                    else:
+                        return f"{p:.8f}"
+
+                # 컬럼 7: 현재가 업데이트
+                curr_price_item = QTableWidgetItem(format_price(price))
+                curr_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.position_table.setItem(row, 7, curr_price_item)
+
+                # 컬럼 9, 10: 평가손익과 수익률 재계산
+                profit_krw = (price - average_price) * total_amount
+                profit_pct = ((price / average_price) - 1) * 100 if average_price > 0 else 0
+
+                # 컬럼 9: 평가손익
+                profit_item = QTableWidgetItem(f"{profit_krw:+,.0f}원")
+                profit_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if profit_krw > 0:
+                    profit_item.setForeground(Qt.red)  # 빨강 (수익)
+                    profit_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+                elif profit_krw < 0:
+                    profit_item.setForeground(Qt.blue)  # 파랑 (손실)
+                    profit_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+                else:
+                    profit_item.setForeground(Qt.black)
+                self.position_table.setItem(row, 9, profit_item)
+
+                # 컬럼 10: 수익률
+                pct_item = QTableWidgetItem(f"{profit_pct:+.2f}%")
+                pct_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if profit_pct > 0:
+                    pct_item.setForeground(Qt.red)  # 빨강 (수익)
+                    pct_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+                elif profit_pct < 0:
+                    pct_item.setForeground(Qt.blue)  # 파랑 (손실)
+                    pct_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+                else:
+                    pct_item.setForeground(Qt.black)
+                self.position_table.setItem(row, 10, pct_item)
+
+                logger.info(f"✅ [DEBUG] 포지션 테이블 업데이트 완료: {symbol_short}")
+                break  # 심볼 찾았으므로 종료
+
+            if not found:
+                logger.warning(f"⚠️ [DEBUG] 포지션 테이블에서 {symbol_short} 찾지 못함")
+
+        except Exception as e:
+            logger.error(f"Ticker 업데이트 오류: {e}", exc_info=True)
+
+    def _on_ticker_connection_status(self, connected: bool):
+        """
+        WebSocket Ticker 연결 상태 업데이트
+
+        Args:
+            connected: True(연결됨), False(끊김)
+        """
+        if connected:
+            self._add_log("✅ WebSocket Ticker 연결됨")
+        else:
+            self._add_log("⚠️ WebSocket Ticker 연결 끊김")
+
+    def _on_ticker_error(self, error_msg: str):
+        """
+        WebSocket Ticker 에러 처리
+
+        Args:
+            error_msg: 에러 메시지
+        """
+        self._add_log(f"❌ WebSocket Ticker 오류: {error_msg}")
+
+    # ========================================
+    # V4 포지션 업데이트
+    # ========================================
+
     def _on_position_update(self, position_data: dict):
         """
         V4 포지션 업데이트 처리 (V4Worker)
@@ -2035,11 +2358,30 @@ class MainWindow(QMainWindow):
                 - timestamp: float - 업데이트 시각
         """
         try:
+            # 🔍 디버그: 포지션 업데이트 호출 확인
+            logger.info(f"🔍 [DEBUG] _on_position_update 호출됨")
+            logger.info(f"🔍 [DEBUG] position_data keys: {position_data.keys()}")
+
             positions = position_data.get('positions', {})
+
+            # 🔍 디버그: 포지션 데이터 확인
+            logger.info(f"🔍 [DEBUG] positions 타입: {type(positions)}")
+            logger.info(f"🔍 [DEBUG] positions 길이: {len(positions)}")
+            if positions:
+                logger.info(f"🔍 [DEBUG] positions keys (샘플 3개): {list(positions.keys())[:3]}")
 
             if not positions:
                 # 포지션이 없으면 테이블 클리어
+                logger.info(f"🔍 [DEBUG] 포지션 없음 → 테이블 클리어")
                 self.position_table.setRowCount(0)
+
+                # WebSocket 구독 해제
+                if self.ticker_ws_worker and self.ticker_ws_worker.isRunning():
+                    logger.info(f"🔍 [DEBUG] WebSocket 워커 실행 중 → 구독 해제")
+                    self.ticker_ws_worker.subscribe_symbols([])
+                else:
+                    logger.warning(f"⚠️ [DEBUG] WebSocket 워커 상태: worker={self.ticker_ws_worker is not None}, running={self.ticker_ws_worker.isRunning() if self.ticker_ws_worker else False}")
+
                 return
 
             # 기존 테이블의 심볼 목록 수집
@@ -2066,6 +2408,23 @@ class MainWindow(QMainWindow):
 
             # 포지션 요약 업데이트
             self._update_position_summary_v4(positions)
+
+            # Phase 3-6: WebSocket Ticker 심볼 구독 업데이트
+            # 🔍 디버그: current_symbols 확인
+            logger.info(f"🔍 [DEBUG] current_symbols: {current_symbols}")
+            logger.info(f"🔍 [DEBUG] ticker_ws_worker 존재: {self.ticker_ws_worker is not None}")
+            if self.ticker_ws_worker:
+                logger.info(f"🔍 [DEBUG] ticker_ws_worker.isRunning(): {self.ticker_ws_worker.isRunning()}")
+
+            if self.ticker_ws_worker and self.ticker_ws_worker.isRunning():
+                # 모든 포지션의 심볼 수집 (KRW-BTC 형식)
+                symbols_to_subscribe = list(current_symbols)
+                logger.info(f"🔍 [DEBUG] 구독할 심볼 리스트: {symbols_to_subscribe}")
+                logger.info(f"🔍 [DEBUG] subscribe_symbols() 호출 시작")
+                self.ticker_ws_worker.subscribe_symbols(symbols_to_subscribe)
+                logger.info(f"🔍 [DEBUG] subscribe_symbols() 호출 완료")
+            else:
+                logger.warning(f"⚠️ [DEBUG] WebSocket 워커 미실행 - 구독 건너뜀")
 
         except KeyboardInterrupt:
             pass

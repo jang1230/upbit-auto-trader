@@ -177,8 +177,18 @@ class V4Worker(QThread):
         """
         monitor_interval = 5  # 5초마다 체크
 
+        # 🔍 디버그: 모니터링 루프 시작 확인
+        logger.info(f"🔍 [DEBUG] V4Worker._monitor_engine 시작")
+        logger.info(f"🔍 [DEBUG] _running: {self._running}")
+        logger.info(f"🔍 [DEBUG] engine 존재: {self.engine is not None}")
+        if self.engine:
+            logger.info(f"🔍 [DEBUG] engine.is_running: {self.engine.is_running}")
+
         while self._running and self.engine and self.engine.is_running:
             try:
+                # 🔍 디버그: 루프 반복 확인
+                logger.info(f"🔍 [DEBUG] _monitor_engine 루프 실행 중...")
+
                 # 포지션 정보 수집 및 전송
                 self._emit_position_updates()
 
@@ -192,35 +202,66 @@ class V4Worker(QThread):
                 logger.error(f"모니터링 오류: {e}")
                 time.sleep(monitor_interval)
 
+        # 🔍 디버그: 모니터링 루프 종료
+        logger.info(f"🔍 [DEBUG] _monitor_engine 루프 종료")
+        logger.info(f"🔍 [DEBUG] 종료 이유 - _running: {self._running}, engine: {self.engine is not None}, is_running: {self.engine.is_running if self.engine else 'N/A'}")
+
     def _emit_position_updates(self):
         """포지션 업데이트 전송"""
+        # 🔍 디버그: 메서드 호출 확인
+        logger.info(f"🔍 [DEBUG] V4Worker._emit_position_updates 호출됨")
+        logger.info(f"🔍 [DEBUG] engine 존재: {self.engine is not None}")
+
         if not self.engine:
+            logger.info(f"🔍 [DEBUG] engine이 없어서 리턴")
             return
 
         try:
             # 모든 포지션 가져오기
+            logger.info(f"🔍 [DEBUG] position_manager.get_all_positions() 호출 전")
             positions = self.engine.position_manager.get_all_positions()
+            logger.info(f"🔍 [DEBUG] positions 타입: {type(positions)}")
+            logger.info(f"🔍 [DEBUG] positions 길이: {len(positions) if positions else 0}")
 
             if positions:
+                # 🔍 디버그: 포지션 샘플 출력
+                sample_keys = list(positions.keys())[:3] if isinstance(positions, dict) else []
+                logger.info(f"🔍 [DEBUG] positions 샘플 키 (최대 3개): {sample_keys}")
+
                 position_data = {
                     'positions': positions,
                     'total_count': len(positions),
                     'timestamp': time.time()
                 }
 
+                logger.info(f"🔍 [DEBUG] position_update_signal.emit() 호출 직전")
+                logger.info(f"🔍 [DEBUG] position_data keys: {position_data.keys()}")
+                logger.info(f"🔍 [DEBUG] total_count: {position_data['total_count']}")
+
                 self.position_update_signal.emit(position_data)
 
+                logger.info(f"🔍 [DEBUG] position_update_signal.emit() 완료")
+            else:
+                logger.info(f"🔍 [DEBUG] positions가 비어있어서 emit 안함")
+
         except Exception as e:
-            logger.error(f"포지션 업데이트 오류: {e}")
+            logger.error(f"포지션 업데이트 오류: {e}", exc_info=True)
 
     def _emit_trade_history_updates(self):
         """거래내역 업데이트 전송"""
+        # 🔍 디버그: 메서드 호출 확인
+        logger.info(f"🔍 [DEBUG] V4Worker._emit_trade_history_updates 호출됨")
+
         if not self.engine:
+            logger.info(f"🔍 [DEBUG] engine이 없어서 리턴")
             return
 
         try:
             # 거래내역 가져오기 (최신 50건)
+            logger.info(f"🔍 [DEBUG] trade_history_manager.get_all_trades() 호출 전")
             trades = self.engine.trade_history_manager.get_all_trades()[:50]
+            logger.info(f"🔍 [DEBUG] trades 타입: {type(trades)}")
+            logger.info(f"🔍 [DEBUG] trades 길이: {len(trades) if trades else 0}")
 
             if trades:
                 trade_data = {
@@ -229,10 +270,14 @@ class V4Worker(QThread):
                     'timestamp': time.time()
                 }
 
+                logger.info(f"🔍 [DEBUG] trade_signal.emit() 호출")
                 self.trade_signal.emit(trade_data)
+                logger.info(f"🔍 [DEBUG] trade_signal.emit() 완료")
+            else:
+                logger.info(f"🔍 [DEBUG] trades가 비어있어서 emit 안함")
 
         except Exception as e:
-            logger.error(f"거래내역 업데이트 오류: {e}")
+            logger.error(f"거래내역 업데이트 오류: {e}", exc_info=True)
 
     def stop(self):
         """엔진 중지"""

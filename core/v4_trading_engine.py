@@ -125,8 +125,8 @@ class V4TradingEngine:
         else:
             logger.info("💰 Live 모드 - 실거래")
 
-        # 초기 동기화
-        if self.upbit_api and not self.dry_run:
+        # 초기 동기화 (Dry-run 모드에서도 실제 계좌 읽어서 시뮬레이션)
+        if self.upbit_api:
             logger.info("🔄 Upbit 계좌와 포지션 동기화 중...")
             try:
                 sync_result = self.position_manager.sync_with_upbit()
