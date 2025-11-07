@@ -934,24 +934,7 @@ class MainWindow(QMainWindow):
                 self._open_settings()
                 return
 
-        # ========================================
-        # 🔄 모드 전환: 아래 주석을 바꾸면 페이퍼/실거래 전환
-        # ========================================
-        
-        # # ✅ 페이퍼 트레이딩 모드 (테스트용 - 실제 주문 안함)
-        # reply = QMessageBox.question(
-        #     self,
-        #     "트레이딩 시작",
-        #     "⚠️ <b>트레이딩을 시작하시겠습니까?</b><br><br>"
-        #     "페이퍼 트레이딩(Dry Run) 모드로 시작됩니다.<br>"
-        #     "실제 주문은 실행되지 않습니다.<br><br>"
-        #     "<b>실거래 모드로 전환하려면:</b><br>"
-        #     "main_window.py 파일에서 주석을 변경하세요.",
-        #     QMessageBox.Yes | QMessageBox.No,
-        #     QMessageBox.No
-        # )
-        
-        # 🚨 실거래 모드 (실제 주문 실행 - 돈 잃을 수 있음!)
+        # 🔧 V4: 아래 코드는 Phase 2 early return으로 인해 실행되지 않음
         reply = QMessageBox.question(
             self,
             "🚨 실거래 모드 시작 확인",
@@ -968,18 +951,10 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
+            # 🔧 V4: Phase 2 early return으로 인해 실행되지 않음
             self._add_log("=" * 50)
             self._add_log("🚀 트레이딩 시작")
             self._add_log("=" * 50)
-            
-            # # ✅ 페이퍼 트레이딩 모드 로그
-            # self._add_log("⚠️ 페이퍼 트레이딩 모드 (Dry Run)")
-            
-            # 🚨 실거래 모드 로그
-            self._add_log("🚨🚨🚨 실거래 모드 - 실제 주문 실행 🚨🚨🚨")
-            self._add_log("💰 실제 돈으로 거래가 진행됩니다!")
-            
-            self._add_log("")
 
             # 🔧 다중 코인 트레이딩 설정 생성
             # 사용자가 선택한 코인 리스트 가져오기
@@ -1009,11 +984,8 @@ class MainWindow(QMainWindow):
                 # 코인당 주문 금액
                 'order_amount': self.dca_config.levels[0].order_amount if self.dca_config.levels else 100000,
                 
-                # ========================================
-                # 🔄 모드 전환: 아래 주석을 바꾸면 페이퍼/실거래 전환
-                # ========================================
-                # 'dry_run': True,   # ✅ 페이퍼 트레이딩 모드 (안전)
-                'dry_run': False,  # 🚨 실거래 모드 (실제 주문!)
+                # 🔧 V4: dry_run 설정은 V4 config에서 관리 (하드코딩 제거)
+                'dry_run': None,  # Phase 2 early return으로 실행되지 않음
                 
                 'access_key': self.config_manager.get_upbit_access_key(),
                 'secret_key': self.config_manager.get_upbit_secret_key(),
