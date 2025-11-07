@@ -11,6 +11,7 @@ V4 포지션 관리자
 
 import json
 import os
+import logging
 import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
@@ -18,6 +19,8 @@ from pathlib import Path
 
 if TYPE_CHECKING:
     from core.upbit_api import UpbitAPI
+
+logger = logging.getLogger(__name__)
 
 
 class PositionManager:
@@ -584,8 +587,11 @@ class PositionManager:
                 krw_balance = balance
                 continue
 
+            # 전체 보유량 계산 (balance + locked)
+            total_balance = balance + locked
+
             # 보유량이 거의 없으면 무시 (먼지)
-            if balance < 0.00000001:
+            if total_balance < 0.00000001:
                 continue
 
             # 심볼 생성
@@ -608,7 +614,7 @@ class PositionManager:
 
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
-                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | {balance:.8f}")
+                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | balance={balance:.8f}, locked={locked:.8f}")
             else:
                 # 새 포지션 발견
                 group_id = self._find_group_for_coin(symbol, config)
@@ -638,10 +644,11 @@ class PositionManager:
                     logger.debug(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f}")
 
         # 로컬 포지션 정리: Upbit에 없거나 그룹에서 제외된 포지션 삭제
-        # WebSocket 데이터에 있는 코인 목록 (balance > 0인 것만)
+        # WebSocket 데이터에 있는 코인 목록 (balance + locked > 0인 것만)
         myasset_symbols = {f"KRW-{asset['currency']}"
                           for asset in assets
-                          if asset['currency'] != 'KRW' and float(asset.get('balance', 0)) >= 0.00000001}
+                          if asset['currency'] != 'KRW' and
+                          (float(asset.get('balance', 0)) + float(asset.get('locked', 0))) >= 0.00000001}
 
         for symbol in list(self.positions.keys()):
             position = self.positions[symbol]
