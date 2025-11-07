@@ -92,11 +92,12 @@ class BalanceWorker(QThread):
                     btc_balance = float(account['balance'])
                     break
 
-            # 성공 시그널 발생
+            # 성공 시그널 발생 (accounts 데이터 포함하여 Step 2에서 재사용)
             self.finished.emit({
                 'success': True,
                 'krw': krw_balance,
-                'btc': btc_balance
+                'btc': btc_balance,
+                'accounts': accounts  # Step 2에서 재사용할 데이터
             })
 
         except Exception as e:
@@ -179,6 +180,7 @@ class MainWindow(QMainWindow):
 
         # 🔧 Upbit API 초기화 (나중에 Step 1에서 설정)
         self.upbit_api = None
+        self.initial_accounts = None  # Step 1에서 받은 accounts 데이터 (Step 2에서 재사용)
 
         # 🔧 V4 매니저 초기화 (config 기반 모드 결정)
         if V4_AVAILABLE:
@@ -1842,6 +1844,11 @@ class MainWindow(QMainWindow):
             self._add_log(f"✅ 예수금 조회 완료: {krw:,.0f}원")
             # balance_label은 GUI에 없으므로 로그로만 표시
 
+            # 🔧 accounts 데이터 저장 (Step 2에서 재사용하여 중복 API 호출 방지)
+            self.initial_accounts = result.get('accounts', None)
+            if self.initial_accounts:
+                logger.info(f"✅ [Step 1] accounts 데이터 저장 완료: {len(self.initial_accounts)}개 자산")
+
             # 🔧 API 키 검증 완료 플래그 설정
             self.api_keys_validated = True
             logger.info("✅ [Step 1] API 키 검증 완료 (플래그 설정)")
@@ -1905,9 +1912,9 @@ class MainWindow(QMainWindow):
                     self._add_log("🔴 Live 모드: Upbit 계좌 동기화 중...")
 
                     try:
-                        # sync_with_upbit() 호출
+                        # sync_with_upbit() 호출 (Step 1에서 받은 accounts 재사용)
                         if self.v4_position_manager and self.upbit_api:
-                            sync_result = self.v4_position_manager.sync_with_upbit(config)
+                            sync_result = self.v4_position_manager.sync_with_upbit(config, accounts=self.initial_accounts)
                             logger.info(f"✅ [Step 2] Upbit 동기화 완료: {sync_result}")
                             self._add_log(f"✅ 동기화 완료: {len(sync_result['synced_positions'])}개 업데이트, "
                                         f"{len(sync_result['new_positions'])}개 신규, "
