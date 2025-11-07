@@ -210,6 +210,10 @@ class MainWindow(QMainWindow):
         self._shutdown_timer = None  # 비동기 종료 타이머
         self._shutdown_elapsed = 0  # 종료 대기 시간
 
+        # Phase 3-6: 실시간 데이터 표시 타이머
+        self.balance_refresh_timer = None  # 잔고 자동 갱신 타이머 (30초마다)
+        self.position_update_timer = None  # 포지션 실시간 업데이트 타이머 (10초마다)
+
         # 🔧 GUI 업데이트 throttling
         self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
 
@@ -1314,6 +1318,19 @@ class MainWindow(QMainWindow):
             # 워커 스레드 시작
             self.trading_worker.start()
 
+            # Phase 3-6: 실시간 데이터 표시 타이머 시작
+            self._add_log("🔄 실시간 데이터 갱신 타이머 시작")
+
+            # 잔고 자동 갱신 타이머 (30초마다)
+            self.balance_refresh_timer = QTimer()
+            self.balance_refresh_timer.timeout.connect(self._auto_refresh_balance)
+            self.balance_refresh_timer.start(30000)  # 30초 = 30000ms
+
+            # 포지션 실시간 업데이트 타이머 (10초마다)
+            self.position_update_timer = QTimer()
+            self.position_update_timer.timeout.connect(self._auto_update_positions)
+            self.position_update_timer.start(10000)  # 10초 = 10000ms
+
     def _stop_trading(self):
         """트레이딩 중지 (비동기)"""
         # 이미 중지 중이면 무시
@@ -1455,6 +1472,87 @@ class MainWindow(QMainWindow):
         )
 
     # ========================================
+    # Phase 3-6: 실시간 데이터 표시 타이머 콜백
+    # ========================================
+
+    def _auto_refresh_balance(self):
+        """잔고 자동 갱신 (30초마다 호출)"""
+        if self.is_running:
+            self._refresh_balance()
+
+    def _auto_update_positions(self):
+        """
+        포지션 실시간 업데이트 (10초마다 호출)
+
+        현재가 기반으로 수익률을 재계산하여 테이블 업데이트
+        """
+        if not self.is_running:
+            return
+
+        try:
+            # PositionManager에서 포지션 가져오기
+            from core.position_manager import PositionManager
+
+            # V4 모드인지 확인
+            dry_run = self.global_settings.get("dry_run", True)
+            mode = "dryrun" if dry_run else "live"
+
+            # UpbitAPI 인스턴스 생성
+            upbit_api = UpbitAPI(
+                access_key=self.v3_config_manager.get_upbit_access_key(),
+                secret_key=self.v3_config_manager.get_upbit_secret_key()
+            )
+
+            pos_manager = PositionManager(mode=mode, upbit_api=upbit_api)
+            positions = pos_manager.get_all_positions()
+
+            if not positions:
+                return
+
+            # 현재가 조회
+            symbols = list(positions.keys())
+            current_prices = {}
+
+            for symbol in symbols:
+                try:
+                    ticker = upbit_api.get_current_price(symbol)
+                    current_prices[symbol] = ticker.get('trade_price', 0)
+                except Exception as e:
+                    logger.warning(f"현재가 조회 실패 ({symbol}): {e}")
+                    continue
+
+            # 각 포지션 업데이트
+            for symbol, pos in positions.items():
+                if symbol not in current_prices:
+                    continue
+
+                current_price = current_prices[symbol]
+                average_price = pos.get('average_price', 0)
+                total_amount = pos.get('total_amount', 0)
+
+                if average_price > 0:
+                    # 수익률 계산
+                    profit_pct = ((current_price - average_price) / average_price) * 100
+                    profit_krw = (current_price - average_price) * total_amount
+
+                    # 포지션 데이터 업데이트
+                    pos['current_price'] = current_price
+                    pos['profit_pct'] = profit_pct
+                    pos['profit_krw'] = profit_krw
+
+            # 테이블 업데이트 (시그널 형식으로)
+            position_data = {
+                'positions': positions,
+                'total_count': len(positions),
+                'timestamp': time.time()
+            }
+
+            self._on_position_update(position_data)
+
+        except Exception as e:
+            logger.error(f"포지션 자동 업데이트 오류: {e}", exc_info=True)
+
+    # ========================================
     # Trading Engine 시그널 핸들러
     # ========================================
 
@@ -1470,6 +1568,17 @@ class MainWindow(QMainWindow):
             return
 
         self._add_log("✅ Trading Engine 중지 완료")
+
+        # Phase 3-6: 실시간 데이터 표시 타이머 중지
+        if self.balance_refresh_timer:
+            self.balance_refresh_timer.stop()
+            self.balance_refresh_timer = None
+            self._add_log("⏸️ 잔고 갱신 타이머 중지")
+
+        if self.position_update_timer:
+            self.position_update_timer.stop()
+            self.position_update_timer = None
+            self._add_log("⏸️ 포지션 업데이트 타이머 중지")
 
         self.is_running = False
         self.start_btn.setEnabled(True)
