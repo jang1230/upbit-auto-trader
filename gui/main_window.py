@@ -2393,13 +2393,17 @@ class MainWindow(QMainWindow):
             sync_result = self.v4_position_manager.sync_from_myasset(assets, config)
 
             # 로그 출력 (변경 사항이 있을 때만)
-            if sync_result['new_positions'] or sync_result['removed_positions']:
+            has_changes = (sync_result['synced_positions'] or
+                          sync_result['new_positions'] or
+                          sync_result['removed_positions'])
+
+            if has_changes:
                 logger.info(f"💰 잔고 변동 감지: "
                            f"신규 {len(sync_result['new_positions'])}개, "
                            f"삭제 {len(sync_result['removed_positions'])}개, "
                            f"업데이트 {len(sync_result['synced_positions'])}개")
 
-                # 포지션 테이블 리프레시
+                # 포지션 테이블 리프레시 (업데이트도 포함!)
                 self._load_v4_positions()
 
                 # 사용자에게 알림
@@ -2410,6 +2414,10 @@ class MainWindow(QMainWindow):
                 if sync_result['new_positions']:
                     new_str = ', '.join(sync_result['new_positions'])
                     self._add_log(f"🆕 매수 감지: {new_str}")
+
+                if sync_result['synced_positions']:
+                    synced_str = ', '.join(sync_result['synced_positions'])
+                    self._add_log(f"📊 수량 변동: {synced_str}")
 
         except Exception as e:
             logger.error(f"❌ 잔고 업데이트 처리 오류: {e}", exc_info=True)
