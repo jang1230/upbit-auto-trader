@@ -129,7 +129,7 @@ class V4TradingEngine:
         if self.upbit_api and not self.dry_run:
             logger.info("🔄 Upbit 계좌와 포지션 동기화 중...")
             try:
-                sync_result = self.position_manager.sync_with_upbit()
+                sync_result = self.position_manager.sync_with_upbit(self.config)
                 logger.info(f"✅ 동기화 완료: {sync_result}")
             except Exception as e:
                 logger.error(f"❌ 동기화 실패: {e}")

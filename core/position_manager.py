@@ -11,6 +11,7 @@ V4 포지션 관리자
 
 import json
 import os
+import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pathlib import Path
@@ -47,6 +48,9 @@ class PositionManager:
         # 포지션 캐시
         self.positions: Dict[str, Dict[str, Any]] = {}
 
+        # Thread-safe file I/O lock
+        self._lock = threading.Lock()
+
         # 로드
         self._load_positions()
 
@@ -65,10 +69,11 @@ class PositionManager:
             self.positions = {}
 
     def _save_positions(self) -> None:
-        """포지션 파일 저장"""
-        os.makedirs(os.path.dirname(self.positions_path), exist_ok=True)
-        with open(self.positions_path, 'w', encoding='utf-8') as f:
-            json.dump(self.positions, f, indent=2, ensure_ascii=False)
+        """포지션 파일 저장 (Thread-safe)"""
+        with self._lock:
+            os.makedirs(os.path.dirname(self.positions_path), exist_ok=True)
+            with open(self.positions_path, 'w', encoding='utf-8') as f:
+                json.dump(self.positions, f, indent=2, ensure_ascii=False)
 
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -343,6 +348,26 @@ class PositionManager:
         """포지션 존재 여부"""
         return symbol in self.positions
 
+    def _find_group_for_coin(self, symbol: str, config: Dict[str, Any]) -> Optional[str]:
+        """
+        특정 코인이 어느 그룹에 속하는지 찾기
+
+        Args:
+            symbol: 코인 심볼 (예: "KRW-BTC")
+            config: 전체 설정 딕셔너리
+
+        Returns:
+            그룹 ID 또는 None (어느 그룹에도 속하지 않음)
+        """
+        groups = config.get('groups', {})
+
+        for group_id, group_data in groups.items():
+            coins = group_data.get('coins', [])
+            if symbol in coins:
+                return group_id
+
+        return None
+
     def get_total_valuation(self) -> float:
         """
         전체 포지션 평가액 합계
@@ -378,21 +403,27 @@ class PositionManager:
 
         return total_profit_krw, profit_pct
 
-    def sync_with_upbit(self) -> Dict[str, Any]:
+    def sync_with_upbit(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Upbit API와 동기화
+        Upbit API와 동기화 (개선 버전)
 
         프로그램 시작 시 최초 1회 호출하여:
         1. Upbit에서 실제 보유 자산 조회
         2. 로컬 포지션 파일과 비교
-        3. balance, avg_buy_price 등 Upbit 데이터로 업데이트
+        3. balance, avg_buy_price 등 Upbit 데이터로 업데이트 (Upbit = Source of Truth)
+        4. Upbit에 없는 포지션 자동 삭제 (완전 매도된 경우)
+        5. config 그룹에 속한 코인만 포지션 생성
+
+        Args:
+            config: 전체 설정 딕셔너리 (그룹 정보 포함)
 
         Returns:
             동기화 결과 딕셔너리
                 {
                     'synced_positions': List[str],  # 동기화된 심볼들
-                    'new_positions': List[str],     # 새로 발견된 포지션
+                    'new_positions': List[str],     # 새로 생성된 포지션
                     'removed_positions': List[str], # 제거된 포지션
+                    'skipped_positions': List[str], # 스킵된 포지션 (그룹 없음)
                     'krw_balance': float
                 }
 
@@ -413,6 +444,7 @@ class PositionManager:
         synced_positions = []
         new_positions = []
         removed_positions = []
+        skipped_positions = []
         krw_balance = 0.0
 
         # Upbit 보유 자산 처리
@@ -439,22 +471,43 @@ class PositionManager:
             position = self.get_position(symbol)
 
             if position:
-                # 기존 포지션 업데이트
+                # 기존 포지션 업데이트 (Upbit = Source of Truth)
                 updates = {
                     'total_amount': balance,
                     'average_price': avg_buy_price,
-                    'locked_amount': locked
+                    'locked_amount': locked,
+                    'total_invested_krw': avg_buy_price * balance
                 }
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
                 print(f"   ✅ 동기화: {symbol} | {balance:.8f} @ {avg_buy_price:,.0f}원")
             else:
                 # 새 포지션 발견 (Upbit에는 있지만 로컬에 없음)
-                new_positions.append(symbol)
-                print(f"   🆕 새 포지션 발견: {symbol} | {balance:.8f} @ {avg_buy_price:,.0f}원")
-                # 주의: 자동 추가는 하지 않음 (그룹 할당 필요)
+                # config 그룹에 속한 코인만 자동 생성
+                group_id = self._find_group_for_coin(symbol, config)
 
-        # 로컬에만 있는 포지션 확인 (Upbit에는 없음)
+                if group_id:
+                    # 그룹에 속한 코인 → 자동 생성
+                    try:
+                        new_position = self.create_position(
+                            symbol=symbol,
+                            group_id=group_id,
+                            entry_price=avg_buy_price,
+                            entry_amount=balance,
+                            buy_amount_krw=avg_buy_price * balance,
+                            locked_amount=locked
+                        )
+                        new_positions.append(symbol)
+                        print(f"   🆕 포지션 생성: {symbol} → {group_id} | {balance:.8f} @ {avg_buy_price:,.0f}원")
+                    except Exception as e:
+                        print(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
+                        skipped_positions.append(symbol)
+                else:
+                    # 그룹에 속하지 않은 코인 → 스킵
+                    skipped_positions.append(symbol)
+                    print(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f} @ {avg_buy_price:,.0f}원")
+
+        # 로컬에만 있는 포지션 확인 (Upbit에는 없음) → 자동 삭제
         upbit_symbols = {f"KRW-{account['currency']}" for account in accounts if account['currency'] != 'KRW'}
 
         for symbol in list(self.positions.keys()):
@@ -464,20 +517,22 @@ class PositionManager:
                 continue
 
             if symbol not in upbit_symbols:
-                # Upbit에 없는 포지션
+                # Upbit에 없는 포지션 → 자동 삭제 (완전 매도된 것으로 간주)
+                self.delete_position(symbol)
                 removed_positions.append(symbol)
-                print(f"   ⚠️ Upbit에 없는 포지션: {symbol} (수동 매도되었을 수 있음)")
-                # 주의: 자동 제거는 하지 않음 (사용자 확인 필요)
+                print(f"   🗑️ 자동 삭제: {symbol} (Upbit에 없음, 완전 매도된 것으로 간주)")
 
         print(f"✅ Upbit 동기화 완료")
         print(f"   - 동기화된 포지션: {len(synced_positions)}개")
-        print(f"   - 새 포지션: {len(new_positions)}개")
-        print(f"   - 제거된 포지션: {len(removed_positions)}개")
+        print(f"   - 새로 생성된 포지션: {len(new_positions)}개")
+        print(f"   - 삭제된 포지션: {len(removed_positions)}개")
+        print(f"   - 스킵된 포지션: {len(skipped_positions)}개")
 
         return {
             'synced_positions': synced_positions,
             'new_positions': new_positions,
             'removed_positions': removed_positions,
+            'skipped_positions': skipped_positions,
             'krw_balance': krw_balance
         }
 
