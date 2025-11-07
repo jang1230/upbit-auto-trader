@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
         self.trading_worker = None  # Trading Engine 워커 스레드
         self.preparation_worker = None  # MyAsset 구독 준비 워커
         self.price_websocket_worker = None  # 🔧 V4: 가격 WebSocket 워커
+        self.myasset_websocket_worker = None  # 🔧 V4: MyAsset WebSocket 워커 (잔고 실시간 감지)
         self.myasset_ready = False  # MyAsset 구독 준비 완료 여부
         self.api_keys_validated = False  # 🔧 API 키 검증 완료 플래그 (Step 1 성공 시 True)
         self._shutdown_timer = None  # 비동기 종료 타이머
