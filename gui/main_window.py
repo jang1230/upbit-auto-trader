@@ -227,8 +227,7 @@ class MainWindow(QMainWindow):
         self._init_statusbar()
         self._update_status()
 
-        # 🔧 V4: 포지션 로드 (1초 후 - UI 초기화 완료 대기)
-        QTimer.singleShot(1000, self._load_v4_positions)
+        # 🔧 V4: 포지션은 Step 2에서 로드됨 (중복 방지)
 
         # 🔧 순차적 초기화 시작 (500ms 후)
         QTimer.singleShot(500, self._start_sequential_initialization)
@@ -2499,6 +2498,16 @@ class MainWindow(QMainWindow):
         if self.balance_worker and self.balance_worker.isRunning():
             self.balance_worker.wait(1000)
             self.balance_worker = None
+
+        # Price WebSocket Worker 정리
+        if self.price_websocket_worker and self.price_websocket_worker.isRunning():
+            logger.info("🛑 Price WebSocket Worker 종료 중...")
+            self.price_websocket_worker.stop()
+            if not self.price_websocket_worker.wait(3000):
+                logger.warning("⚠️ Price WebSocket Worker 종료 시간 초과")
+                self.price_websocket_worker.terminate()
+                self.price_websocket_worker.wait(1000)
+            self.price_websocket_worker = None
 
         event.accept()
 
