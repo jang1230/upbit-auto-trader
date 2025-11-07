@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QDialog  # Step 6: Global Settings Dialog용
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtGui import QAction, QFont, QColor
 from gui.settings_dialog import SettingsDialog
 from gui.config_manager import ConfigManager
 from gui.trading_worker import TradingEngineWorker
@@ -2224,17 +2224,14 @@ class MainWindow(QMainWindow):
                 return
 
             # PositionManager에서 가격 업데이트 (수익률 재계산)
-            self.v4_position_manager.update_price(symbol, current_price)
+            position = self.v4_position_manager.update_price(symbol, current_price)
+            if not position:
+                return
 
             # 테이블에서 해당 심볼 찾기
             for row in range(self.position_table.rowCount()):
                 symbol_item = self.position_table.item(row, 1)
                 if not symbol_item or symbol_item.text() != symbol:
-                    continue
-
-                # 업데이트된 포지션 정보 가져오기
-                position = self.v4_position_manager.positions.get(symbol)
-                if not position:
                     continue
 
                 # 현재가 업데이트 (컬럼 7)
