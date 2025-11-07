@@ -579,8 +579,9 @@ class PositionManager:
             balance = float(asset.get('balance', 0))
             locked = float(asset.get('locked', 0))
 
-            # avg_buy_price가 WebSocket 데이터에 포함되어 있으면 사용, 없으면 기존 값 유지
+            # avg_buy_price: MyAsset WebSocket에 포함 (Upbit 공식 문서 확인됨)
             avg_buy_price = float(asset.get('avg_buy_price', 0))
+            avg_buy_price_modified = asset.get('avg_buy_price_modified', False)
 
             # KRW 잔고는 별도 처리
             if currency == 'KRW':
@@ -590,12 +591,19 @@ class PositionManager:
             # 전체 보유량 계산 (balance + locked)
             total_balance = balance + locked
 
-            # 보유량이 거의 없으면 무시 (먼지)
-            if total_balance < 0.00000001:
-                continue
-
             # 심볼 생성
             symbol = f"KRW-{currency}"
+
+            # ⚠️ MyAsset WebSocket은 "변동이 있는 자산만" 전송합니다!
+            # 따라서 balance+locked=0인 경우만 "명시적 매도 완료"로 판단
+            if total_balance < 0.00000001:
+                # 명시적으로 0으로 업데이트된 경우 → 매도 완료
+                position = self.get_position(symbol)
+                if position:
+                    self.delete_position(symbol)
+                    removed_positions.append(symbol)
+                    logger.info(f"   🗑️ 매도 감지: {symbol} (잔고 0)")
+                continue
 
             # 기존 포지션 확인
             position = self.get_position(symbol)
@@ -607,23 +615,34 @@ class PositionManager:
                     'locked_amount': locked,
                 }
 
-                # avg_buy_price가 있으면 업데이트 (WebSocket에서 제공하는 경우)
+                # avg_buy_price가 있으면 업데이트 (MyAsset에서 제공)
                 if avg_buy_price > 0:
                     updates['average_price'] = avg_buy_price
                     updates['total_invested_krw'] = avg_buy_price * balance
 
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
-                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | balance={balance:.8f}, locked={locked:.8f}")
+                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | balance={balance:.8f}, locked={locked:.8f}, avg_price={avg_buy_price:.0f}")
             else:
-                # 새 포지션 발견
+                # 새 포지션 발견 (외부 앱에서 매수한 경우)
                 group_id = self._find_group_for_coin(symbol, config)
 
                 if group_id:
                     # 그룹에 속한 코인 → 자동 생성
                     try:
-                        # avg_buy_price가 없으면 현재 시장가로 설정 (나중에 수동 수정 필요)
+                        # avg_buy_price 사용 (MyAsset에 포함됨)
                         entry_price = avg_buy_price if avg_buy_price > 0 else 0
+
+                        if entry_price == 0:
+                            # MyAsset에 avg_buy_price가 없으면 REST API로 조회
+                            logger.warning(f"   ⚠️ {symbol} MyAsset에 평균가 없음, REST API 조회 필요")
+                            if self.upbit_api:
+                                accounts = self.upbit_api.get_accounts()
+                                for acc in accounts:
+                                    if f"KRW-{acc['currency']}" == symbol:
+                                        entry_price = float(acc.get('avg_buy_price', 0))
+                                        logger.info(f"   📊 REST API 평균가 조회: {symbol} = {entry_price:.0f}원")
+                                        break
 
                         new_position = self.create_position(
                             symbol=symbol,
@@ -634,7 +653,7 @@ class PositionManager:
                             locked_amount=locked
                         )
                         new_positions.append(symbol)
-                        logger.info(f"   🆕 MyAsset 포지션 생성: {symbol} → {group_id} | {balance:.8f}")
+                        logger.info(f"   🆕 MyAsset 포지션 생성: {symbol} → {group_id} | {balance:.8f} @ {entry_price:.0f}원")
                     except Exception as e:
                         logger.warning(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
                         skipped_positions.append(symbol)
@@ -643,32 +662,9 @@ class PositionManager:
                     skipped_positions.append(symbol)
                     logger.debug(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f}")
 
-        # 로컬 포지션 정리: Upbit에 없거나 그룹에서 제외된 포지션 삭제
-        # WebSocket 데이터에 있는 코인 목록 (balance + locked > 0인 것만)
-        myasset_symbols = {f"KRW-{asset['currency']}"
-                          for asset in assets
-                          if asset['currency'] != 'KRW' and
-                          (float(asset.get('balance', 0)) + float(asset.get('locked', 0))) >= 0.00000001}
-
-        for symbol in list(self.positions.keys()):
-            position = self.positions[symbol]
-
-            if position.get('status') != 'active':
-                continue
-
-            # 조건 1: MyAsset에 없는 포지션 (완전 매도됨)
-            if symbol not in myasset_symbols:
-                self.delete_position(symbol)
-                removed_positions.append(symbol)
-                logger.info(f"   🗑️ 자동 삭제: {symbol} (MyAsset에 없음, 완전 매도)")
-                continue
-
-            # 조건 2: 어떤 그룹에도 속하지 않는 포지션 (그룹에서 제외됨)
-            group_id = self._find_group_for_coin(symbol, config)
-            if not group_id:
-                self.delete_position(symbol)
-                removed_positions.append(symbol)
-                logger.info(f"   🗑️ 자동 삭제: {symbol} (그룹에서 제외됨)")
+        # ⚠️ 중요: MyAsset WebSocket은 변동이 있는 자산만 전송하므로,
+        # "메시지에 없음" ≠ "매도됨"입니다. 따라서 이 섹션은 제거합니다.
+        # 삭제는 위의 "total_balance < 0.00000001" 조건에서만 수행합니다.
 
         logger.debug(f"💰 MyAsset 동기화 완료: 업데이트 {len(synced_positions)}, "
                     f"신규 {len(new_positions)}, 삭제 {len(removed_positions)}")
