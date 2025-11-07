@@ -2074,7 +2074,8 @@ class MainWindow(QMainWindow):
             dialog = GroupManagementDialog(
                 self.v4_config_manager,
                 self.v4_group_manager,
-                parent=self
+                parent=self,
+                is_trading_running=self.is_running  # 거래 실행 상태 전달
             )
 
             # 그룹 변경 시그널 연결
