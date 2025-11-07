@@ -406,12 +406,12 @@ class PositionManager:
 
         return total_profit_krw, profit_pct
 
-    def sync_with_upbit(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def sync_with_upbit(self, config: Dict[str, Any], accounts: list = None) -> Dict[str, Any]:
         """
         Upbit API와 동기화 (개선 버전)
 
         프로그램 시작 시 최초 1회 호출하여:
-        1. Upbit에서 실제 보유 자산 조회
+        1. Upbit에서 실제 보유 자산 조회 (또는 이미 조회된 accounts 사용)
         2. 로컬 포지션 파일과 비교
         3. balance, avg_buy_price 등 Upbit 데이터로 업데이트 (Upbit = Source of Truth)
         4. Upbit에 없는 포지션 자동 삭제 (완전 매도된 경우)
@@ -419,6 +419,8 @@ class PositionManager:
 
         Args:
             config: 전체 설정 딕셔너리 (그룹 정보 포함)
+            accounts: 이미 조회된 Upbit accounts 데이터 (optional, 중복 API 호출 방지)
+                     None이면 내부에서 get_accounts() 호출
 
         Returns:
             동기화 결과 딕셔너리
@@ -441,8 +443,12 @@ class PositionManager:
 
         print("🔄 Upbit 동기화 시작...")
 
-        # Upbit 계좌 정보 조회
-        accounts = self.upbit_api.get_accounts()
+        # Upbit 계좌 정보 조회 (제공되지 않았으면 API 호출)
+        if accounts is None:
+            accounts = self.upbit_api.get_accounts()
+            logger.info("📊 REST API로 accounts 조회")
+        else:
+            logger.info("✅ 캐시된 accounts 데이터 사용 (중복 API 호출 방지)")
 
         synced_positions = []
         new_positions = []
