@@ -173,7 +173,7 @@ class V4Worker(QThread):
         """
         엔진 상태 모니터링
 
-        주기적으로 포지션 정보를 업데이트하고 GUI로 전송
+        주기적으로 포지션 정보와 거래내역을 업데이트하고 GUI로 전송
         """
         monitor_interval = 5  # 5초마다 체크
 
@@ -181,6 +181,9 @@ class V4Worker(QThread):
             try:
                 # 포지션 정보 수집 및 전송
                 self._emit_position_updates()
+
+                # 거래내역 수집 및 전송
+                self._emit_trade_history_updates()
 
                 # 대기
                 time.sleep(monitor_interval)
@@ -209,6 +212,27 @@ class V4Worker(QThread):
 
         except Exception as e:
             logger.error(f"포지션 업데이트 오류: {e}")
+
+    def _emit_trade_history_updates(self):
+        """거래내역 업데이트 전송"""
+        if not self.engine:
+            return
+
+        try:
+            # 거래내역 가져오기 (최신 50건)
+            trades = self.engine.trade_history_manager.get_all_trades()[:50]
+
+            if trades:
+                trade_data = {
+                    'trades': trades,
+                    'total_count': len(trades),
+                    'timestamp': time.time()
+                }
+
+                self.trade_signal.emit(trade_data)
+
+        except Exception as e:
+            logger.error(f"거래내역 업데이트 오류: {e}")
 
     def stop(self):
         """엔진 중지"""

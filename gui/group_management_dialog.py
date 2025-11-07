@@ -229,11 +229,8 @@ class GroupManagementDialog(QDialog):
 
         self.coin_checkboxes.clear()
 
-        # 업비트 KRW 마켓 코인 목록 (하드코딩 - 나중에 API로 가져오기)
-        all_coins = [
-            "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-DOGE",
-            "KRW-SOL", "KRW-ADA", "KRW-AVAX", "KRW-DOT"
-        ]
+        # 업비트 KRW 마켓 코인 목록 가져오기
+        all_coins = self._get_krw_market_coins()
 
         # 다른 그룹에 속한 코인 확인
         all_groups = self.group_manager.get_all_groups()
@@ -354,6 +351,57 @@ class GroupManagementDialog(QDialog):
             except Exception as e:
                 logger.error(f"그룹 삭제 실패: {e}")
                 QMessageBox.critical(self, "오류", f"그룹을 삭제할 수 없습니다:\n{str(e)}")
+
+    def _get_krw_market_coins(self):
+        """
+        Upbit API에서 KRW 마켓 코인 목록 가져오기
+
+        Returns:
+            list: KRW 마켓 코인 심볼 리스트 (예: ["KRW-BTC", "KRW-ETH", ...])
+        """
+        try:
+            import requests
+
+            # Upbit API: 마켓 코드 조회
+            url = "https://api.upbit.com/v1/market/all"
+            params = {"isDetails": "false"}
+
+            response = requests.get(url, params=params, timeout=5)
+            response.raise_for_status()
+
+            markets = response.json()
+
+            # KRW 마켓만 필터링
+            krw_markets = [
+                market['market']
+                for market in markets
+                if market['market'].startswith('KRW-')
+            ]
+
+            # 시가총액 상위 순으로 정렬 (대략적인 순서)
+            # BTC, ETH, USDT, SOL 등을 앞에 배치
+            priority_coins = ['KRW-BTC', 'KRW-ETH', 'KRW-USDT', 'KRW-SOL', 'KRW-XRP',
+                             'KRW-DOGE', 'KRW-ADA', 'KRW-AVAX', 'KRW-DOT', 'KRW-LINK']
+
+            # 우선순위 코인을 앞에, 나머지는 알파벳 순
+            sorted_coins = []
+            for coin in priority_coins:
+                if coin in krw_markets:
+                    sorted_coins.append(coin)
+
+            remaining = sorted([c for c in krw_markets if c not in priority_coins])
+            sorted_coins.extend(remaining)
+
+            return sorted_coins if sorted_coins else ["KRW-BTC", "KRW-ETH", "KRW-XRP"]
+
+        except Exception as e:
+            logger.warning(f"Upbit API 코인 목록 조회 실패: {e}, 기본 목록 사용")
+            # 폴백: 하드코딩된 기본 목록
+            return [
+                "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-DOGE",
+                "KRW-SOL", "KRW-ADA", "KRW-AVAX", "KRW-DOT",
+                "KRW-LINK", "KRW-MATIC", "KRW-ATOM", "KRW-NEAR"
+            ]
 
 
 if __name__ == "__main__":

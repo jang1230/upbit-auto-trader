@@ -38,10 +38,18 @@ from core.utils import format_price  # 🔧 가격 포맷팅 유틸리티
 from core.config_manager import ConfigManager  # V4 버전
 from core.group_manager import GroupManager
 from core.upbit_api import UpbitAPI
-from gui.v4_worker import V4Worker
 
-# V3 Legacy (보존 - API 키 검증 등에 필요)
+# ============================================================
+# V4 Imports
+# ============================================================
+from gui.v4_worker import V4Worker  # V4 메인 워커
+
+# ============================================================
+# V3 Legacy Imports (최소한 보존 - API 키 검증에 필요)
+# ============================================================
 from gui.config_manager import ConfigManager as V3ConfigManager  # V3 버전 (검증 메서드용)
+
+# V3 DEPRECATED - 아래는 모두 사용 중지됨
 # from gui.trading_worker import TradingEngineWorker
 # from gui.multi_coin_worker import MultiCoinTradingWorker
 # from gui.auto_trading_worker import AutoTradingWorker
@@ -178,10 +186,13 @@ class MainWindow(QMainWindow):
         # V4 Group Manager
         self.group_manager = GroupManager(self.config_path)
 
-        # V3 ConfigManager (API 키 검증 등에 필요)
+        # ============================================================
+        # V3 Legacy Configuration (최소한 보존)
+        # ============================================================
+        # V3 ConfigManager (API 키 검증에만 사용)
         self.v3_config_manager = V3ConfigManager()
 
-        # V3 Legacy 설정 (UI 호환성 유지)
+        # V3 DEPRECATED - 아래는 모두 사용 중지됨
         # self.dca_config_manager = DcaConfigManager()
         # self.dca_config = self.dca_config_manager.load()
         # self.trading_mode = "semi_auto"
@@ -431,8 +442,7 @@ class MainWindow(QMainWindow):
         header.resizeSection(8, 110)
         header.setSectionResizeMode(9, QHeaderView.Fixed)  # 평가손익
         header.resizeSection(9, 140)
-        header.setSectionResizeMode(10, QHeaderView.Fixed)  # 수익률
-        header.resizeSection(10, 120)
+        header.setSectionResizeMode(10, QHeaderView.Stretch)  # 수익률 - 남은 공간 채우기
 
         # 🔧 테이블 정렬 활성화 (컬럼 헤더 클릭 시 정렬)
         self.position_table.setSortingEnabled(True)
@@ -450,11 +460,11 @@ class MainWindow(QMainWindow):
         self.trade_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
         trade_history_layout.addWidget(self.trade_summary_label)
         
-        # 거래 내역 테이블 생성
+        # 거래 내역 테이블 생성 (V4: 그룹 컬럼 추가)
         self.trade_history_table = QTableWidget()
-        self.trade_history_table.setColumnCount(8)
+        self.trade_history_table.setColumnCount(9)
         self.trade_history_table.setHorizontalHeaderLabels([
-            "시각", "심볼", "유형", "가격", "수량", "금액", "손익", "사유"
+            "그룹", "시각", "심볼", "유형", "가격", "수량", "금액", "손익", "사유"
         ])
         
         # 테이블 스타일 설정
@@ -467,16 +477,27 @@ class MainWindow(QMainWindow):
         self.trade_history_table.verticalHeader().setDefaultSectionSize(32)  # 기본 행 높이 32px
         self.trade_history_table.verticalHeader().setMinimumSectionSize(28)  # 최소 행 높이 28px
         
-        # 컬럼 너비 설정
+        # 컬럼 너비 설정 (V4: 그룹 컬럼 추가, 고정 너비)
         trade_header = self.trade_history_table.horizontalHeader()
-        trade_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 시각
-        trade_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 심볼
-        trade_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 유형
-        trade_header.setSectionResizeMode(3, QHeaderView.Stretch)  # 가격
-        trade_header.setSectionResizeMode(4, QHeaderView.Stretch)  # 수량
-        trade_header.setSectionResizeMode(5, QHeaderView.Stretch)  # 금액
-        trade_header.setSectionResizeMode(6, QHeaderView.Stretch)  # 손익
-        trade_header.setSectionResizeMode(7, QHeaderView.Stretch)  # 사유
+        trade_header.setDefaultSectionSize(100)  # 기본 컬럼 너비
+        trade_header.setMinimumSectionSize(60)  # 최소 컬럼 너비
+        trade_header.setSectionResizeMode(0, QHeaderView.Fixed)  # 그룹
+        trade_header.resizeSection(0, 100)
+        trade_header.setSectionResizeMode(1, QHeaderView.Fixed)  # 시각
+        trade_header.resizeSection(1, 90)
+        trade_header.setSectionResizeMode(2, QHeaderView.Fixed)  # 심볼
+        trade_header.resizeSection(2, 80)
+        trade_header.setSectionResizeMode(3, QHeaderView.Fixed)  # 유형
+        trade_header.resizeSection(3, 130)
+        trade_header.setSectionResizeMode(4, QHeaderView.Fixed)  # 가격
+        trade_header.resizeSection(4, 120)
+        trade_header.setSectionResizeMode(5, QHeaderView.Fixed)  # 수량
+        trade_header.resizeSection(5, 110)
+        trade_header.setSectionResizeMode(6, QHeaderView.Fixed)  # 금액
+        trade_header.resizeSection(6, 110)
+        trade_header.setSectionResizeMode(7, QHeaderView.Fixed)  # 손익
+        trade_header.resizeSection(7, 130)
+        trade_header.setSectionResizeMode(8, QHeaderView.Stretch)  # 사유 - 남은 공간 채우기
         
         # 정렬 활성화
         self.trade_history_table.setSortingEnabled(True)
@@ -761,8 +782,13 @@ class MainWindow(QMainWindow):
         self._update_status()
     
     def _open_auto_trading_config(self):
-        """완전 자동 모드 설정 다이얼로그 열기"""
-        # V3 전용 메서드 - V4에서는 그룹별 설정 사용으로 미사용
+        """
+        완전 자동 모드 설정 다이얼로그 열기
+
+        DEPRECATED: V3 전용 메서드
+        - V4에서는 그룹별 설정 사용으로 미사용
+        - 대신 config/trading_config.json 직접 수정
+        """
         self._add_log("⚠️ V4에서는 그룹별 설정을 사용합니다. config/trading_config.json을 직접 수정해주세요.")
 
         # from gui.auto_trading_config_dialog import AutoTradingConfigDialog
@@ -1457,58 +1483,68 @@ class MainWindow(QMainWindow):
     
     def _on_trade_executed(self, trade_data: dict):
         """
-        거래 실행 시그널 처리
-        
-        Args:
-            trade_data: 거래 정보
-                - timestamp: 거래 시각
-                - symbol: 코인 심볼
-                - trade_type: 'buy' or 'sell'
-                - price: 거래 가격
-                - quantity: 거래 수량
-                - amount: 거래 금액
-                - profit: 손익 (매도 시)
-                - profit_pct: 손익률 (매도 시)
-                - reason: 거래 사유
-                - order_id: 주문 ID
+        거래 실행 시그널 처리 (V3/V4 호환)
+
+        V3 Args:
+            trade_data: 거래 정보 (단일 Trade 객체)
+                - timestamp, symbol, trade_type, price, quantity, amount, profit, profit_pct, reason, order_id
+
+        V4 Args:
+            trade_data: 거래 내역 배치 (TradeHistoryManager 형식)
+                - trades: 거래 리스트 (최신순)
+                - total_count: 총 거래 수
+                - timestamp: 업데이트 시각
         """
         try:
-            from gui.trade_data import Trade
-            
-            # Trade 객체 생성
-            trade = Trade.from_dict(trade_data)
-            
-            # 거래 내역에 추가 (최신 거래가 위에 오도록)
-            self.trade_history.insert(0, trade)
-            
-            # 테이블 업데이트
-            self._update_trade_history_table()
-            
-            # 로그 출력
-            emoji = trade.get_type_emoji()
-            trade_type = trade.get_type_text()
-            symbol_short = trade.get_symbol_short()
-            
-            if trade.trade_type == 'buy':
-                self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원")
+            # V4 데이터 형식 확인 (trades 키가 있으면 V4)
+            if 'trades' in trade_data:
+                # V4: 거래내역 전체를 교체
+                self.trade_history = trade_data['trades']
+                self._update_trade_history_table_v4()
 
-                # 🔧 매수 발생 시 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
-                # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
-                if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
-                    coin_status = self.trading_worker.get_coin_status(trade.symbol)
-                    if coin_status:
-                        self._on_coin_update(trade.symbol, coin_status)
+                # 최신 거래만 로그 출력 (처음 1건)
+                if self.trade_history:
+                    latest_trade = self.trade_history[0]
+                    self._log_v4_trade(latest_trade)
             else:
-                self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원 | 손익: {trade.profit:+,.0f}원 ({trade.profit_pct:+.2f}%)")
+                # V3: 기존 로직 유지
+                from gui.trade_data import Trade
 
-                # 🔧 매도 발생 시에도 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
-                # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
-                if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
-                    coin_status = self.trading_worker.get_coin_status(trade.symbol)
-                    if coin_status:
-                        self._on_coin_update(trade.symbol, coin_status)
+                # Trade 객체 생성
+                trade = Trade.from_dict(trade_data)
+
+                # 거래 내역에 추가 (최신 거래가 위에 오도록)
+                self.trade_history.insert(0, trade)
+
+                # 테이블 업데이트
+                self._update_trade_history_table()
+
+                # 로그 출력
+                emoji = trade.get_type_emoji()
+                trade_type = trade.get_type_text()
+                symbol_short = trade.get_symbol_short()
+
+                if trade.trade_type == 'buy':
+                    self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원")
+
+                    # 🔧 매수 발생 시 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
+                    # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
+                    if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
+                        coin_status = self.trading_worker.get_coin_status(trade.symbol)
+                        if coin_status:
+                            self._on_coin_update(trade.symbol, coin_status)
+                else:
+                    self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원 | 손익: {trade.profit:+,.0f}원 ({trade.profit_pct:+.2f}%)")
+
+                    # 🔧 매도 발생 시에도 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
+                    # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
+                    if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
+                        coin_status = self.trading_worker.get_coin_status(trade.symbol)
+                        if coin_status:
+                            self._on_coin_update(trade.symbol, coin_status)
 
         except Exception as e:
+            logger.error(f"거래 내역 업데이트 오류: {e}")
             self._add_log(f"⚠️ 거래 내역 업데이트 오류: {e}")
 
     def _on_portfolio_update(self, portfolio_status: dict):
@@ -2079,14 +2115,22 @@ class MainWindow(QMainWindow):
             dca_item.setForeground(Qt.darkBlue)
         self.position_table.setItem(row_index, 3, dca_item)
 
-        # 4: 익절 (레벨 정보 없음 - 일단 "-")
-        tp_item = QTableWidgetItem("-")
+        # 4: 익절 (레벨 정보 - 그룹 설정에서 가져오기)
+        tp_display, tp_reached = self._get_profit_level_display(group_id, profit_pct)
+        tp_item = QTableWidgetItem(tp_display)
         tp_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        if tp_reached > 0:
+            tp_item.setForeground(Qt.darkGreen)
+            tp_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         self.position_table.setItem(row_index, 4, tp_item)
 
-        # 5: 손절 (레벨 정보 없음 - 일단 "-")
-        sl_item = QTableWidgetItem("-")
+        # 5: 손절 (레벨 정보 - 그룹 설정에서 가져오기)
+        sl_display, sl_reached = self._get_loss_level_display(group_id, profit_pct)
+        sl_item = QTableWidgetItem(sl_display)
         sl_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        if sl_reached > 0:
+            sl_item.setForeground(Qt.red)
+            sl_item.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         self.position_table.setItem(row_index, 5, sl_item)
 
         # 6: 평균가
@@ -2312,9 +2356,289 @@ class MainWindow(QMainWindow):
             
             # 정렬 다시 활성화
             self.trade_history_table.setSortingEnabled(True)
-            
+
         except Exception as e:
             self._add_log(f"⚠️ 거래 내역 테이블 업데이트 오류: {e}")
+
+    def _update_trade_history_table_v4(self):
+        """
+        거래 내역 테이블 업데이트 (V4)
+
+        TradeHistoryManager의 거래 데이터를 테이블에 표시
+        - 9개 컬럼: 그룹, 시각, 심볼, 유형, 가격, 수량, 금액, 손익, 사유
+        """
+        try:
+            # 정렬 비활성화 (업데이트 중)
+            self.trade_history_table.setSortingEnabled(False)
+
+            # 테이블 초기화
+            self.trade_history_table.setRowCount(len(self.trade_history))
+
+            # 거래 내역 통계 계산
+            total_trades = len(self.trade_history)
+            buy_count = sum(1 for t in self.trade_history if t.get('action') == 'buy')
+            sell_count = sum(1 for t in self.trade_history if t.get('action') == 'sell')
+
+            # 누적 손익 계산 (매도 거래의 손익 합계)
+            # V4에서는 매도 시 total_krw가 실제 판매 금액이므로, 손익은 (판매금액 - 매수금액)으로 계산해야 함
+            # 하지만 TradeHistoryManager에 손익 정보가 없으므로, 나중에 추가 필요
+            # 임시로 0으로 설정
+            total_profit = 0.0
+            total_profit_pct = 0.0
+
+            # 요약 정보 업데이트
+            self.trade_summary_label.setText(
+                f"총 {total_trades}건 | 매수: {buy_count}건, 매도: {sell_count}건 | "
+                f"누적 손익: {total_profit:+,.0f}원 ({total_profit_pct:+.2f}%)"
+            )
+
+            # 색상 변경
+            if total_profit > 0:
+                self.trade_summary_label.setStyleSheet(
+                    "color: #4CAF50; padding: 5px; background-color: #f5f5f5; border-radius: 3px; font-weight: bold;"
+                )
+            elif total_profit < 0:
+                self.trade_summary_label.setStyleSheet(
+                    "color: #f44336; padding: 5px; background-color: #f5f5f5; border-radius: 3px; font-weight: bold;"
+                )
+            else:
+                self.trade_summary_label.setStyleSheet(
+                    "color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;"
+                )
+
+            # 각 거래 내역 추가
+            for row, trade in enumerate(self.trade_history):
+                # 0: 그룹
+                group_name = trade.get('group_name', trade.get('group_id', '-'))
+                group_item = QTableWidgetItem(group_name)
+                group_item.setTextAlignment(Qt.AlignCenter)
+                self.trade_history_table.setItem(row, 0, group_item)
+
+                # 1: 시각
+                timestamp_str = trade.get('timestamp', '')
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(timestamp_str)
+                    time_str = dt.strftime("%m-%d %H:%M")
+                except:
+                    time_str = timestamp_str[:16] if len(timestamp_str) >= 16 else timestamp_str
+                time_item = QTableWidgetItem(time_str)
+                time_item.setTextAlignment(Qt.AlignCenter)
+                self.trade_history_table.setItem(row, 1, time_item)
+
+                # 2: 심볼
+                symbol = trade.get('symbol', '')
+                symbol_short = symbol.replace('KRW-', '')
+                symbol_item = QTableWidgetItem(symbol_short)
+                symbol_item.setFont(QFont("Consolas", 9, QFont.Bold))
+                symbol_item.setTextAlignment(Qt.AlignCenter)
+                self.trade_history_table.setItem(row, 2, symbol_item)
+
+                # 3: 유형 (매수/매도)
+                action = trade.get('action', '')
+                trade_type = trade.get('type', '')
+
+                # 이모지 매핑
+                emoji_map = {
+                    'buy': '🔴',
+                    'sell': '🔵'
+                }
+                type_text_map = {
+                    'buy': '매수',
+                    'sell': '매도'
+                }
+                emoji = emoji_map.get(action, '⚪')
+                type_text = type_text_map.get(action, action)
+
+                # 거래 타입 표시 (initial, dca, profit, loss, manual)
+                type_detail_map = {
+                    'initial': '첫매수',
+                    'dca': '추가매수',
+                    'profit': '익절',
+                    'loss': '손절',
+                    'manual': '수동'
+                }
+                type_detail = type_detail_map.get(trade_type, '')
+
+                if type_detail:
+                    type_display = f"{emoji} {type_text} ({type_detail})"
+                else:
+                    type_display = f"{emoji} {type_text}"
+
+                type_item = QTableWidgetItem(type_display)
+                type_item.setTextAlignment(Qt.AlignCenter)
+                if action == 'buy':
+                    type_item.setForeground(Qt.red)
+                else:
+                    type_item.setForeground(Qt.blue)
+                self.trade_history_table.setItem(row, 3, type_item)
+
+                # 4: 가격
+                price = trade.get('price', 0)
+                price_item = QTableWidgetItem(f"{price:,.0f}")
+                price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.trade_history_table.setItem(row, 4, price_item)
+
+                # 5: 수량
+                amount = trade.get('amount', 0)
+                qty_item = QTableWidgetItem(f"{amount:.8f}")
+                qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.trade_history_table.setItem(row, 5, qty_item)
+
+                # 6: 금액 (total_krw)
+                total_krw = trade.get('total_krw', 0)
+                amount_item = QTableWidgetItem(f"{total_krw:,.0f}")
+                amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.trade_history_table.setItem(row, 6, amount_item)
+
+                # 7: 손익 (매도 시만 표시, 향후 구현)
+                # TODO: PositionManager에서 손익 정보를 TradeHistoryManager에 전달하도록 수정 필요
+                profit_item = QTableWidgetItem("-")
+                profit_item.setTextAlignment(Qt.AlignCenter)
+                self.trade_history_table.setItem(row, 7, profit_item)
+
+                # 8: 사유 (notes 필드)
+                notes = trade.get('notes', trade.get('strategy_signal', '-'))
+                reason_item = QTableWidgetItem(notes)
+                reason_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                self.trade_history_table.setItem(row, 8, reason_item)
+
+            # 정렬 다시 활성화
+            self.trade_history_table.setSortingEnabled(True)
+
+        except Exception as e:
+            logger.error(f"V4 거래 내역 테이블 업데이트 오류: {e}")
+            self._add_log(f"⚠️ V4 거래 내역 테이블 업데이트 오류: {e}")
+
+    def _log_v4_trade(self, trade: dict):
+        """
+        V4 거래 로그 출력
+
+        Args:
+            trade: TradeHistoryManager의 거래 딕셔너리
+        """
+        try:
+            action = trade.get('action', '')
+            trade_type = trade.get('type', '')
+            symbol = trade.get('symbol', '').replace('KRW-', '')
+            price = trade.get('price', 0)
+            amount = trade.get('amount', 0)
+            total_krw = trade.get('total_krw', 0)
+
+            # 이모지 및 텍스트
+            emoji_map = {'buy': '🔴', 'sell': '🔵'}
+            type_text_map = {'buy': '매수', 'sell': '매도'}
+            type_detail_map = {
+                'initial': '첫매수',
+                'dca': '추가매수',
+                'profit': '익절',
+                'loss': '손절',
+                'manual': '수동'
+            }
+
+            emoji = emoji_map.get(action, '⚪')
+            type_text = type_text_map.get(action, action)
+            type_detail = type_detail_map.get(trade_type, '')
+
+            if type_detail:
+                display_type = f"{type_text}({type_detail})"
+            else:
+                display_type = type_text
+
+            # 로그 출력
+            self._add_log(
+                f"{emoji} {symbol} {display_type}: "
+                f"{format_price(price)} × {amount:.8f} = {total_krw:,.0f}원"
+            )
+
+        except Exception as e:
+            logger.error(f"V4 거래 로그 출력 오류: {e}")
+
+    def _get_profit_level_display(self, group_id: str, current_profit_pct: float):
+        """
+        익절 레벨 표시 문자열 생성
+
+        Args:
+            group_id: 그룹 ID
+            current_profit_pct: 현재 수익률 (%)
+
+        Returns:
+            tuple: (표시 문자열, 도달한 레벨 수)
+                - 예: ("1/2", 1) - 2개 레벨 중 1개 도달
+                - 예: ("0/3", 0) - 3개 레벨 중 0개 도달
+                - 예: ("-", 0) - 레벨 없음
+        """
+        try:
+            # V4Worker에서 config를 직접 로드
+            from core.config_manager import ConfigManager
+
+            config_mgr = ConfigManager()
+            config = config_mgr.load_config()
+
+            if 'groups' not in config or group_id not in config['groups']:
+                return ("-", 0)
+
+            group_data = config['groups'][group_id]
+            profit_settings = group_data.get('profit_settings', {})
+            levels = profit_settings.get('levels', [])
+
+            if not levels:
+                return ("-", 0)
+
+            # 현재 수익률이 넘은 레벨 수 계산
+            reached_count = 0
+            for level in levels:
+                if current_profit_pct >= level.get('price_ratio', 0):
+                    reached_count += 1
+
+            return (f"{reached_count}/{len(levels)}", reached_count)
+
+        except Exception as e:
+            logger.error(f"익절 레벨 표시 오류: {e}")
+            return ("-", 0)
+
+    def _get_loss_level_display(self, group_id: str, current_profit_pct: float):
+        """
+        손절 레벨 표시 문자열 생성
+
+        Args:
+            group_id: 그룹 ID
+            current_profit_pct: 현재 수익률 (%)
+
+        Returns:
+            tuple: (표시 문자열, 도달한 레벨 수)
+                - 예: ("0/1", 0) - 1개 레벨 중 0개 도달
+                - 예: ("1/1", 1) - 1개 레벨 중 1개 도달 (손절 발동!)
+                - 예: ("-", 0) - 레벨 없음
+        """
+        try:
+            # V4Worker에서 config를 직접 로드
+            from core.config_manager import ConfigManager
+
+            config_mgr = ConfigManager()
+            config = config_mgr.load_config()
+
+            if 'groups' not in config or group_id not in config['groups']:
+                return ("-", 0)
+
+            group_data = config['groups'][group_id]
+            loss_settings = group_data.get('loss_settings', {})
+            levels = loss_settings.get('levels', [])
+
+            if not levels:
+                return ("-", 0)
+
+            # 현재 수익률이 손절 기준 아래로 떨어진 레벨 수 계산
+            reached_count = 0
+            for level in levels:
+                if current_profit_pct <= level.get('price_ratio', 0):
+                    reached_count += 1
+
+            return (f"{reached_count}/{len(levels)}", reached_count)
+
+        except Exception as e:
+            logger.error(f"손절 레벨 표시 오류: {e}")
+            return ("-", 0)
 
     def _add_log(self, message: str):
         """로그 추가 (최대 1000줄 유지)"""
