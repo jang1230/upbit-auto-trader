@@ -1915,6 +1915,9 @@ class MainWindow(QMainWindow):
 
                             # 포지션 테이블 로드
                             self._load_v4_positions()
+
+                            # 🔧 MyAsset WebSocket 시작 (실시간 잔고 감지)
+                            self._start_myasset_websocket()
                         else:
                             logger.warning("⚠️ [Step 2] PositionManager 또는 UpbitAPI가 없음")
                             self._add_log("⚠️ 포지션 관리자 초기화 필요")
@@ -2240,6 +2243,61 @@ class MainWindow(QMainWindow):
             logger.error(f"❌ WebSocket 시작 실패: {e}", exc_info=True)
             self._add_log(f"⚠️ 실시간 가격 업데이트 시작 실패: {e}")
 
+    def _start_myasset_websocket(self):
+        """
+        MyAsset WebSocket 시작 (실시간 잔고 감지)
+
+        Live 모드에서만 실행되며, 잔고 변동을 실시간으로 감지합니다.
+        """
+        try:
+            # API 키 확인
+            access_key = self.config_manager.get_upbit_access_key()
+            secret_key = self.config_manager.get_upbit_secret_key()
+
+            if not access_key or not secret_key:
+                logger.warning("⚠️ MyAsset WebSocket: API 키 미설정")
+                return
+
+            # V4 config 로드
+            if not self.v4_config_manager:
+                logger.warning("⚠️ MyAsset WebSocket: V4 config 없음")
+                return
+
+            config = self.v4_config_manager.load_config()
+
+            # 기존 워커가 있으면 중지
+            if self.myasset_websocket_worker and self.myasset_websocket_worker.isRunning():
+                logger.info("🛑 기존 MyAsset WebSocket 워커 중지")
+                self.myasset_websocket_worker.stop()
+                self.myasset_websocket_worker.wait(3000)  # 3초 대기
+
+            # 새 워커 생성
+            from gui.myasset_websocket_worker import MyAssetWebSocketWorker
+
+            self.myasset_websocket_worker = MyAssetWebSocketWorker(
+                access_key,
+                secret_key,
+                self.v4_position_manager,
+                config,
+                parent=self
+            )
+
+            # 시그널 연결
+            self.myasset_websocket_worker.balance_updated.connect(self._on_balance_updated)
+            self.myasset_websocket_worker.connected.connect(self._on_myasset_connected)
+            self.myasset_websocket_worker.disconnected.connect(self._on_myasset_disconnected)
+            self.myasset_websocket_worker.error_occurred.connect(self._on_myasset_error)
+
+            # 워커 시작
+            self.myasset_websocket_worker.start()
+
+            logger.info("🚀 MyAsset WebSocket 시작: 실시간 잔고 감지")
+            self._add_log("💰 실시간 잔고 감지 시작 (자동 동기화 활성화)")
+
+        except Exception as e:
+            logger.error(f"❌ MyAsset WebSocket 시작 실패: {e}", exc_info=True)
+            self._add_log(f"⚠️ 실시간 잔고 감지 시작 실패: {e}")
+
     def _on_price_updated(self, symbol: str, current_price: float):
         """
         가격 업데이트 시그널 핸들러
@@ -2311,6 +2369,58 @@ class MainWindow(QMainWindow):
         """WebSocket 에러 핸들러"""
         logger.error(f"❌ WebSocket 에러: {error_msg}")
         self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {error_msg}")
+
+    def _on_balance_updated(self, assets: list):
+        """
+        MyAsset 잔고 업데이트 시그널 핸들러
+
+        Args:
+            assets: MyAsset WebSocket에서 받은 자산 리스트
+        """
+        try:
+            if not self.v4_position_manager or not self.v4_config_manager:
+                return
+
+            # PositionManager 동기화
+            config = self.v4_config_manager.load_config()
+            sync_result = self.v4_position_manager.sync_from_myasset(assets, config)
+
+            # 로그 출력 (변경 사항이 있을 때만)
+            if sync_result['new_positions'] or sync_result['removed_positions']:
+                logger.info(f"💰 잔고 변동 감지: "
+                           f"신규 {len(sync_result['new_positions'])}개, "
+                           f"삭제 {len(sync_result['removed_positions'])}개, "
+                           f"업데이트 {len(sync_result['synced_positions'])}개")
+
+                # 포지션 테이블 리프레시
+                self._load_v4_positions()
+
+                # 사용자에게 알림
+                if sync_result['removed_positions']:
+                    removed_str = ', '.join(sync_result['removed_positions'])
+                    self._add_log(f"🗑️ 매도 감지: {removed_str}")
+
+                if sync_result['new_positions']:
+                    new_str = ', '.join(sync_result['new_positions'])
+                    self._add_log(f"🆕 매수 감지: {new_str}")
+
+        except Exception as e:
+            logger.error(f"❌ 잔고 업데이트 처리 오류: {e}", exc_info=True)
+
+    def _on_myasset_connected(self):
+        """MyAsset WebSocket 연결 성공 핸들러"""
+        logger.info("✅ MyAsset WebSocket 연결 성공")
+        self._add_log("✅ 실시간 잔고 감지 연결됨")
+
+    def _on_myasset_disconnected(self):
+        """MyAsset WebSocket 연결 종료 핸들러"""
+        logger.warning("⚠️ MyAsset WebSocket 연결 종료")
+        self._add_log("⚠️ 실시간 잔고 감지 종료됨")
+
+    def _on_myasset_error(self, error_msg: str):
+        """MyAsset WebSocket 에러 핸들러"""
+        logger.error(f"❌ MyAsset WebSocket 에러: {error_msg}")
+        self._add_log(f"⚠️ 실시간 잔고 감지 오류: {error_msg}")
 
     def _open_global_settings(self):
         """전역 설정 다이얼로그 열기"""
@@ -2538,6 +2648,16 @@ class MainWindow(QMainWindow):
                 self.price_websocket_worker.terminate()
                 self.price_websocket_worker.wait(1000)
             self.price_websocket_worker = None
+
+        # MyAsset WebSocket Worker 정리
+        if self.myasset_websocket_worker and self.myasset_websocket_worker.isRunning():
+            logger.info("🛑 MyAsset WebSocket Worker 종료 중...")
+            self.myasset_websocket_worker.stop()
+            if not self.myasset_websocket_worker.wait(3000):
+                logger.warning("⚠️ MyAsset WebSocket Worker 종료 시간 초과")
+                self.myasset_websocket_worker.terminate()
+                self.myasset_websocket_worker.wait(1000)
+            self.myasset_websocket_worker = None
 
         event.accept()
 
