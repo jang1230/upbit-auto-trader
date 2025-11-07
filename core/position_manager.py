@@ -583,6 +583,9 @@ class PositionManager:
             avg_buy_price = float(asset.get('avg_buy_price', 0))
             avg_buy_price_modified = asset.get('avg_buy_price_modified', False)
 
+            # 디버깅: avg_buy_price 확인
+            logger.debug(f"   [MyAsset] {currency} | balance={balance:.8f}, locked={locked:.8f}, avg_buy_price={avg_buy_price:.0f}")
+
             # KRW 잔고는 별도 처리
             if currency == 'KRW':
                 krw_balance = balance
@@ -615,14 +618,34 @@ class PositionManager:
                     'locked_amount': locked,
                 }
 
-                # avg_buy_price가 있으면 업데이트 (MyAsset에서 제공)
+                # avg_buy_price 처리: MyAsset → 기존 포지션 → REST API 순서로 사용
                 if avg_buy_price > 0:
+                    # MyAsset에서 제공한 평균가 사용
                     updates['average_price'] = avg_buy_price
                     updates['total_invested_krw'] = avg_buy_price * balance
+                    logger.debug(f"   ✅ MyAsset 평균가 사용: {symbol} | avg_price={avg_buy_price:.0f}")
+                else:
+                    # MyAsset에 없으면 기존 포지션의 평균가 사용
+                    existing_avg_price = position.get('average_price', 0)
+                    if existing_avg_price > 0:
+                        updates['total_invested_krw'] = existing_avg_price * balance
+                        logger.debug(f"   ✅ 기존 평균가 사용: {symbol} | avg_price={existing_avg_price:.0f}, invested={existing_avg_price * balance:.0f}")
+                    else:
+                        # 둘 다 없으면 REST API로 조회
+                        logger.warning(f"   ⚠️ {symbol} 평균가 없음, REST API 조회 필요")
+                        if self.upbit_api:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                if f"KRW-{acc['currency']}" == symbol:
+                                    fetched_avg_price = float(acc.get('avg_buy_price', 0))
+                                    updates['average_price'] = fetched_avg_price
+                                    updates['total_invested_krw'] = fetched_avg_price * balance
+                                    logger.info(f"   📊 REST API 평균가 조회: {symbol} = {fetched_avg_price:.0f}원")
+                                    break
 
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
-                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | balance={balance:.8f}, locked={locked:.8f}, avg_price={avg_buy_price:.0f}")
+                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | balance={balance:.8f}, locked={locked:.8f}")
             else:
                 # 새 포지션 발견 (외부 앱에서 매수한 경우)
                 group_id = self._find_group_for_coin(symbol, config)

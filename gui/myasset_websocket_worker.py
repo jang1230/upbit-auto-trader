@@ -138,11 +138,12 @@ class MyAssetWebSocketWorker(QThread):
                 currency = asset.get('currency')
                 balance = float(asset.get('balance', 0))
                 locked = float(asset.get('locked', 0))
+                avg_buy_price = float(asset.get('avg_buy_price', 0))
 
                 if currency == 'KRW':
                     logger.info(f"💰 잔고 변동: {currency} - 잔액: {balance:,.0f}원, 주문중: {locked:,.0f}원")
                 elif balance > 0 or locked > 0:
-                    logger.info(f"💰 잔고 변동: {currency} - 잔액: {balance:.8f}, 주문중: {locked:.8f}")
+                    logger.info(f"💰 잔고 변동: {currency} - 잔액: {balance:.8f}, 주문중: {locked:.8f}, 평균가: {avg_buy_price:,.0f}원")
 
         except Exception as e:
             logger.error(f"❌ MyAsset 데이터 처리 오류: {e}", exc_info=True)
