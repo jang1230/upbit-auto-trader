@@ -544,6 +544,136 @@ class PositionManager:
             'krw_balance': krw_balance
         }
 
+    def sync_from_myasset(self, assets: list, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        MyAsset WebSocket 데이터로 포지션 동기화
+
+        실시간 잔고 변동 데이터를 받아서 포지션을 업데이트/생성/삭제합니다.
+        sync_with_upbit()와 동일한 로직이지만 WebSocket 데이터를 사용합니다.
+
+        Args:
+            assets: MyAsset WebSocket에서 받은 자산 리스트
+                [{"currency": "BTC", "balance": "0.001", "locked": "0", "avg_buy_price": "95000000"}, ...]
+            config: 거래 설정 (그룹 정보 포함)
+
+        Returns:
+            딕셔너리 {
+                'synced_positions': [symbol, ...],  # 업데이트된 포지션
+                'new_positions': [symbol, ...],     # 새로 생성된 포지션
+                'removed_positions': [symbol, ...], # 삭제된 포지션
+                'skipped_positions': [symbol, ...]  # 스킵된 포지션 (그룹 없음)
+            }
+        """
+        synced_positions = []
+        new_positions = []
+        removed_positions = []
+        skipped_positions = []
+        krw_balance = 0.0
+
+        # 자산 데이터 처리
+        for asset in assets:
+            currency = asset.get('currency')
+            balance = float(asset.get('balance', 0))
+            locked = float(asset.get('locked', 0))
+
+            # avg_buy_price가 WebSocket 데이터에 포함되어 있으면 사용, 없으면 기존 값 유지
+            avg_buy_price = float(asset.get('avg_buy_price', 0))
+
+            # KRW 잔고는 별도 처리
+            if currency == 'KRW':
+                krw_balance = balance
+                continue
+
+            # 보유량이 거의 없으면 무시 (먼지)
+            if balance < 0.00000001:
+                continue
+
+            # 심볼 생성
+            symbol = f"KRW-{currency}"
+
+            # 기존 포지션 확인
+            position = self.get_position(symbol)
+
+            if position:
+                # 기존 포지션 업데이트
+                updates = {
+                    'total_amount': balance,
+                    'locked_amount': locked,
+                }
+
+                # avg_buy_price가 있으면 업데이트 (WebSocket에서 제공하는 경우)
+                if avg_buy_price > 0:
+                    updates['average_price'] = avg_buy_price
+                    updates['total_invested_krw'] = avg_buy_price * balance
+
+                self.update_position(symbol, updates)
+                synced_positions.append(symbol)
+                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | {balance:.8f}")
+            else:
+                # 새 포지션 발견
+                group_id = self._find_group_for_coin(symbol, config)
+
+                if group_id:
+                    # 그룹에 속한 코인 → 자동 생성
+                    try:
+                        # avg_buy_price가 없으면 현재 시장가로 설정 (나중에 수동 수정 필요)
+                        entry_price = avg_buy_price if avg_buy_price > 0 else 0
+
+                        new_position = self.create_position(
+                            symbol=symbol,
+                            group_id=group_id,
+                            entry_price=entry_price,
+                            entry_amount=balance,
+                            buy_amount_krw=entry_price * balance if entry_price > 0 else 0,
+                            locked_amount=locked
+                        )
+                        new_positions.append(symbol)
+                        logger.info(f"   🆕 MyAsset 포지션 생성: {symbol} → {group_id} | {balance:.8f}")
+                    except Exception as e:
+                        logger.warning(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
+                        skipped_positions.append(symbol)
+                else:
+                    # 그룹에 속하지 않은 코인 → 스킵
+                    skipped_positions.append(symbol)
+                    logger.debug(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f}")
+
+        # 로컬 포지션 정리: Upbit에 없거나 그룹에서 제외된 포지션 삭제
+        # WebSocket 데이터에 있는 코인 목록 (balance > 0인 것만)
+        myasset_symbols = {f"KRW-{asset['currency']}"
+                          for asset in assets
+                          if asset['currency'] != 'KRW' and float(asset.get('balance', 0)) >= 0.00000001}
+
+        for symbol in list(self.positions.keys()):
+            position = self.positions[symbol]
+
+            if position.get('status') != 'active':
+                continue
+
+            # 조건 1: MyAsset에 없는 포지션 (완전 매도됨)
+            if symbol not in myasset_symbols:
+                self.delete_position(symbol)
+                removed_positions.append(symbol)
+                logger.info(f"   🗑️ 자동 삭제: {symbol} (MyAsset에 없음, 완전 매도)")
+                continue
+
+            # 조건 2: 어떤 그룹에도 속하지 않는 포지션 (그룹에서 제외됨)
+            group_id = self._find_group_for_coin(symbol, config)
+            if not group_id:
+                self.delete_position(symbol)
+                removed_positions.append(symbol)
+                logger.info(f"   🗑️ 자동 삭제: {symbol} (그룹에서 제외됨)")
+
+        logger.debug(f"💰 MyAsset 동기화 완료: 업데이트 {len(synced_positions)}, "
+                    f"신규 {len(new_positions)}, 삭제 {len(removed_positions)}")
+
+        return {
+            'synced_positions': synced_positions,
+            'new_positions': new_positions,
+            'removed_positions': removed_positions,
+            'skipped_positions': skipped_positions,
+            'krw_balance': krw_balance
+        }
+
     def get_virtual_balances(self) -> Dict[str, float]:
         """
         가상 잔고 조회 (Dry-run 모드 전용)
