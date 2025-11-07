@@ -35,6 +35,7 @@ class PriceWebSocketWorker(QThread):
         self.websocket = None
         self.symbols = []
         self.is_running = False
+        self.loop = None  # asyncio 이벤트 루프 저장
 
     def set_symbols(self, symbols: List[str]):
         """
@@ -50,18 +51,21 @@ class PriceWebSocketWorker(QThread):
         """QThread 실행 (별도 스레드에서 asyncio 이벤트 루프 실행)"""
         try:
             # 새로운 asyncio 이벤트 루프 생성
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
 
             # WebSocket 연결 및 구독
             self.is_running = True
-            loop.run_until_complete(self._run_websocket())
+            self.loop.run_until_complete(self._run_websocket())
 
         except Exception as e:
             logger.error(f"❌ WebSocket Worker 오류: {e}", exc_info=True)
             self.error_occurred.emit(str(e))
         finally:
             self.is_running = False
+            if self.loop:
+                self.loop.close()
+            self.loop = None
 
     async def _run_websocket(self):
         """WebSocket 연결 및 메시지 수신"""
@@ -88,12 +92,17 @@ class PriceWebSocketWorker(QThread):
             await self.websocket.subscribe_ticker(self.symbols)
             logger.info(f"📊 Ticker 구독 완료: {len(self.symbols)}개 심볼")
 
-            # 메시지 수신 루프
-            async for data in self.websocket.listen():
-                if not self.is_running:
-                    break
+            # 메시지 수신 루프 (async generator를 제대로 닫기 위해 try-finally 사용)
+            listener = self.websocket.listen()
+            try:
+                async for data in listener:
+                    if not self.is_running:
+                        break
 
-                await self._process_ticker_data(data)
+                    await self._process_ticker_data(data)
+            finally:
+                # async generator 명시적 종료
+                await listener.aclose()
 
         except Exception as e:
             logger.error(f"❌ WebSocket 실행 오류: {e}", exc_info=True)
@@ -143,9 +152,12 @@ class PriceWebSocketWorker(QThread):
         logger.info("🛑 WebSocket Worker 중지 요청")
         self.is_running = False
 
-        # WebSocket 연결 종료
-        if self.websocket:
-            asyncio.run_coroutine_threadsafe(
-                self.websocket.disconnect(),
-                asyncio.get_event_loop()
-            )
+        # WebSocket 연결 종료 (올바른 이벤트 루프 사용)
+        if self.websocket and self.loop and self.loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self.websocket.disconnect(),
+                    self.loop
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ WebSocket 종료 중 오류: {e}")
