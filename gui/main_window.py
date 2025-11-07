@@ -1328,21 +1328,11 @@ class MainWindow(QMainWindow):
             if trade.trade_type == 'buy':
                 self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원")
 
-                # 🔧 매수 발생 시 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
-                # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
-                if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
-                    coin_status = self.trading_worker.get_coin_status(trade.symbol)
-                    if coin_status:
-                        self._on_coin_update(trade.symbol, coin_status)
+                # 🔧 V4: 매수 발생 시 테이블 업데이트는 V4 엔진에서 처리
             else:
                 self._add_log(f"{emoji} {symbol_short} {trade_type}: {format_price(trade.price)} × {trade.quantity:.8f} = {trade.amount:,.0f}원 | 손익: {trade.profit:+,.0f}원 ({trade.profit_pct:+.2f}%)")
 
-                # 🔧 매도 발생 시에도 즉시 해당 코인 상태 조회하여 활성 포지션 테이블 업데이트
-                # (완전 자동 모드만 해당, 반자동 모드는 position_update_signal로 업데이트됨)
-                if self.trading_worker and hasattr(self.trading_worker, 'get_coin_status'):
-                    coin_status = self.trading_worker.get_coin_status(trade.symbol)
-                    if coin_status:
-                        self._on_coin_update(trade.symbol, coin_status)
+                # 🔧 V4: 매도 발생 시 테이블 업데이트는 V4 엔진에서 처리
 
         except Exception as e:
             self._add_log(f"⚠️ 거래 내역 업데이트 오류: {e}")
@@ -1394,133 +1384,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_log(f"⚠️ 포트폴리오 업데이트 오류: {e}")
 
-    def _on_coin_update(self, symbol: str, coin_status: dict):
-        """
-        개별 코인 상태 업데이트 처리 → 포지션 테이블 업데이트
-
-        Args:
-            symbol: 코인 심볼 (예: 'KRW-BTC')
-            coin_status: 코인 상태
-                - position: 보유 수량
-                - entry_price: 진입가
-                - current_price: 현재가
-                - profit_loss: 평가손익 (원)
-                - return_pct: 손익률 (%)
-                - entry_time: 진입시각
-        """
-        try:
-            # 심볼에서 'KRW-' 제거
-            symbol_short = symbol.replace('KRW-', '')
-
-            # 포지션 정보 추출
-            position = coin_status.get('position', 0)
-            entry_price = coin_status.get('entry_price')  # 최초 진입가 (테이블 표시용)
-            avg_entry_price = coin_status.get('avg_entry_price')  # 🔧 DCA 평균 단가 (손익 계산용)
-            current_price = coin_status.get('current_price') or coin_status.get('last_price')  # 🔧 SemiAuto는 current_price, MultiCoin은 last_price
-
-            # 🔧 평가손익 계산 (DCA 평균 단가 기준)
-            profit_loss = 0
-            return_pct = 0
-            if position > 0 and avg_entry_price and current_price:
-                profit_loss = (current_price - avg_entry_price) * position
-                return_pct = ((current_price - avg_entry_price) / avg_entry_price) * 100
-            elif position > 0 and entry_price and current_price:
-                # avg_entry_price가 없으면 entry_price 사용 (하위 호환)
-                profit_loss = (current_price - entry_price) * position
-                return_pct = ((current_price - entry_price) / entry_price) * 100
-
-            # 🔧 포지션이 없으면 테이블에 표시하지 않음 (매수 완료 시에만 표시)
-            if position <= 0 or not entry_price:
-                # 기존에 테이블에 있었다면 제거 (매도 완료)
-                for row in range(self.position_table.rowCount()):
-                    item = self.position_table.item(row, 0)
-                    if item and item.text() == symbol_short:
-                        self.position_table.removeRow(row)
-                        # 🔧 매도 후 요약 정보 업데이트 (throttled - 500ms)
-                        self._update_position_summary_throttled()
-                        break
-                return
-
-            # ✅ 포지션 보유 중 - 테이블에서 해당 심볼 행 찾기
-            row_index = -1
-            for row in range(self.position_table.rowCount()):
-                item = self.position_table.item(row, 0)
-                if item and item.text() == symbol_short:
-                    row_index = row
-                    break
-
-            # 행이 없으면 새로 추가 (첫 매수)
-            if row_index == -1:
-                row_index = self.position_table.rowCount()
-                self.position_table.insertRow(row_index)
-
-            # 심볼
-            symbol_item = QTableWidgetItem(symbol_short)
-            symbol_item.setFont(QFont("Consolas", 10, QFont.Bold))
-            self.position_table.setItem(row_index, 0, symbol_item)
-
-            # 상태 (검은색)
-            status_item = QTableWidgetItem("보유중")
-            status_item.setForeground(Qt.black)
-            status_item.setFont(QFont("Consolas", 10, QFont.Bold))
-            self.position_table.setItem(row_index, 1, status_item)
-
-            # 진입가
-            entry_price_item = QTableWidgetItem(format_price(entry_price))
-            entry_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.position_table.setItem(row_index, 2, entry_price_item)
-
-            # 현재가
-            if current_price:
-                current_price_item = QTableWidgetItem(format_price(current_price))
-                current_price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.position_table.setItem(row_index, 3, current_price_item)
-            else:
-                self.position_table.setItem(row_index, 3, QTableWidgetItem("-"))
-
-            # 수량
-            qty_item = QTableWidgetItem(f"{position:.8f}")
-            qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.position_table.setItem(row_index, 4, qty_item)
-
-            # 매수금액 (진입가 × 수량)
-            purchase_amount = entry_price * position
-            purchase_amount_item = QTableWidgetItem(f"{purchase_amount:,.0f}원")
-            purchase_amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            purchase_amount_item.setForeground(Qt.darkGray)  # 회색 (중립)
-            self.position_table.setItem(row_index, 5, purchase_amount_item)
-
-            # 평가손익 (색상: 수익=빨강, 손실=파랑, 0=검은색)
-            profit_loss_item = QTableWidgetItem(f"{profit_loss:+,.0f}원")
-            profit_loss_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if profit_loss > 0:
-                profit_loss_item.setForeground(Qt.red)  # 🔴 빨강 (수익)
-                profit_loss_item.setFont(QFont("Consolas", 10, QFont.Bold))
-            elif profit_loss < 0:
-                profit_loss_item.setForeground(Qt.blue)  # 🔵 파랑 (손실)
-                profit_loss_item.setFont(QFont("Consolas", 10, QFont.Bold))
-            else:
-                profit_loss_item.setForeground(Qt.black)  # ⚫ 검은색 (0)
-            self.position_table.setItem(row_index, 6, profit_loss_item)
-
-            # 손익률 (색상: 수익=빨강, 손실=파랑, 0=검은색)
-            return_pct_item = QTableWidgetItem(f"{return_pct:+.2f}%")
-            return_pct_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            if return_pct > 0:
-                return_pct_item.setForeground(Qt.red)  # 🔴 빨강 (수익)
-                return_pct_item.setFont(QFont("Consolas", 10, QFont.Bold))
-            elif return_pct < 0:
-                return_pct_item.setForeground(Qt.blue)  # 🔵 파랑 (손실)
-                return_pct_item.setFont(QFont("Consolas", 10, QFont.Bold))
-            else:
-                return_pct_item.setForeground(Qt.black)  # ⚫ 검은색 (0)
-            self.position_table.setItem(row_index, 7, return_pct_item)
-
-            # 🔧 포지션 요약 정보 업데이트 (throttled - 500ms)
-            self._update_position_summary_throttled()
-
-        except Exception as e:
-            self._add_log(f"⚠️ 코인 업데이트 오류 ({symbol}): {e}")
+    # 🔧 V4: _on_coin_update() 함수 제거됨
+    # V3 테이블 구조(8컬럼)와 V4 테이블 구조(11컬럼) 충돌로 인해 제거
+    # V4 포지션 업데이트는 별도 구현 필요
 
     def _update_position_summary_throttled(self):
         """
@@ -1780,8 +1646,8 @@ class MainWindow(QMainWindow):
         """
         try:
             symbol = position_data.get('symbol', '')
-            # 기존 _on_coin_update와 동일한 로직 재사용
-            self._on_coin_update(symbol, position_data)
+            # 🔧 V4: 포지션 업데이트는 V4 엔진에서 처리
+            # V3 _on_coin_update 제거됨
 
         except KeyboardInterrupt:
             # 프로그램 종료 시 발생하는 KeyboardInterrupt 무시
@@ -2075,22 +1941,9 @@ class MainWindow(QMainWindow):
                         symbol = f'KRW-{currency}'
                         logger.info(f"💰 [Step 2] 포지션 발견: {symbol}, 수량={balance}, 평단가={avg_buy_price}")
 
-                        # ✅ GUI 업데이트 (각 포지션마다 _on_coin_update 호출)
-                        position_data = {
-                            'symbol': symbol,
-                            'position': balance,
-                            'entry_price': avg_buy_price,
-                            'avg_entry_price': avg_buy_price,
-                            'current_price': avg_buy_price,  # 최초에는 진입가로 표시
-                            'profit_loss': 0,
-                            'return_pct': 0,
-                            'entry_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        }
-
-                        # GUI 테이블 업데이트
-                        logger.info(f"🔧 [Step 2] _on_coin_update 호출: {symbol}")
-                        self._on_coin_update(symbol, position_data)
-                        logger.info(f"✅ [Step 2] _on_coin_update 완료: {symbol}")
+                        # 🔧 V4: GUI 업데이트는 V4 방식으로 재구현 필요
+                        # V3 _on_coin_update 제거됨 (V4 테이블 구조와 충돌)
+                        logger.info(f"🔧 [Step 2] 포지션 발견: {symbol} (V4 테이블 업데이트 대기)")
                         positions_found.append(currency)
 
             if positions_found:
