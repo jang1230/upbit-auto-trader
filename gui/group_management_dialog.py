@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QListWidget, QCheckBox,
     QScrollArea, QWidget, QRadioButton, QButtonGroup,
-    QMessageBox, QSplitter, QGroupBox, QFormLayout
+    QMessageBox, QSplitter, QGroupBox, QFormLayout,
+    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -44,7 +45,8 @@ class GroupManagementDialog(QDialog):
     def _init_ui(self):
         """UI 초기화"""
         self.setWindowTitle("그룹 관리")
-        self.setMinimumSize(700, 600)
+        self.setMinimumSize(1000, 700)
+        self.resize(1200, 800)  # 초기 크기 설정
 
         # 메인 레이아웃
         main_layout = QVBoxLayout()
@@ -111,34 +113,153 @@ class GroupManagementDialog(QDialog):
 
         right_layout.addWidget(scroll_area)
 
-        # 매수 방식
-        buy_group = QGroupBox("매수 방식")
-        buy_layout = QVBoxLayout()
+        # 매수 설정
+        buy_group = QGroupBox("매수 설정")
+        buy_form_layout = QFormLayout()
 
+        # 매수 방식 (자동/수동)
+        buy_mode_layout = QHBoxLayout()
         self.buy_button_group = QButtonGroup()
         self.auto_buy_radio = QRadioButton("자동")
         self.manual_buy_radio = QRadioButton("수동")
         self.buy_button_group.addButton(self.auto_buy_radio, 0)
         self.buy_button_group.addButton(self.manual_buy_radio, 1)
+        buy_mode_layout.addWidget(self.auto_buy_radio)
+        buy_mode_layout.addWidget(self.manual_buy_radio)
+        buy_mode_layout.addStretch()
+        buy_form_layout.addRow("매수 방식:", buy_mode_layout)
 
-        buy_layout.addWidget(self.auto_buy_radio)
-        buy_layout.addWidget(self.manual_buy_radio)
+        # 투자 성향 (자동 매수 시)
+        self.investment_style_combo = QComboBox()
+        self.investment_style_combo.addItems([
+            "Conservative (보수적)",
+            "Balanced (균형적)",
+            "Aggressive (공격적)"
+        ])
+        self.investment_style_combo.setEnabled(False)  # 기본적으로 비활성화
+        buy_form_layout.addRow("투자 성향:", self.investment_style_combo)
 
-        buy_group.setLayout(buy_layout)
+        # 매수 금액 (KRW)
+        self.buy_amount_input = QLineEdit()
+        self.buy_amount_input.setPlaceholderText("예: 50000")
+        buy_form_layout.addRow("매수 금액 (KRW):", self.buy_amount_input)
+
+        buy_group.setLayout(buy_form_layout)
         right_layout.addWidget(buy_group)
 
-        # 레벨 설정 버튼 (나중에 구현)
-        self.level_settings_btn = QPushButton("⚙️ 레벨 상세 설정")
-        self.level_settings_btn.setEnabled(False)  # 임시로 비활성화
-        right_layout.addWidget(self.level_settings_btn)
+        # 자동/수동 전환 시 투자 성향 활성화/비활성화
+        self.auto_buy_radio.toggled.connect(self._on_buy_mode_changed)
+
+        # DCA 레벨 설정
+        dca_group = QGroupBox("DCA 레벨 설정")
+        dca_layout = QVBoxLayout()
+
+        # DCA 활성화 체크박스
+        self.dca_enabled_checkbox = QCheckBox("DCA 활성화")
+        self.dca_enabled_checkbox.toggled.connect(self._on_dca_enabled_changed)
+        dca_layout.addWidget(self.dca_enabled_checkbox)
+
+        # DCA 레벨 테이블
+        self.dca_table = QTableWidget()
+        self.dca_table.setColumnCount(2)
+        self.dca_table.setHorizontalHeaderLabels(["가격 하락 (%)", "매수 금액 (KRW)"])
+        self.dca_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.dca_table.setMaximumHeight(150)
+        self.dca_table.setEnabled(False)  # 기본적으로 비활성화
+        dca_layout.addWidget(self.dca_table)
+
+        # DCA 레벨 버튼들
+        dca_button_layout = QHBoxLayout()
+        self.dca_add_btn = QPushButton("➕ 추가")
+        self.dca_remove_btn = QPushButton("➖ 삭제")
+        self.dca_edit_btn = QPushButton("✏️ 수정")
+        self.dca_add_btn.clicked.connect(self._add_dca_level)
+        self.dca_remove_btn.clicked.connect(self._remove_dca_level)
+        self.dca_edit_btn.clicked.connect(self._edit_dca_level)
+        self.dca_add_btn.setEnabled(False)
+        self.dca_remove_btn.setEnabled(False)
+        self.dca_edit_btn.setEnabled(False)
+        dca_button_layout.addWidget(self.dca_add_btn)
+        dca_button_layout.addWidget(self.dca_remove_btn)
+        dca_button_layout.addWidget(self.dca_edit_btn)
+        dca_button_layout.addStretch()
+        dca_layout.addLayout(dca_button_layout)
+
+        dca_group.setLayout(dca_layout)
+        right_layout.addWidget(dca_group)
+
+        # 익절 레벨 설정
+        profit_group = QGroupBox("익절 레벨 설정")
+        profit_layout = QVBoxLayout()
+
+        # 익절 레벨 테이블
+        self.profit_table = QTableWidget()
+        self.profit_table.setColumnCount(2)
+        self.profit_table.setHorizontalHeaderLabels(["가격 비율", "판매 수량 비율"])
+        self.profit_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.profit_table.setMaximumHeight(150)
+        profit_layout.addWidget(self.profit_table)
+
+        # 익절 레벨 버튼들
+        profit_button_layout = QHBoxLayout()
+        self.profit_add_btn = QPushButton("➕ 추가")
+        self.profit_remove_btn = QPushButton("➖ 삭제")
+        self.profit_edit_btn = QPushButton("✏️ 수정")
+        self.profit_add_btn.clicked.connect(self._add_profit_level)
+        self.profit_remove_btn.clicked.connect(self._remove_profit_level)
+        self.profit_edit_btn.clicked.connect(self._edit_profit_level)
+        profit_button_layout.addWidget(self.profit_add_btn)
+        profit_button_layout.addWidget(self.profit_remove_btn)
+        profit_button_layout.addWidget(self.profit_edit_btn)
+        profit_button_layout.addStretch()
+        profit_layout.addLayout(profit_button_layout)
+
+        profit_group.setLayout(profit_layout)
+        right_layout.addWidget(profit_group)
+
+        # 손절 레벨 설정
+        loss_group = QGroupBox("손절 레벨 설정")
+        loss_layout = QVBoxLayout()
+
+        # 손절 레벨 테이블
+        self.loss_table = QTableWidget()
+        self.loss_table.setColumnCount(2)
+        self.loss_table.setHorizontalHeaderLabels(["가격 비율", "판매 수량 비율"])
+        self.loss_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.loss_table.setMaximumHeight(150)
+        loss_layout.addWidget(self.loss_table)
+
+        # 손절 레벨 버튼들
+        loss_button_layout = QHBoxLayout()
+        self.loss_add_btn = QPushButton("➕ 추가")
+        self.loss_remove_btn = QPushButton("➖ 삭제")
+        self.loss_edit_btn = QPushButton("✏️ 수정")
+        self.loss_add_btn.clicked.connect(self._add_loss_level)
+        self.loss_remove_btn.clicked.connect(self._remove_loss_level)
+        self.loss_edit_btn.clicked.connect(self._edit_loss_level)
+        loss_button_layout.addWidget(self.loss_add_btn)
+        loss_button_layout.addWidget(self.loss_remove_btn)
+        loss_button_layout.addWidget(self.loss_edit_btn)
+        loss_button_layout.addStretch()
+        loss_layout.addLayout(loss_button_layout)
+
+        loss_group.setLayout(loss_layout)
+        right_layout.addWidget(loss_group)
 
         right_layout.addStretch()
         right_widget.setLayout(right_layout)
 
+        # 우측 영역을 스크롤 가능하게 만들기
+        right_scroll = QScrollArea()
+        right_scroll.setWidget(right_widget)
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        right_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
         # 스플리터에 추가
         splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setSizes([150, 500])
+        splitter.addWidget(right_scroll)
+        splitter.setSizes([200, 1000])
 
         main_layout.addWidget(splitter)
 
@@ -180,6 +301,219 @@ class GroupManagementDialog(QDialog):
             logger.error(f"그룹 목록 로드 실패: {e}")
             QMessageBox.critical(self, "오류", f"그룹 목록을 불러올 수 없습니다:\n{str(e)}")
 
+    def _on_buy_mode_changed(self, checked):
+        """매수 방식 변경 시 투자 성향 활성화/비활성화"""
+        # auto_buy_radio가 체크되면 투자 성향 활성화
+        self.investment_style_combo.setEnabled(self.auto_buy_radio.isChecked())
+
+    def _on_dca_enabled_changed(self, checked):
+        """DCA 활성화/비활성화 시 테이블 및 버튼 활성화"""
+        self.dca_table.setEnabled(checked)
+        self.dca_add_btn.setEnabled(checked)
+        self.dca_remove_btn.setEnabled(checked)
+        self.dca_edit_btn.setEnabled(checked)
+
+    def _add_dca_level(self):
+        """DCA 레벨 추가"""
+        from PySide6.QtWidgets import QInputDialog
+
+        # 가격 하락 % 입력
+        price_drop, ok1 = QInputDialog.getDouble(
+            self, "DCA 레벨 추가", "가격 하락 (%):",
+            -3.0, -50.0, 0.0, 1
+        )
+        if not ok1:
+            return
+
+        # 매수 금액 입력
+        buy_amount, ok2 = QInputDialog.getInt(
+            self, "DCA 레벨 추가", "매수 금액 (KRW):",
+            50000, 10000, 10000000, 10000
+        )
+        if not ok2:
+            return
+
+        # 테이블에 추가
+        row_count = self.dca_table.rowCount()
+        self.dca_table.insertRow(row_count)
+        self.dca_table.setItem(row_count, 0, QTableWidgetItem(str(price_drop)))
+        self.dca_table.setItem(row_count, 1, QTableWidgetItem(str(buy_amount)))
+
+    def _remove_dca_level(self):
+        """DCA 레벨 삭제"""
+        current_row = self.dca_table.currentRow()
+        if current_row >= 0:
+            self.dca_table.removeRow(current_row)
+        else:
+            QMessageBox.warning(self, "경고", "삭제할 레벨을 선택하세요.")
+
+    def _edit_dca_level(self):
+        """DCA 레벨 수정"""
+        from PySide6.QtWidgets import QInputDialog
+
+        current_row = self.dca_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "경고", "수정할 레벨을 선택하세요.")
+            return
+
+        # 현재 값 가져오기
+        current_price_drop = float(self.dca_table.item(current_row, 0).text())
+        current_buy_amount = int(self.dca_table.item(current_row, 1).text())
+
+        # 가격 하락 % 입력
+        price_drop, ok1 = QInputDialog.getDouble(
+            self, "DCA 레벨 수정", "가격 하락 (%):",
+            current_price_drop, -50.0, 0.0, 1
+        )
+        if not ok1:
+            return
+
+        # 매수 금액 입력
+        buy_amount, ok2 = QInputDialog.getInt(
+            self, "DCA 레벨 수정", "매수 금액 (KRW):",
+            current_buy_amount, 10000, 10000000, 10000
+        )
+        if not ok2:
+            return
+
+        # 테이블 업데이트
+        self.dca_table.setItem(current_row, 0, QTableWidgetItem(str(price_drop)))
+        self.dca_table.setItem(current_row, 1, QTableWidgetItem(str(buy_amount)))
+
+    def _add_profit_level(self):
+        """익절 레벨 추가"""
+        from PySide6.QtWidgets import QInputDialog
+
+        # 가격 비율 입력 (1.05 = 5% 익절)
+        price_ratio, ok1 = QInputDialog.getDouble(
+            self, "익절 레벨 추가", "가격 비율 (예: 1.05 = 5% 익절):",
+            1.05, 1.0, 2.0, 2
+        )
+        if not ok1:
+            return
+
+        # 판매 수량 비율 입력 (0.5 = 50% 판매)
+        quantity_ratio, ok2 = QInputDialog.getDouble(
+            self, "익절 레벨 추가", "판매 수량 비율 (예: 0.5 = 50% 판매):",
+            0.5, 0.1, 1.0, 2
+        )
+        if not ok2:
+            return
+
+        # 테이블에 추가
+        row_count = self.profit_table.rowCount()
+        self.profit_table.insertRow(row_count)
+        self.profit_table.setItem(row_count, 0, QTableWidgetItem(str(price_ratio)))
+        self.profit_table.setItem(row_count, 1, QTableWidgetItem(str(quantity_ratio)))
+
+    def _remove_profit_level(self):
+        """익절 레벨 삭제"""
+        current_row = self.profit_table.currentRow()
+        if current_row >= 0:
+            self.profit_table.removeRow(current_row)
+        else:
+            QMessageBox.warning(self, "경고", "삭제할 레벨을 선택하세요.")
+
+    def _edit_profit_level(self):
+        """익절 레벨 수정"""
+        from PySide6.QtWidgets import QInputDialog
+
+        current_row = self.profit_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "경고", "수정할 레벨을 선택하세요.")
+            return
+
+        # 현재 값 가져오기
+        current_price_ratio = float(self.profit_table.item(current_row, 0).text())
+        current_quantity_ratio = float(self.profit_table.item(current_row, 1).text())
+
+        # 가격 비율 입력
+        price_ratio, ok1 = QInputDialog.getDouble(
+            self, "익절 레벨 수정", "가격 비율 (예: 1.05 = 5% 익절):",
+            current_price_ratio, 1.0, 2.0, 2
+        )
+        if not ok1:
+            return
+
+        # 판매 수량 비율 입력
+        quantity_ratio, ok2 = QInputDialog.getDouble(
+            self, "익절 레벨 수정", "판매 수량 비율 (예: 0.5 = 50% 판매):",
+            current_quantity_ratio, 0.1, 1.0, 2
+        )
+        if not ok2:
+            return
+
+        # 테이블 업데이트
+        self.profit_table.setItem(current_row, 0, QTableWidgetItem(str(price_ratio)))
+        self.profit_table.setItem(current_row, 1, QTableWidgetItem(str(quantity_ratio)))
+
+    def _add_loss_level(self):
+        """손절 레벨 추가"""
+        from PySide6.QtWidgets import QInputDialog
+
+        # 가격 비율 입력 (0.95 = -5% 손절)
+        price_ratio, ok1 = QInputDialog.getDouble(
+            self, "손절 레벨 추가", "가격 비율 (예: 0.95 = -5% 손절):",
+            0.95, 0.5, 1.0, 2
+        )
+        if not ok1:
+            return
+
+        # 판매 수량 비율 입력 (1.0 = 100% 판매)
+        quantity_ratio, ok2 = QInputDialog.getDouble(
+            self, "손절 레벨 추가", "판매 수량 비율 (예: 1.0 = 100% 판매):",
+            1.0, 0.1, 1.0, 2
+        )
+        if not ok2:
+            return
+
+        # 테이블에 추가
+        row_count = self.loss_table.rowCount()
+        self.loss_table.insertRow(row_count)
+        self.loss_table.setItem(row_count, 0, QTableWidgetItem(str(price_ratio)))
+        self.loss_table.setItem(row_count, 1, QTableWidgetItem(str(quantity_ratio)))
+
+    def _remove_loss_level(self):
+        """손절 레벨 삭제"""
+        current_row = self.loss_table.currentRow()
+        if current_row >= 0:
+            self.loss_table.removeRow(current_row)
+        else:
+            QMessageBox.warning(self, "경고", "삭제할 레벨을 선택하세요.")
+
+    def _edit_loss_level(self):
+        """손절 레벨 수정"""
+        from PySide6.QtWidgets import QInputDialog
+
+        current_row = self.loss_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "경고", "수정할 레벨을 선택하세요.")
+            return
+
+        # 현재 값 가져오기
+        current_price_ratio = float(self.loss_table.item(current_row, 0).text())
+        current_quantity_ratio = float(self.loss_table.item(current_row, 1).text())
+
+        # 가격 비율 입력
+        price_ratio, ok1 = QInputDialog.getDouble(
+            self, "손절 레벨 수정", "가격 비율 (예: 0.95 = -5% 손절):",
+            current_price_ratio, 0.5, 1.0, 2
+        )
+        if not ok1:
+            return
+
+        # 판매 수량 비율 입력
+        quantity_ratio, ok2 = QInputDialog.getDouble(
+            self, "손절 레벨 수정", "판매 수량 비율 (예: 1.0 = 100% 판매):",
+            current_quantity_ratio, 0.1, 1.0, 2
+        )
+        if not ok2:
+            return
+
+        # 테이블 업데이트
+        self.loss_table.setItem(current_row, 0, QTableWidgetItem(str(price_ratio)))
+        self.loss_table.setItem(current_row, 1, QTableWidgetItem(str(quantity_ratio)))
+
     def _on_group_selected(self, current, previous):
         """그룹 선택 시 상세 정보 표시"""
         if not current:
@@ -211,6 +545,52 @@ class GroupManagementDialog(QDialog):
                 self.auto_buy_radio.setChecked(True)
             else:
                 self.manual_buy_radio.setChecked(True)
+
+            # 매수 설정
+            buy_settings = group_data.get("buy_settings", {})
+
+            # 투자 성향
+            investment_style = buy_settings.get("investment_style", "balanced")
+            style_index = {"conservative": 0, "balanced": 1, "aggressive": 2}.get(investment_style, 1)
+            self.investment_style_combo.setCurrentIndex(style_index)
+
+            # 매수 금액
+            buy_amount = buy_settings.get("buy_amount_krw", 50000)
+            self.buy_amount_input.setText(str(buy_amount))
+
+            # DCA 설정
+            dca_settings = group_data.get("dca_settings", {})
+            dca_enabled = dca_settings.get("enabled", False)
+            self.dca_enabled_checkbox.setChecked(dca_enabled)
+
+            # DCA 레벨 로드
+            self.dca_table.setRowCount(0)  # 기존 데이터 삭제
+            dca_levels = dca_settings.get("levels", [])
+            for level in dca_levels:
+                row_count = self.dca_table.rowCount()
+                self.dca_table.insertRow(row_count)
+                self.dca_table.setItem(row_count, 0, QTableWidgetItem(str(level.get("price_drop_pct", -3.0))))
+                self.dca_table.setItem(row_count, 1, QTableWidgetItem(str(level.get("buy_amount_krw", 50000))))
+
+            # 익절 설정
+            profit_settings = group_data.get("profit_settings", {})
+            self.profit_table.setRowCount(0)  # 기존 데이터 삭제
+            profit_targets = profit_settings.get("levels", [])
+            for level in profit_targets:
+                row_count = self.profit_table.rowCount()
+                self.profit_table.insertRow(row_count)
+                self.profit_table.setItem(row_count, 0, QTableWidgetItem(str(level.get("price_ratio", 1.05))))
+                self.profit_table.setItem(row_count, 1, QTableWidgetItem(str(level.get("quantity_ratio", 0.5))))
+
+            # 손절 설정
+            loss_settings = group_data.get("loss_settings", {})
+            self.loss_table.setRowCount(0)  # 기존 데이터 삭제
+            loss_targets = loss_settings.get("levels", [])
+            for level in loss_targets:
+                row_count = self.loss_table.rowCount()
+                self.loss_table.insertRow(row_count)
+                self.loss_table.setItem(row_count, 0, QTableWidgetItem(str(level.get("price_ratio", 0.95))))
+                self.loss_table.setItem(row_count, 1, QTableWidgetItem(str(level.get("quantity_ratio", 1.0))))
 
             # 코인 체크박스 업데이트
             self._update_coin_checkboxes(group_data.get("coins", []))
@@ -312,6 +692,72 @@ class GroupManagementDialog(QDialog):
                 group_data["buy_strategy"] = {}
 
             group_data["buy_strategy"]["enabled"] = self.auto_buy_radio.isChecked()
+
+            # 매수 설정
+            if "buy_settings" not in group_data:
+                group_data["buy_settings"] = {}
+
+            # 투자 성향
+            style_map = {0: "conservative", 1: "balanced", 2: "aggressive"}
+            group_data["buy_settings"]["investment_style"] = style_map[self.investment_style_combo.currentIndex()]
+
+            # 매수 금액
+            try:
+                buy_amount = int(self.buy_amount_input.text().strip())
+                group_data["buy_settings"]["buy_amount_krw"] = buy_amount
+            except ValueError:
+                # 잘못된 입력 시 기본값 사용
+                group_data["buy_settings"]["buy_amount_krw"] = 50000
+
+            # DCA 설정
+            if "dca_settings" not in group_data:
+                group_data["dca_settings"] = {}
+
+            group_data["dca_settings"]["enabled"] = self.dca_enabled_checkbox.isChecked()
+
+            # DCA 레벨 수집
+            dca_levels = []
+            for row in range(self.dca_table.rowCount()):
+                price_drop_item = self.dca_table.item(row, 0)
+                buy_amount_item = self.dca_table.item(row, 1)
+                if price_drop_item and buy_amount_item:
+                    dca_levels.append({
+                        "price_drop_pct": float(price_drop_item.text()),
+                        "buy_amount_krw": int(buy_amount_item.text())
+                    })
+            group_data["dca_settings"]["levels"] = dca_levels
+
+            # 익절 설정
+            if "profit_settings" not in group_data:
+                group_data["profit_settings"] = {}
+
+            # 익절 레벨 수집
+            profit_levels = []
+            for row in range(self.profit_table.rowCount()):
+                price_ratio_item = self.profit_table.item(row, 0)
+                quantity_ratio_item = self.profit_table.item(row, 1)
+                if price_ratio_item and quantity_ratio_item:
+                    profit_levels.append({
+                        "price_ratio": float(price_ratio_item.text()),
+                        "quantity_ratio": float(quantity_ratio_item.text())
+                    })
+            group_data["profit_settings"]["levels"] = profit_levels
+
+            # 손절 설정
+            if "loss_settings" not in group_data:
+                group_data["loss_settings"] = {}
+
+            # 손절 레벨 수집
+            loss_levels = []
+            for row in range(self.loss_table.rowCount()):
+                price_ratio_item = self.loss_table.item(row, 0)
+                quantity_ratio_item = self.loss_table.item(row, 1)
+                if price_ratio_item and quantity_ratio_item:
+                    loss_levels.append({
+                        "price_ratio": float(price_ratio_item.text()),
+                        "quantity_ratio": float(quantity_ratio_item.text())
+                    })
+            group_data["loss_settings"]["levels"] = loss_levels
 
             # 저장
             self.group_manager.update_group_settings(self.current_group_id, group_data)
