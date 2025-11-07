@@ -624,21 +624,19 @@ class PositionManager:
                     'locked_amount': locked,
                 }
 
-                # avg_buy_price 처리: MyAsset → 기존 포지션 → REST API 순서로 사용
+                # avg_buy_price 처리: MyAsset → REST API (수량 변동 시) → 기존 포지션 순서로 사용
                 if avg_buy_price > 0:
                     # MyAsset에서 제공한 평균가 사용
                     updates['average_price'] = avg_buy_price
                     updates['total_invested_krw'] = avg_buy_price * balance
                     logger.debug(f"   ✅ MyAsset 평균가 사용: {symbol} | avg_price={avg_buy_price:.0f}")
                 else:
-                    # MyAsset에 없으면 기존 포지션의 평균가 사용
-                    existing_avg_price = position.get('average_price', 0)
-                    if existing_avg_price > 0:
-                        updates['total_invested_krw'] = existing_avg_price * balance
-                        logger.debug(f"   ✅ 기존 평균가 사용: {symbol} | avg_price={existing_avg_price:.0f}, invested={existing_avg_price * balance:.0f}")
-                    else:
-                        # 둘 다 없으면 REST API로 조회
-                        logger.warning(f"   ⚠️ {symbol} 평균가 없음, REST API 조회 필요")
+                    # MyAsset에 avg_buy_price가 없는 경우
+                    existing_amount = position.get('total_amount', 0)
+
+                    # 수량이 변경되었으면 평균가도 바뀌었을 가능성 → REST API 조회
+                    if abs(balance - existing_amount) > 0.00000001:
+                        logger.warning(f"   ⚠️ {symbol} 수량 변동 감지 (기존: {existing_amount:.8f} → 신규: {balance:.8f}), REST API로 평균가 조회")
                         if self.upbit_api:
                             accounts = self.upbit_api.get_accounts()
                             for acc in accounts:
@@ -648,6 +646,12 @@ class PositionManager:
                                     updates['total_invested_krw'] = fetched_avg_price * balance
                                     logger.info(f"   📊 REST API 평균가 조회: {symbol} = {fetched_avg_price:.0f}원")
                                     break
+                    else:
+                        # 수량 변화 없으면 기존 평균가 재사용 (단순 locked 변동 등)
+                        existing_avg_price = position.get('average_price', 0)
+                        if existing_avg_price > 0:
+                            updates['total_invested_krw'] = existing_avg_price * balance
+                            logger.debug(f"   ✅ 기존 평균가 유지: {symbol} | avg_price={existing_avg_price:.0f}")
 
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
