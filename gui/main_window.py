@@ -868,6 +868,17 @@ class MainWindow(QMainWindow):
 
     def _start_trading(self):
         """트레이딩 시작"""
+        # 🔧 V4: [시작] 버튼 비활성화 (V3 워커 실행 방지)
+        QMessageBox.information(
+            self,
+            "V4 업데이트 진행 중",
+            "🚧 V4 시스템으로 업데이트 진행 중입니다.\n\n"
+            "현재 [시작] 버튼은 사용할 수 없습니다.\n"
+            "V4 업데이트 완료 후 새로운 그룹 기반 트레이딩이 제공됩니다.\n\n"
+            "임시로 기존 V3 기능이 필요한 경우 개발자에게 문의하세요."
+        )
+        return
+
         # 디버그 로그
         self._add_log(f"🔍 시작 요청 - is_running: {self.is_running}, worker: {self.trading_worker is not None}")
 
