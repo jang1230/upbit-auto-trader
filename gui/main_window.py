@@ -592,7 +592,7 @@ class MainWindow(QMainWindow):
 
     def _update_dry_run_banner(self):
         """Dry Run 배너 상태 업데이트"""
-        dry_run = self.config.get("dry_run", True)
+        dry_run = self.global_settings.get("dry_run", True)
 
         if dry_run:
             # Dry Run 모드 (녹색)
