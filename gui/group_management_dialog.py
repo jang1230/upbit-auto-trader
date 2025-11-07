@@ -30,17 +30,19 @@ class GroupManagementDialog(QDialog):
     # 시그널: 그룹 변경 완료 (메인 윈도우에서 새로고침용)
     groups_changed = Signal()
 
-    def __init__(self, config_manager, group_manager, parent=None):
+    def __init__(self, config_manager, group_manager, parent=None, is_trading_running=False):
         """
         Args:
             config_manager: ConfigManager 인스턴스
             group_manager: GroupManager 인스턴스
             parent: 부모 위젯
+            is_trading_running: 거래 실행 중 여부
         """
         super().__init__(parent)
 
         self.config_manager = config_manager
         self.group_manager = group_manager
+        self.is_trading_running = is_trading_running  # 거래 실행 상태
 
         # 현재 선택된 그룹 ID
         self.selected_group_id: Optional[str] = None
@@ -332,6 +334,17 @@ class GroupManagementDialog(QDialog):
 
     def _create_new_group(self):
         """새 그룹 생성"""
+        # 거래 실행 중 체크
+        if self.is_trading_running:
+            QMessageBox.warning(
+                self,
+                "생성 불가",
+                "거래가 실행 중일 때는 그룹을 생성할 수 없습니다.\n\n"
+                "먼저 '거래 중지' 버튼을 눌러 거래를 중지한 후\n"
+                "그룹을 생성하세요."
+            )
+            return
+
         try:
             # 새 그룹 ID 생성 (group_1, group_2, ...)
             config = self.config_manager.load_config()
@@ -464,6 +477,17 @@ class GroupManagementDialog(QDialog):
         if not self.selected_group_id:
             return
 
+        # 거래 실행 중 체크
+        if self.is_trading_running:
+            QMessageBox.warning(
+                self,
+                "변경 불가",
+                "거래가 실행 중일 때는 그룹 설정을 변경할 수 없습니다.\n\n"
+                "먼저 '거래 중지' 버튼을 눌러 거래를 중지한 후\n"
+                "그룹 설정을 변경하세요."
+            )
+            return
+
         try:
             # 그룹명 검증
             new_name = self.group_name_edit.text().strip()
@@ -497,10 +521,10 @@ class GroupManagementDialog(QDialog):
             config = self.config_manager.load_config()
             old_coins = config.get("groups", {}).get(self.selected_group_id, {}).get("coins", [])
 
-            # 제거할 코인
+            # 제거할 코인 (거래 중지 상태이므로 force=True 안전)
             for coin in old_coins:
                 if coin not in selected_coins:
-                    self.group_manager.remove_coin_from_group(self.selected_group_id, coin)
+                    self.group_manager.remove_coin_from_group(self.selected_group_id, coin, force=True)
 
             # 추가할 코인
             for coin in selected_coins:
@@ -532,6 +556,17 @@ class GroupManagementDialog(QDialog):
     def _delete_group(self):
         """그룹 삭제"""
         if not self.selected_group_id:
+            return
+
+        # 거래 실행 중 체크
+        if self.is_trading_running:
+            QMessageBox.warning(
+                self,
+                "삭제 불가",
+                "거래가 실행 중일 때는 그룹을 삭제할 수 없습니다.\n\n"
+                "먼저 '거래 중지' 버튼을 눌러 거래를 중지한 후\n"
+                "그룹을 삭제하세요."
+            )
             return
 
         try:
