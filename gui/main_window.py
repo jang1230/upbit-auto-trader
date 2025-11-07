@@ -409,30 +409,6 @@ class MainWindow(QMainWindow):
         main_panel_layout.setContentsMargins(5, 5, 5, 5)
         main_panel_layout.setSpacing(10)
 
-        # 🔧 V4: Dry Run 배너 (최상단)
-        self.mode_banner = QWidget()
-        mode_banner_layout = QHBoxLayout(self.mode_banner)
-        mode_banner_layout.setContentsMargins(15, 10, 15, 10)
-
-        # 모드 텍스트 + 잔고
-        self.mode_banner_label = QLabel("🟢 Dry Run 모드 (페이퍼 트레이딩) | 가상 잔고: 1,000,000원")
-        self.mode_banner_label.setFont(QFont("맑은 고딕", 11, QFont.Bold))
-        mode_banner_layout.addWidget(self.mode_banner_label)
-
-        mode_banner_layout.addStretch()
-
-        # 모드 전환 버튼
-        self.mode_toggle_btn = QPushButton("⚠️ 실거래로 전환")
-        self.mode_toggle_btn.setFont(QFont("맑은 고딕", 9, QFont.Bold))
-        self.mode_toggle_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px 15px; border-radius: 3px;")
-        self.mode_toggle_btn.clicked.connect(self._toggle_trading_mode)
-        mode_banner_layout.addWidget(self.mode_toggle_btn)
-
-        # 배너 스타일 (Dry Run: 녹색, 실거래: 빨강)
-        self.mode_banner.setStyleSheet("background-color: #d4edda; border: 2px solid #c3e6cb; border-radius: 5px;")
-
-        main_panel_layout.addWidget(self.mode_banner)
-
         # 🔧 상단: 포지션 현황 (간결)
         top_layout = QHBoxLayout()
 
@@ -450,12 +426,6 @@ class MainWindow(QMainWindow):
         position_widget = QWidget()
         position_layout = QVBoxLayout(position_widget)
         position_layout.setContentsMargins(5, 5, 5, 5)
-
-        # 🔧 포지션 요약 정보 (상단)
-        self.position_summary_label = QLabel("총 0개 보유 중 | 전체 평가손익: 0원 (0.00%)")
-        self.position_summary_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        self.position_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
-        position_layout.addWidget(self.position_summary_label)
 
         # 🔧 V4: 포지션 테이블 생성 (11개 컬럼)
         self.position_table = QTableWidget()
@@ -1595,35 +1565,6 @@ class MainWindow(QMainWindow):
                         total_invested += invested
                     except ValueError:
                         pass
-
-            # 🔧 수익률 계산
-            return_pct = (total_profit_loss / total_invested * 100) if total_invested > 0 else 0
-
-            # 요약 텍스트 생성
-            if position_count > 0:
-                # 🔧 수익률 추가 표시
-                summary_text = f"총 {position_count}개 보유 중 | 전체 평가손익: {total_profit_loss:+,.0f}원 ({return_pct:+.2f}%)"
-
-                # 색상 설정
-                if total_profit_loss > 0:
-                    self.position_summary_label.setStyleSheet(
-                        "color: red; font-weight: bold; padding: 5px; background-color: #ffe5e5; border-radius: 3px;"
-                    )
-                elif total_profit_loss < 0:
-                    self.position_summary_label.setStyleSheet(
-                        "color: blue; font-weight: bold; padding: 5px; background-color: #e5e5ff; border-radius: 3px;"
-                    )
-                else:
-                    self.position_summary_label.setStyleSheet(
-                        "color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;"
-                    )
-            else:
-                summary_text = "총 0개 보유 중 | 전체 평가손익: 0원 (0.00%)"
-                self.position_summary_label.setStyleSheet(
-                    "color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;"
-                )
-
-            self.position_summary_label.setText(summary_text)
 
         except Exception as e:
             self._add_log(f"⚠️ 포지션 요약 업데이트 오류: {e}")
