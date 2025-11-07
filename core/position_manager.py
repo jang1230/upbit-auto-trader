@@ -507,7 +507,7 @@ class PositionManager:
                     skipped_positions.append(symbol)
                     print(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f} @ {avg_buy_price:,.0f}원")
 
-        # 로컬에만 있는 포지션 확인 (Upbit에는 없음) → 자동 삭제
+        # 로컬 포지션 정리: Upbit에 없거나 그룹에서 제외된 포지션 삭제
         upbit_symbols = {f"KRW-{account['currency']}" for account in accounts if account['currency'] != 'KRW'}
 
         for symbol in list(self.positions.keys()):
@@ -516,11 +516,19 @@ class PositionManager:
             if position.get('status') != 'active':
                 continue
 
+            # 조건 1: Upbit에 없는 포지션 (완전 매도됨)
             if symbol not in upbit_symbols:
-                # Upbit에 없는 포지션 → 자동 삭제 (완전 매도된 것으로 간주)
                 self.delete_position(symbol)
                 removed_positions.append(symbol)
                 print(f"   🗑️ 자동 삭제: {symbol} (Upbit에 없음, 완전 매도된 것으로 간주)")
+                continue
+
+            # 조건 2: 어떤 그룹에도 속하지 않는 포지션 (그룹에서 제외됨)
+            group_id = self._find_group_for_coin(symbol, config)
+            if not group_id:
+                self.delete_position(symbol)
+                removed_positions.append(symbol)
+                print(f"   🗑️ 자동 삭제: {symbol} (그룹에서 제외됨)")
 
         print(f"✅ Upbit 동기화 완료")
         print(f"   - 동기화된 포지션: {len(synced_positions)}개")
