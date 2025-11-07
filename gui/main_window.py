@@ -177,12 +177,24 @@ class MainWindow(QMainWindow):
         self.dca_config_manager = DcaConfigManager()  # 고급 DCA 설정 관리자
         self.dca_config = self.dca_config_manager.load()  # DCA 설정 로드
 
-        # 🔧 V4 매니저 초기화
+        # 🔧 Upbit API 초기화 (나중에 Step 1에서 설정)
+        self.upbit_api = None
+
+        # 🔧 V4 매니저 초기화 (config 기반 모드 결정)
         if V4_AVAILABLE:
+            # V4 설정 로드하여 모드 확인
+            from core.config_manager import ConfigManager as V4ConfigManager
+            v4_config_mgr = V4ConfigManager("config/trading_config.json")
+            try:
+                v4_config = v4_config_mgr.load_config()
+                mode = "dryrun" if v4_config.get("global_settings", {}).get("dry_run", True) else "live"
+            except:
+                mode = "dryrun"  # 설정 로드 실패 시 기본값
+
             # GroupManager가 내부에서 ConfigManager와 PositionManager를 생성
             self.v4_group_manager = GroupManager(
                 config_path="config/trading_config.json",
-                mode="dryrun"
+                mode=mode
             )
             # GroupManager 내부의 매니저 참조
             self.v4_config_manager = self.v4_group_manager.config_manager
@@ -1832,6 +1844,22 @@ class MainWindow(QMainWindow):
             # 🔧 API 키 검증 완료 플래그 설정
             self.api_keys_validated = True
             logger.info("✅ [Step 1] API 키 검증 완료 (플래그 설정)")
+
+            # 🔧 UpbitAPI 인스턴스 생성 및 저장
+            try:
+                from core.upbit_api import UpbitAPI
+                access_key = self.config_manager.get_upbit_access_key()
+                secret_key = self.config_manager.get_upbit_secret_key()
+                self.upbit_api = UpbitAPI(access_key, secret_key)
+                logger.info("✅ [Step 1] UpbitAPI 인스턴스 생성 완료")
+
+                # V4 PositionManager에 API 전달
+                if V4_AVAILABLE and self.v4_position_manager:
+                    self.v4_position_manager.upbit_api = self.upbit_api
+                    logger.info("✅ [Step 1] PositionManager에 UpbitAPI 전달 완료")
+            except Exception as e:
+                logger.error(f"❌ [Step 1] UpbitAPI 초기화 실패: {e}")
+                self.upbit_api = None
 
         # 단계 2로 진행
         logger.info("🔄 [Step 1] 완료 → 단계 2로 진행")
