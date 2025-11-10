@@ -78,8 +78,9 @@ class AutoBuySettingsDialog(QDialog):
         style_group = self._create_investment_style_group()
         layout.addWidget(style_group)
 
-        # TODO: Step 3에서 추가
         # 2. 지표 설정 그룹
+        indicators_group = self._create_indicators_group()
+        layout.addWidget(indicators_group)
 
         # TODO: Step 4에서 추가
         # 3. 매수 금액 그룹
@@ -192,6 +193,148 @@ class AutoBuySettingsDialog(QDialog):
         # TODO: Step 5에서 구현 (프리셋 적용 로직)
         style_id = self.style_button_group.id(button)
         logger.info(f"투자 스타일 변경: {style_id} (0=보수적, 1=균형형, 2=적극적, 3=커스텀)")
+
+    def _create_indicators_group(self) -> QGroupBox:
+        """
+        지표 설정 그룹 생성
+
+        Returns:
+            지표 설정 QGroupBox
+        """
+        group = QGroupBox("📈 지표 설정 (커스텀 모드에서만 수정 가능)")
+        group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        layout = QVBoxLayout()
+
+        # ========================================
+        # RSI 지표 설정
+        # ========================================
+        rsi_group = QGroupBox("RSI (Relative Strength Index)")
+        rsi_group.setFont(QFont("맑은 고딕", 9))
+        rsi_layout = QVBoxLayout()
+
+        # RSI 활성화 체크박스
+        self.rsi_enabled = QCheckBox("RSI 지표 사용")
+        self.rsi_enabled.toggled.connect(self._on_rsi_toggled)
+        rsi_layout.addWidget(self.rsi_enabled)
+
+        # RSI 파라미터
+        rsi_form = QFormLayout()
+
+        self.rsi_period_spin = QSpinBox()
+        self.rsi_period_spin.setRange(5, 50)
+        self.rsi_period_spin.setSuffix(" 기간")
+        rsi_form.addRow("기간:", self.rsi_period_spin)
+
+        self.rsi_oversold_spin = QSpinBox()
+        self.rsi_oversold_spin.setRange(10, 40)
+        rsi_form.addRow("과매도 기준:", self.rsi_oversold_spin)
+
+        self.rsi_overbought_spin = QSpinBox()
+        self.rsi_overbought_spin.setRange(60, 90)
+        rsi_form.addRow("과매수 기준:", self.rsi_overbought_spin)
+
+        rsi_layout.addLayout(rsi_form)
+
+        rsi_info = QLabel("RSI ≤ 과매도 시 매수 신호 발생")
+        rsi_info.setStyleSheet("color: #666; font-size: 10px;")
+        rsi_layout.addWidget(rsi_info)
+
+        rsi_group.setLayout(rsi_layout)
+        layout.addWidget(rsi_group)
+
+        # ========================================
+        # MACD 지표 설정
+        # ========================================
+        macd_group = QGroupBox("MACD (Moving Average Convergence Divergence)")
+        macd_group.setFont(QFont("맑은 고딕", 9))
+        macd_layout = QVBoxLayout()
+
+        # MACD 활성화 체크박스
+        self.macd_enabled = QCheckBox("MACD 지표 사용")
+        self.macd_enabled.toggled.connect(self._on_macd_toggled)
+        macd_layout.addWidget(self.macd_enabled)
+
+        # MACD 파라미터
+        macd_form = QFormLayout()
+
+        self.macd_fast_spin = QSpinBox()
+        self.macd_fast_spin.setRange(5, 30)
+        self.macd_fast_spin.setSuffix(" 기간")
+        macd_form.addRow("Fast 기간:", self.macd_fast_spin)
+
+        self.macd_slow_spin = QSpinBox()
+        self.macd_slow_spin.setRange(10, 50)
+        self.macd_slow_spin.setSuffix(" 기간")
+        macd_form.addRow("Slow 기간:", self.macd_slow_spin)
+
+        self.macd_signal_spin = QSpinBox()
+        self.macd_signal_spin.setRange(5, 20)
+        self.macd_signal_spin.setSuffix(" 기간")
+        macd_form.addRow("Signal 기간:", self.macd_signal_spin)
+
+        macd_layout.addLayout(macd_form)
+
+        macd_info = QLabel("MACD 골든크로스 시 매수 신호 발생")
+        macd_info.setStyleSheet("color: #666; font-size: 10px;")
+        macd_layout.addWidget(macd_info)
+
+        macd_group.setLayout(macd_layout)
+        layout.addWidget(macd_group)
+
+        # ========================================
+        # Volume 지표 설정
+        # ========================================
+        volume_group = QGroupBox("Volume (거래량)")
+        volume_group.setFont(QFont("맑은 고딕", 9))
+        volume_layout = QVBoxLayout()
+
+        # Volume 활성화 체크박스
+        self.volume_enabled = QCheckBox("거래량 지표 사용")
+        self.volume_enabled.toggled.connect(self._on_volume_toggled)
+        volume_layout.addWidget(self.volume_enabled)
+
+        # Volume 파라미터
+        volume_form = QFormLayout()
+
+        self.volume_period_spin = QSpinBox()
+        self.volume_period_spin.setRange(10, 50)
+        self.volume_period_spin.setSuffix(" 기간")
+        volume_form.addRow("평균 기간:", self.volume_period_spin)
+
+        self.volume_threshold_spin = QDoubleSpinBox()
+        self.volume_threshold_spin.setRange(1.0, 5.0)
+        self.volume_threshold_spin.setSingleStep(0.1)
+        self.volume_threshold_spin.setSuffix("배")
+        volume_form.addRow("급증 기준:", self.volume_threshold_spin)
+
+        volume_layout.addLayout(volume_form)
+
+        volume_info = QLabel("현재 거래량 ≥ 평균 × 급증기준 시 매수 신호 발생")
+        volume_info.setStyleSheet("color: #666; font-size: 10px;")
+        volume_layout.addWidget(volume_info)
+
+        volume_group.setLayout(volume_layout)
+        layout.addWidget(volume_group)
+
+        group.setLayout(layout)
+        return group
+
+    def _on_rsi_toggled(self, checked: bool):
+        """RSI 지표 활성화/비활성화"""
+        self.rsi_period_spin.setEnabled(checked)
+        self.rsi_oversold_spin.setEnabled(checked)
+        self.rsi_overbought_spin.setEnabled(checked)
+
+    def _on_macd_toggled(self, checked: bool):
+        """MACD 지표 활성화/비활성화"""
+        self.macd_fast_spin.setEnabled(checked)
+        self.macd_slow_spin.setEnabled(checked)
+        self.macd_signal_spin.setEnabled(checked)
+
+    def _on_volume_toggled(self, checked: bool):
+        """Volume 지표 활성화/비활성화"""
+        self.volume_period_spin.setEnabled(checked)
+        self.volume_threshold_spin.setEnabled(checked)
 
     def _load_config(self):
         """설정 로드"""
