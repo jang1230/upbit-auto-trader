@@ -194,9 +194,103 @@ class AutoBuySettingsDialog(QDialog):
         Args:
             button: 클릭된 라디오 버튼
         """
-        # TODO: Step 5에서 구현 (프리셋 적용 로직)
         style_id = self.style_button_group.id(button)
         logger.info(f"투자 스타일 변경: {style_id} (0=보수적, 1=균형형, 2=적극적, 3=커스텀)")
+
+        # 프리셋 정의 (v4_auto_buy_strategy.py의 PRESETS와 동일)
+        presets = {
+            0: {  # Conservative
+                "rsi": {"enabled": True, "period": 14, "oversold": 30, "overbought": 70},
+                "macd": {"enabled": True, "fast": 12, "slow": 26, "signal": 9},
+                "volume": {"enabled": True, "period": 20, "threshold": 2.0}
+            },
+            1: {  # Balanced
+                "rsi": {"enabled": True, "period": 14, "oversold": 30, "overbought": 70},
+                "macd": {"enabled": True, "fast": 12, "slow": 26, "signal": 9},
+                "volume": {"enabled": True, "period": 20, "threshold": 2.0}
+            },
+            2: {  # Aggressive
+                "rsi": {"enabled": True, "period": 14, "oversold": 30, "overbought": 70},
+                "macd": {"enabled": True, "fast": 10, "slow": 20, "signal": 7},
+                "volume": {"enabled": True, "period": 20, "threshold": 3.0}
+            }
+        }
+
+        if style_id == 3:  # Custom
+            # 커스텀 모드: 지표 입력 활성화
+            self._set_indicators_enabled(True)
+        else:
+            # 프리셋 모드: 지표 값 적용 후 비활성화
+            preset = presets[style_id]
+            self._apply_preset(preset)
+            self._set_indicators_enabled(False)
+
+    def _apply_preset(self, preset: dict):
+        """
+        프리셋 값을 UI에 적용
+
+        Args:
+            preset: 프리셋 딕셔너리 (rsi, macd, volume)
+        """
+        # RSI 설정 적용
+        rsi_config = preset["rsi"]
+        self.rsi_enabled.setChecked(rsi_config["enabled"])
+        self.rsi_period_spin.setValue(rsi_config["period"])
+        self.rsi_oversold_spin.setValue(rsi_config["oversold"])
+        self.rsi_overbought_spin.setValue(rsi_config["overbought"])
+
+        # MACD 설정 적용
+        macd_config = preset["macd"]
+        self.macd_enabled.setChecked(macd_config["enabled"])
+        self.macd_fast_spin.setValue(macd_config["fast"])
+        self.macd_slow_spin.setValue(macd_config["slow"])
+        self.macd_signal_spin.setValue(macd_config["signal"])
+
+        # Volume 설정 적용
+        volume_config = preset["volume"]
+        self.volume_enabled.setChecked(volume_config["enabled"])
+        self.volume_period_spin.setValue(volume_config["period"])
+        self.volume_threshold_spin.setValue(volume_config["threshold"])
+
+    def _set_indicators_enabled(self, enabled: bool):
+        """
+        지표 입력 필드 활성화/비활성화
+
+        Args:
+            enabled: True면 활성화 (커스텀 모드), False면 비활성화 (프리셋 모드)
+        """
+        # RSI 체크박스와 입력 필드
+        self.rsi_enabled.setEnabled(enabled)
+        # 체크박스가 체크되어 있을 때만 입력 필드 활성화 (커스텀 모드일 때)
+        if enabled:
+            self.rsi_period_spin.setEnabled(self.rsi_enabled.isChecked())
+            self.rsi_oversold_spin.setEnabled(self.rsi_enabled.isChecked())
+            self.rsi_overbought_spin.setEnabled(self.rsi_enabled.isChecked())
+        else:
+            # 프리셋 모드: 모두 비활성화
+            self.rsi_period_spin.setEnabled(False)
+            self.rsi_oversold_spin.setEnabled(False)
+            self.rsi_overbought_spin.setEnabled(False)
+
+        # MACD 체크박스와 입력 필드
+        self.macd_enabled.setEnabled(enabled)
+        if enabled:
+            self.macd_fast_spin.setEnabled(self.macd_enabled.isChecked())
+            self.macd_slow_spin.setEnabled(self.macd_enabled.isChecked())
+            self.macd_signal_spin.setEnabled(self.macd_enabled.isChecked())
+        else:
+            self.macd_fast_spin.setEnabled(False)
+            self.macd_slow_spin.setEnabled(False)
+            self.macd_signal_spin.setEnabled(False)
+
+        # Volume 체크박스와 입력 필드
+        self.volume_enabled.setEnabled(enabled)
+        if enabled:
+            self.volume_period_spin.setEnabled(self.volume_enabled.isChecked())
+            self.volume_threshold_spin.setEnabled(self.volume_enabled.isChecked())
+        else:
+            self.volume_period_spin.setEnabled(False)
+            self.volume_threshold_spin.setEnabled(False)
 
     def _create_indicators_group(self) -> QGroupBox:
         """
