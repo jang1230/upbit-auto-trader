@@ -22,7 +22,7 @@ from core.position_manager import PositionManager
 from core.trade_history_manager import TradeHistoryManager
 from core.daily_loss_tracker import DailyLossTracker
 from core.strategies.v4_auto_buy_strategy import V4AutoBuyStrategy
-from core.upbit_api import UpbitAPI
+from core.upbit_api import UpbitAPI, SymbolNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,16 @@ class V4TradingEngine:
 
         # 캔들 데이터 캐시
         self.candles_cache: Dict[str, Dict[str, Any]] = {}  # {symbol: {candle_unit: candles}}
+
+        # 🔧 잔고 캐시 (Rate Limit 방지)
+        self.balance_cache: Dict[str, Any] = {
+            "krw": 0.0,
+            "last_updated": None,
+            "ttl": 1.0  # 1초 TTL
+        }
+
+        # 🔧 스킵 리스트 (404 에러 발생한 코인)
+        self.skipped_symbols: set = set()
 
         # 실행 상태
         self.is_running = False
@@ -251,6 +261,11 @@ class V4TradingEngine:
             group_id: 그룹 ID
             group: 그룹 데이터
         """
+        # 0. 스킵 리스트 체크 (404 에러 발생한 코인)
+        if symbol in self.skipped_symbols:
+            logger.debug(f"⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
+            return
+
         # 1. 전역 제약 확인
         if not self._check_global_constraints():
             return
@@ -754,6 +769,13 @@ class V4TradingEngine:
             else:
                 logger.error(f"❌ {symbol} 현재가 조회 실패: UpbitAPI 없음 (Dry-run 모드에서는 UpbitAPI 필요)")
                 return None
+
+        except SymbolNotFoundError as e:
+            # 404 에러: 상장폐지된 코인 → 스킵 리스트에 추가
+            logger.warning(f"⏭️ {symbol}: 스킵 리스트에 추가 (상장폐지)")
+            self.skipped_symbols.add(symbol)
+            return None
+
         except Exception as e:
             logger.error(f"❌ {symbol} 현재가 조회 오류: {e}")
             return None
@@ -785,23 +807,58 @@ class V4TradingEngine:
             # 컬럼명은 이미 소문자 (get_candles()에서 변환됨)
             return candles
 
+        except SymbolNotFoundError as e:
+            # 404 에러: 상장폐지된 코인 → 스킵 리스트에 추가
+            logger.warning(f"⏭️ {symbol}: 스킵 리스트에 추가 (상장폐지)")
+            self.skipped_symbols.add(symbol)
+            return None
+
         except Exception as e:
             logger.error(f"❌ {symbol} 캔들 데이터 조회 오류: {e}")
             return None
 
     def _get_krw_balance(self) -> float:
-        """KRW 잔고 조회"""
+        """
+        KRW 잔고 조회 (캐시 적용)
+
+        Rate Limit 방지를 위해 1초 TTL 캐시 사용
+        """
         try:
+            # 캐시 유효성 확인
+            now = time.time()
+            last_updated = self.balance_cache.get("last_updated")
+            ttl = self.balance_cache.get("ttl", 1.0)
+
+            if last_updated and (now - last_updated) < ttl:
+                # 캐시 사용
+                logger.debug(f"💾 잔고 캐시 사용 (나이: {now - last_updated:.2f}초)")
+                return self.balance_cache["krw"]
+
+            # 캐시 만료 또는 없음 → API 호출
+            logger.debug("📊 계좌 정보 조회 중...")
+
             if self.dry_run or not self.upbit_api:
                 # Dry-run 모드: 가상 잔고
                 balances = self.position_manager.get_virtual_balances()
-                return balances.get("KRW", 0.0)
+                krw_balance = balances.get("KRW", 0.0)
             else:
                 # Live 모드: 실제 잔고
                 balance = self.upbit_api.get_balance("KRW")
-                return float(balance) if balance else 0.0
+                krw_balance = float(balance) if balance else 0.0
+
+            # 캐시 업데이트
+            self.balance_cache["krw"] = krw_balance
+            self.balance_cache["last_updated"] = now
+
+            logger.debug(f"💰 KRW 잔고: {krw_balance:,.2f}")
+            return krw_balance
+
         except Exception as e:
             logger.error(f"❌ KRW 잔고 조회 오류: {e}")
+            # 에러 시 캐시 있으면 캐시 반환
+            if self.balance_cache.get("last_updated"):
+                logger.warning(f"⚠️ 에러 발생, 이전 캐시 사용")
+                return self.balance_cache["krw"]
             return 0.0
 
     def _get_total_valuation(self) -> float:

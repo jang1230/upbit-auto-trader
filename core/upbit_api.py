@@ -28,6 +28,11 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+class SymbolNotFoundError(Exception):
+    """코인이 존재하지 않는 경우 발생하는 예외 (404)"""
+    pass
+
+
 class RateLimiter:
     """
     Upbit API Rate Limit 관리 클래스
@@ -523,7 +528,14 @@ class UpbitAPI:
                     return {}
             else:
                 logger.warning(f"HTTP {response.status_code} | GET /ticker | {elapsed:.3f}s")
-                logger.error(f"현재가 조회 실패 ({symbol}): {response.text}")
+
+                # 404 에러는 예외 발생 (상장폐지된 코인)
+                if response.status_code == 404:
+                    logger.info(f"현재가 조회 실패 ({symbol}): 코인이 존재하지 않음 (상장폐지 가능성)")
+                    raise SymbolNotFoundError(f"{symbol}이(가) 존재하지 않습니다 (상장폐지 가능성)")
+                else:
+                    logger.error(f"현재가 조회 실패 ({symbol}): {response.text}")
+
                 return {}
 
         except requests.exceptions.Timeout:
@@ -608,7 +620,14 @@ class UpbitAPI:
 
             else:
                 logger.warning(f"HTTP {response.status_code} | GET /candles/{interval} | {elapsed:.3f}s")
-                logger.error(f"캔들 조회 실패 ({symbol}, {interval}): {response.text}")
+
+                # 404 에러는 예외 발생 (상장폐지된 코인)
+                if response.status_code == 404:
+                    logger.info(f"캔들 조회 실패 ({symbol}, {interval}): 코인이 존재하지 않음 (상장폐지 가능성)")
+                    raise SymbolNotFoundError(f"{symbol}이(가) 존재하지 않습니다 (상장폐지 가능성)")
+                else:
+                    logger.error(f"캔들 조회 실패 ({symbol}, {interval}): {response.text}")
+
                 return None
 
         except requests.exceptions.Timeout:
