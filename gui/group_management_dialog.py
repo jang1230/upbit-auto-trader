@@ -439,7 +439,7 @@ class GroupManagementDialog(QDialog):
             self.group_name_edit.setText(group.get("name", ""))
 
             # 관찰 전용 모드
-            observation_mode = group.get("observation_mode", False)
+            observation_mode = group.get("observation_only", False)
             self.observation_checkbox.setChecked(observation_mode)
 
             # 코인 체크박스 로드
@@ -513,7 +513,7 @@ class GroupManagementDialog(QDialog):
                 group_id=self.selected_group_id,
                 updates={
                     'name': new_name,
-                    'observation_mode': observation_mode
+                    'observation_only': observation_mode
                 }
             )
 
