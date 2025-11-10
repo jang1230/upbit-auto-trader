@@ -48,6 +48,7 @@ try:
     from core.config_manager import ConfigManager as V4ConfigManager
     from core.group_manager import GroupManager
     from core.position_manager import PositionManager
+    from core.v4_trading_engine import V4TradingEngine
     V4_AVAILABLE = True
 except ImportError:
     logger.warning("⚠️ V4 모듈을 불러올 수 없습니다. V4 기능이 비활성화됩니다.")
@@ -221,6 +222,9 @@ class MainWindow(QMainWindow):
         self.api_keys_validated = False  # 🔧 API 키 검증 완료 플래그 (Step 1 성공 시 True)
         self._shutdown_timer = None  # 비동기 종료 타이머
         self._shutdown_elapsed = 0  # 종료 대기 시간
+
+        # 🔧 V4: Trading Engine 인스턴스
+        self.v4_engine = None  # V4TradingEngine 인스턴스
 
         # 🔧 GUI 업데이트 throttling
         self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
@@ -881,17 +885,125 @@ class MainWindow(QMainWindow):
     # ========================================
 
     def _start_trading(self):
-        """트레이딩 시작"""
-        # 🔧 V4: [시작] 버튼 비활성화 (V3 워커 실행 방지)
-        QMessageBox.information(
-            self,
-            "V4 업데이트 진행 중",
-            "🚧 V4 시스템으로 업데이트 진행 중입니다.\n\n"
-            "현재 [시작] 버튼은 사용할 수 없습니다.\n"
-            "V4 업데이트 완료 후 새로운 그룹 기반 트레이딩이 제공됩니다.\n\n"
-            "임시로 기존 V3 기능이 필요한 경우 개발자에게 문의하세요."
-        )
-        return
+        """트레이딩 시작 (V4)"""
+        # 이미 실행 중이면 무시
+        if self.is_running:
+            self._add_log("⚠️ 이미 실행 중입니다")
+            return
+
+        # V4 사용 불가능 시
+        if not V4_AVAILABLE:
+            QMessageBox.critical(
+                self,
+                "V4 엔진 없음",
+                "V4 Trading Engine을 불러올 수 없습니다.\n"
+                "core 모듈이 올바르게 설치되었는지 확인하세요."
+            )
+            return
+
+        # API 키 검증
+        if not self.api_keys_validated and self.upbit_api is None:
+            QMessageBox.warning(
+                self,
+                "API 키 필요",
+                "Upbit API 키가 설정되지 않았습니다.\n"
+                "먼저 초기화 단계(Step 1)를 완료해주세요."
+            )
+            return
+
+        # 그룹 설정 확인
+        try:
+            config = self.v4_config_manager.load_config()
+            groups = config.get("groups", {})
+
+            if not groups:
+                reply = QMessageBox.question(
+                    self,
+                    "그룹 없음",
+                    "설정된 거래 그룹이 없습니다.\n\n"
+                    "그룹 관리 메뉴에서 그룹을 생성하시겠습니까?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self._open_group_management()
+                return
+
+            # 활성화된 그룹 확인
+            active_groups = {gid: g for gid, g in groups.items() if not g.get("observation_mode", False)}
+            if not active_groups:
+                QMessageBox.information(
+                    self,
+                    "활성 그룹 없음",
+                    "모든 그룹이 관찰 모드입니다.\n"
+                    "실제 거래를 하려면 최소 1개 그룹의 관찰 모드를 해제하세요."
+                )
+
+        except Exception as e:
+            logger.error(f"❌ 설정 로드 실패: {e}")
+            QMessageBox.critical(
+                self,
+                "설정 오류",
+                f"거래 설정을 불러올 수 없습니다:\n{e}"
+            )
+            return
+
+        # 실거래 모드 확인
+        global_settings = config.get("global_settings", {})
+        dry_run = global_settings.get("dry_run", True)
+
+        if not dry_run:
+            reply = QMessageBox.question(
+                self,
+                "🚨 실거래 모드 시작 확인",
+                "⚠️⚠️⚠️ <b>실제 거래 모드입니다!</b> ⚠️⚠️⚠️<br><br>"
+                "<b style='color: red;'>실제 돈으로 주문이 실행됩니다!</b><br><br>"
+                "확인 사항:<br>"
+                "✅ Upbit API 키에 '주문하기' 권한 있음<br>"
+                "✅ 충분한 KRW 잔고 확인<br>"
+                "✅ 그룹 설정 확인 완료<br>"
+                "✅ 텔레그램 알림 동작 확인<br><br>"
+                "<b>정말로 시작하시겠습니까?</b>",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply != QMessageBox.Yes:
+                return
+
+        # V4 Trading Engine 시작
+        try:
+            self._add_log("=" * 50)
+            self._add_log("🚀 V4 Trading Engine 시작")
+            self._add_log("=" * 50)
+
+            # V4TradingEngine 인스턴스 생성
+            self.v4_engine = V4TradingEngine(
+                config_path="config/trading_config.json",
+                upbit_api=self.upbit_api
+            )
+
+            # 엔진 시작
+            self.v4_engine.start()
+
+            # 상태 업데이트
+            self.is_running = True
+            self.start_btn.setEnabled(False)
+            self.stop_btn.setEnabled(True)
+            self.statusbar.showMessage("실행 중")
+
+            mode_str = "🧪 Dry-run" if dry_run else "💰 Live"
+            self._add_log(f"✅ V4 엔진 시작 완료 ({mode_str})")
+            self._add_log(f"📊 활성 그룹: {len(groups)}개")
+
+        except Exception as e:
+            logger.error(f"❌ V4 엔진 시작 실패: {e}", exc_info=True)
+            self.is_running = False
+            QMessageBox.critical(
+                self,
+                "시작 실패",
+                f"V4 Trading Engine 시작에 실패했습니다:\n\n{e}"
+            )
+            return
 
         # 디버그 로그
         self._add_log(f"🔍 시작 요청 - is_running: {self.is_running}, worker: {self.trading_worker is not None}")
@@ -1105,7 +1217,7 @@ class MainWindow(QMainWindow):
             self.trading_worker.start()
 
     def _stop_trading(self):
-        """트레이딩 중지 (비동기)"""
+        """트레이딩 중지 (V4)"""
         # 이미 중지 중이면 무시
         if not self.is_running:
             return
@@ -1113,7 +1225,7 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "트레이딩 중지",
-            "트레이딩을 중지하시겠습니까?",
+            "V4 Trading Engine을 중지하시겠습니까?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -1121,33 +1233,30 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             self._add_log("")
             self._add_log("=" * 50)
-            self._add_log("■ 트레이딩 중지")
+            self._add_log("🛑 V4 Trading Engine 중지")
             self._add_log("=" * 50)
 
             # 즉시 버튼 비활성화 (중복 클릭 방지)
             self.stop_btn.setEnabled(False)
 
-            # 🔧 모드별 Trading Engine 중지
-            if self.trading_worker:
-                if self.trading_mode == "semi_auto":
-                    # 반자동 모드: MultiCoinTradingWorker
-                    self._add_log("🛑 반자동 모드 엔진 중지 중...")
-                    if hasattr(self.trading_worker, 'stop_trader'):
-                        self.trading_worker.stop_trader()
-                    else:
-                        self.trading_worker.stop_engine()
-                else:
-                    # 완전 자동 모드: AutoTradingWorker
-                    self._add_log("🛑 완전 자동 모드 엔진 중지 중...")
-                    self.trading_worker.stop()
-                
-                self._add_log("⏳ 엔진 종료 대기 중... (GUI 응답 유지)")
+            # V4 엔진 중지
+            if self.v4_engine:
+                try:
+                    self._add_log("⏳ V4 엔진 중지 중...")
+                    self.v4_engine.stop()
+                    self._add_log("✅ V4 엔진 정상 종료")
+                except Exception as e:
+                    logger.error(f"❌ V4 엔진 중지 실패: {e}")
+                    self._add_log(f"❌ 엔진 중지 중 오류: {e}")
+                finally:
+                    self.v4_engine = None
 
-                # 🔧 비동기 종료 대기 (GUI 프리징 방지)
-                self._shutdown_elapsed = 0
-                self._shutdown_timer = QTimer()
-                self._shutdown_timer.timeout.connect(self._check_worker_shutdown)
-                self._shutdown_timer.start(500)  # 500ms마다 체크
+            # 상태 업데이트
+            self.is_running = False
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self.statusbar.showMessage("중지됨")
+            self._add_log("✅ 트레이딩 중지 완료")
 
     def _check_worker_shutdown(self):
         """Worker 종료 체크 (비동기, 500ms마다)"""
