@@ -82,9 +82,13 @@ class AutoBuySettingsDialog(QDialog):
         indicators_group = self._create_indicators_group()
         layout.addWidget(indicators_group)
 
-        # TODO: Step 4에서 추가
         # 3. 매수 금액 그룹
+        buy_amount_group = self._create_buy_amount_group()
+        layout.addWidget(buy_amount_group)
+
         # 4. 버튼
+        button_layout = self._create_button_layout()
+        layout.addLayout(button_layout)
 
         self.setLayout(layout)
 
@@ -335,6 +339,75 @@ class AutoBuySettingsDialog(QDialog):
         """Volume 지표 활성화/비활성화"""
         self.volume_period_spin.setEnabled(checked)
         self.volume_threshold_spin.setEnabled(checked)
+
+    def _create_buy_amount_group(self) -> QGroupBox:
+        """
+        매수 금액 설정 그룹 생성
+
+        Returns:
+            매수 금액 설정 QGroupBox
+        """
+        group = QGroupBox("💰 매수 금액")
+        group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        layout = QFormLayout()
+
+        self.buy_amount_spin = QSpinBox()
+        self.buy_amount_spin.setRange(5000, 10000000)
+        self.buy_amount_spin.setSingleStep(5000)
+        self.buy_amount_spin.setSuffix(" 원")
+        layout.addRow("1회 매수 금액:", self.buy_amount_spin)
+
+        buy_amount_info = QLabel(
+            "자동매수 신호 발생 시 1회 매수할 금액입니다.\n"
+            "예: 50,000원 설정 시 매수 신호마다 50,000원씩 매수"
+        )
+        buy_amount_info.setStyleSheet("color: #666; font-size: 10px;")
+        buy_amount_info.setWordWrap(True)
+        layout.addRow("", buy_amount_info)
+
+        group.setLayout(layout)
+        return group
+
+    def _create_button_layout(self) -> QHBoxLayout:
+        """
+        하단 버튼 레이아웃 생성
+
+        Returns:
+            버튼 레이아웃
+        """
+        layout = QHBoxLayout()
+        layout.addStretch()
+
+        # 취소 버튼
+        self.cancel_button = QPushButton("취소")
+        self.cancel_button.clicked.connect(self.reject)
+        layout.addWidget(self.cancel_button)
+
+        # 저장 버튼 (녹색 강조)
+        self.save_button = QPushButton("💾 저장")
+        self.save_button.setStyleSheet(
+            "background-color: #4CAF50; color: white; "
+            "padding: 8px 16px; font-weight: bold;"
+        )
+        self.save_button.clicked.connect(self._save_settings)
+        layout.addWidget(self.save_button)
+
+        return layout
+
+    def _save_settings(self):
+        """
+        설정 저장
+
+        현재 UI의 모든 설정값을 self.config에 저장하고 다이얼로그 닫기
+        """
+        # TODO: Step 6에서 구현 (설정 수집 및 검증 로직)
+        logger.info("설정 저장 버튼 클릭됨 (Step 6에서 구현 예정)")
+        QMessageBox.information(
+            self,
+            "알림",
+            "설정 저장 기능은 Step 6에서 구현됩니다.\n"
+            "현재는 테스트용 메시지입니다."
+        )
 
     def _load_config(self):
         """설정 로드"""
