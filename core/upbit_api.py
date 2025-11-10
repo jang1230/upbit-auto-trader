@@ -156,6 +156,13 @@ class UpbitAPI:
         self.base_url = "https://api.upbit.com/v1"
         self.limiter = limiter or RateLimiter()
 
+        # 🔧 계좌 정보 캐시 (Rate Limit 방지)
+        self.accounts_cache = {
+            "data": None,
+            "last_updated": None,
+            "ttl": 1.0  # 1초 TTL
+        }
+
         logger.info("✅ Upbit API 클라이언트 초기화 완료")
     
     def _generate_jwt_token(self, query: Optional[Dict] = None) -> str:
@@ -327,8 +334,10 @@ class UpbitAPI:
     
     def get_accounts(self) -> List[Dict]:
         """
-        계좌 정보 조회
-        
+        계좌 정보 조회 (캐시 적용)
+
+        Rate Limit 방지를 위해 1초 TTL 캐시 사용
+
         Returns:
             List[Dict]: 계좌 정보 리스트
                 [
@@ -342,9 +351,25 @@ class UpbitAPI:
                     ...
                 ]
         """
+        # 캐시 유효성 확인
+        now = time.time()
+        last_updated = self.accounts_cache.get("last_updated")
+        ttl = self.accounts_cache.get("ttl", 1.0)
+
+        if last_updated and (now - last_updated) < ttl:
+            # 캐시 사용
+            logger.debug(f"💾 accounts 캐시 사용 (나이: {now - last_updated:.2f}초)")
+            return self.accounts_cache["data"]
+
+        # 캐시 만료 또는 없음 → API 호출
         logger.info("📊 계좌 정보 조회 중...")
         accounts = self._request("GET", "/accounts")
         logger.info(f"✅ 계좌 정보 조회 완료: {len(accounts)}개 자산")
+
+        # 캐시 업데이트
+        self.accounts_cache["data"] = accounts
+        self.accounts_cache["last_updated"] = now
+
         return accounts
     
     def get_balance(self, currency: str = "KRW") -> float:
@@ -636,6 +661,9 @@ class UpbitAPI:
         except requests.exceptions.RequestException as e:
             logger.error(f"캔들 조회 실패 ({symbol}, {interval}): {e}")
             return None
+        except SymbolNotFoundError:
+            # 404 에러는 그대로 전파 (v4_trading_engine에서 처리)
+            raise
         except Exception as e:
             logger.error(f"캔들 데이터 변환 실패 ({symbol}, {interval}): {e}")
             return None
