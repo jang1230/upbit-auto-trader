@@ -494,19 +494,123 @@ class AutoBuySettingsDialog(QDialog):
 
         현재 UI의 모든 설정값을 self.config에 저장하고 다이얼로그 닫기
         """
-        # TODO: Step 6에서 구현 (설정 수집 및 검증 로직)
-        logger.info("설정 저장 버튼 클릭됨 (Step 6에서 구현 예정)")
-        QMessageBox.information(
-            self,
-            "알림",
-            "설정 저장 기능은 Step 6에서 구현됩니다.\n"
-            "현재는 테스트용 메시지입니다."
-        )
+        try:
+            # 1. 투자 스타일 및 candle_unit 저장
+            style_id = self.style_button_group.checkedId()
+            style_map = {
+                0: ("conservative", "240"),  # 4시간
+                1: ("balanced", "60"),       # 1시간
+                2: ("aggressive", "15"),     # 15분
+                3: ("custom", self.config.get("candle_unit", "60"))  # 커스텀: 기존 값 유지
+            }
+
+            investment_style, candle_unit = style_map[style_id]
+            self.config["investment_style"] = investment_style
+            self.config["candle_unit"] = candle_unit
+
+            # 2. 지표 설정 저장
+            self.config["indicators"] = {
+                "rsi": {
+                    "enabled": self.rsi_enabled.isChecked(),
+                    "period": self.rsi_period_spin.value(),
+                    "oversold": self.rsi_oversold_spin.value(),
+                    "overbought": self.rsi_overbought_spin.value()
+                },
+                "macd": {
+                    "enabled": self.macd_enabled.isChecked(),
+                    "fast": self.macd_fast_spin.value(),
+                    "slow": self.macd_slow_spin.value(),
+                    "signal": self.macd_signal_spin.value()
+                },
+                "volume": {
+                    "enabled": self.volume_enabled.isChecked(),
+                    "period": self.volume_period_spin.value(),
+                    "threshold": self.volume_threshold_spin.value()
+                }
+            }
+
+            # 3. 매수 금액 저장
+            self.config["buy_amount_krw"] = self.buy_amount_spin.value()
+
+            # 4. enabled 플래그 (항상 True)
+            self.config["enabled"] = True
+
+            logger.info(f"✅ 자동매수 설정 저장 완료: {investment_style}, {candle_unit}분봉")
+            self.accept()
+
+        except Exception as e:
+            logger.error(f"❌ 자동매수 설정 저장 실패: {e}")
+            QMessageBox.critical(
+                self,
+                "저장 실패",
+                f"설정 저장 중 오류가 발생했습니다:\n{e}"
+            )
 
     def _load_config(self):
-        """설정 로드"""
-        # TODO: Step 6에서 구현
-        logger.info("설정 로드 준비 완료 (Step 6에서 구현 예정)")
+        """
+        설정 로드
+
+        self.config에서 값을 읽어 UI에 반영
+        """
+        try:
+            # 1. 투자 스타일 로드 및 라디오 버튼 설정
+            investment_style = self.config.get("investment_style", "balanced")
+            style_id_map = {
+                "conservative": 0,
+                "balanced": 1,
+                "aggressive": 2,
+                "custom": 3
+            }
+            style_id = style_id_map.get(investment_style, 1)  # 기본값 Balanced
+
+            # 라디오 버튼 선택
+            if style_id == 0:
+                self.conservative_radio.setChecked(True)
+            elif style_id == 1:
+                self.balanced_radio.setChecked(True)
+            elif style_id == 2:
+                self.aggressive_radio.setChecked(True)
+            else:
+                self.custom_radio.setChecked(True)
+
+            # 2. 지표 설정 로드
+            indicators = self.config.get("indicators", {})
+
+            # RSI
+            rsi_config = indicators.get("rsi", {})
+            self.rsi_enabled.setChecked(rsi_config.get("enabled", True))
+            self.rsi_period_spin.setValue(rsi_config.get("period", 14))
+            self.rsi_oversold_spin.setValue(rsi_config.get("oversold", 30))
+            self.rsi_overbought_spin.setValue(rsi_config.get("overbought", 70))
+
+            # MACD
+            macd_config = indicators.get("macd", {})
+            self.macd_enabled.setChecked(macd_config.get("enabled", True))
+            self.macd_fast_spin.setValue(macd_config.get("fast", 12))
+            self.macd_slow_spin.setValue(macd_config.get("slow", 26))
+            self.macd_signal_spin.setValue(macd_config.get("signal", 9))
+
+            # Volume
+            volume_config = indicators.get("volume", {})
+            self.volume_enabled.setChecked(volume_config.get("enabled", True))
+            self.volume_period_spin.setValue(volume_config.get("period", 20))
+            self.volume_threshold_spin.setValue(volume_config.get("threshold", 2.0))
+
+            # 3. 매수 금액 로드
+            buy_amount = self.config.get("buy_amount_krw", 50000)
+            self.buy_amount_spin.setValue(buy_amount)
+
+            # 4. 프리셋 모드면 지표 필드 비활성화
+            if style_id != 3:  # Custom이 아니면
+                self._set_indicators_enabled(False)
+            else:
+                self._set_indicators_enabled(True)
+
+            logger.info(f"✅ 자동매수 설정 로드 완료: {investment_style}")
+
+        except Exception as e:
+            logger.error(f"❌ 자동매수 설정 로드 실패: {e}")
+            # 로드 실패 시 기본값 사용 (이미 _get_default_config()에서 설정됨)
 
     def get_config(self) -> dict:
         """
