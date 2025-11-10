@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
+from gui.auto_buy_settings_dialog import AutoBuySettingsDialog
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,9 @@ class GroupSettingsDialog(QDialog):
         self.group_id = group_id
         self.group_name = group_name
 
+        # auto_config 저장 (자동매수 설정)
+        self.auto_config = None
+
         # UI 컴포넌트
         self.preset_buttons = []
         self.auto_buy_radio = None
@@ -54,6 +58,7 @@ class GroupSettingsDialog(QDialog):
         self.profit_checkbox = None
         self.loss_checkbox = None
         self.level_detail_btn = None
+        self.auto_buy_settings_btn = None
 
         self._init_ui()
         self._load_settings()
@@ -159,6 +164,37 @@ class GroupSettingsDialog(QDialog):
 
         buy_amount_layout.addStretch()
         buy_layout.addLayout(buy_amount_layout)
+
+        # 자동매수 설정 버튼 (자동 매수일 때만 표시)
+        auto_buy_settings_layout = QHBoxLayout()
+        auto_buy_settings_label = QLabel("")  # 빈 라벨 (간격 맞춤용)
+        auto_buy_settings_label.setMinimumWidth(100)
+        auto_buy_settings_layout.addWidget(auto_buy_settings_label)
+
+        self.auto_buy_settings_btn = QPushButton("⚙️ 자동매수 설정...")
+        self.auto_buy_settings_btn.setFont(QFont("맑은 고딕", 9))
+        self.auto_buy_settings_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #2196F3;"
+            "  color: white;"
+            "  padding: 8px 16px;"
+            "  border-radius: 4px;"
+            "  font-weight: bold;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #1976D2;"
+            "}"
+        )
+        self.auto_buy_settings_btn.clicked.connect(self._open_auto_buy_settings)
+        auto_buy_settings_layout.addWidget(self.auto_buy_settings_btn)
+
+        auto_buy_info = QLabel("투자 스타일 및 지표 설정")
+        auto_buy_info.setFont(QFont("맑은 고딕", 8))
+        auto_buy_info.setStyleSheet("color: #666;")
+        auto_buy_settings_layout.addWidget(auto_buy_info)
+
+        auto_buy_settings_layout.addStretch()
+        buy_layout.addLayout(auto_buy_settings_layout)
 
         main_layout.addWidget(buy_group)
 
@@ -278,6 +314,50 @@ class GroupSettingsDialog(QDialog):
         """매수 방식 변경 시"""
         is_auto = self.auto_buy_radio.isChecked()
         self.buy_amount_input.setEnabled(is_auto)
+        self.auto_buy_settings_btn.setEnabled(is_auto)  # 자동매수 설정 버튼도 활성화/비활성화
+
+    def _open_auto_buy_settings(self):
+        """자동매수 설정 다이얼로그 열기"""
+        try:
+            # auto_config가 없으면 기본값 사용
+            if self.auto_config is None:
+                self.auto_config = {
+                    "enabled": True,
+                    "investment_style": "balanced",
+                    "candle_unit": "60",
+                    "indicators": {
+                        "rsi": {"enabled": True, "period": 14, "oversold": 30, "overbought": 70},
+                        "macd": {"enabled": True, "fast": 12, "slow": 26, "signal": 9},
+                        "volume": {"enabled": True, "period": 20, "threshold": 2.0}
+                    },
+                    "buy_amount_krw": self.buy_amount_input.value()
+                }
+
+            # 다이얼로그 열기
+            dialog = AutoBuySettingsDialog(config=self.auto_config.copy(), parent=self)
+            if dialog.exec() == QDialog.Accepted:
+                # 저장된 설정 적용
+                self.auto_config = dialog.get_config()
+
+                # 매수 금액을 메인 UI에도 반영
+                buy_amount = self.auto_config.get("buy_amount_krw", 50000)
+                self.buy_amount_input.setValue(buy_amount)
+
+                logger.info(f"✅ 자동매수 설정 업데이트됨: {self.auto_config.get('investment_style')}")
+                QMessageBox.information(
+                    self,
+                    "설정 완료",
+                    f"자동매수 설정이 업데이트되었습니다.\n"
+                    f"투자 스타일: {self.auto_config.get('investment_style')}"
+                )
+
+        except Exception as e:
+            logger.error(f"❌ 자동매수 설정 다이얼로그 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"자동매수 설정 중 오류가 발생했습니다:\n{e}"
+            )
 
     def _load_settings(self):
         """설정 로드"""
@@ -301,10 +381,14 @@ class GroupSettingsDialog(QDialog):
                 auto_config = buy_settings.get("auto_config", {})
                 buy_amount = auto_config.get("buy_amount_krw", 50000)
                 self.auto_buy_radio.setChecked(True)
+
+                # auto_config 저장 (자동매수 설정 다이얼로그용)
+                self.auto_config = auto_config.copy() if auto_config else None
             else:
                 # 수동 모드: buy_settings에서 직접 로드
                 buy_amount = buy_settings.get("buy_amount_krw", 50000)
                 self.manual_buy_radio.setChecked(True)
+                self.auto_config = None
 
             self.buy_amount_input.setValue(buy_amount)
 
@@ -349,34 +433,27 @@ class GroupSettingsDialog(QDialog):
             buy_amount = self.buy_amount_input.value()
 
             if is_auto_buy:
-                # 자동매수 모드: auto_config 필요
-                group["buy_settings"] = {
-                    "mode": "auto",
-                    "auto_config": {
+                # 자동매수 모드: auto_config 사용
+                # auto_config가 없으면 기본값 생성
+                if self.auto_config is None:
+                    self.auto_config = {
                         "enabled": True,
                         "investment_style": "balanced",
                         "candle_unit": "60",
                         "indicators": {
-                            "rsi": {
-                                "enabled": True,
-                                "period": 14,
-                                "oversold": 30,
-                                "overbought": 70
-                            },
-                            "macd": {
-                                "enabled": True,
-                                "fast": 12,
-                                "slow": 26,
-                                "signal": 9
-                            },
-                            "volume": {
-                                "enabled": True,
-                                "period": 20,
-                                "threshold": 2.0
-                            }
+                            "rsi": {"enabled": True, "period": 14, "oversold": 30, "overbought": 70},
+                            "macd": {"enabled": True, "fast": 12, "slow": 26, "signal": 9},
+                            "volume": {"enabled": True, "period": 20, "threshold": 2.0}
                         },
                         "buy_amount_krw": buy_amount
                     }
+                else:
+                    # 매수 금액은 메인 UI 값으로 업데이트
+                    self.auto_config["buy_amount_krw"] = buy_amount
+
+                group["buy_settings"] = {
+                    "mode": "auto",
+                    "auto_config": self.auto_config.copy()
                 }
             else:
                 # 수동매수 모드: mode + 매수금액 저장
