@@ -147,6 +147,64 @@ class PriceWebSocketWorker(QThread):
         except Exception as e:
             logger.error(f"❌ Ticker 데이터 처리 오류: {e}", exc_info=True)
 
+    def update_symbols(self, new_symbols: List[str]):
+        """
+        Symbol 리스트 업데이트 (연결 유지한 채 재구독)
+
+        공식 Best Practice: "새로운 구독 메시지를 전송하여 이전 구독을 중단하고
+                            새로운 데이터 스트림 구독을 시작할 수 있습니다."
+
+        Args:
+            new_symbols: 새로운 심볼 리스트 (예: ['KRW-BTC', 'KRW-ETH'])
+        """
+        # Symbol 리스트 동일 여부 체크
+        if set(self.symbols) == set(new_symbols):
+            logger.debug(f"📊 Symbol 리스트 동일 ({len(new_symbols)}개) - 재구독 불필요")
+            return
+
+        logger.info(
+            f"📊 Symbol 리스트 변경 감지\n"
+            f"   - 이전: {self.symbols}\n"
+            f"   - 신규: {new_symbols}\n"
+            f"   - 재구독 메시지 전송 중..."
+        )
+
+        self.symbols = new_symbols
+
+        # asyncio 이벤트 루프에서 재구독 실행 (연결은 유지)
+        if self.loop and self.loop.is_running():
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    self._resubscribe(),
+                    self.loop
+                )
+                # 재구독 완료 대기 (최대 3초)
+                future.result(timeout=3.0)
+            except Exception as e:
+                logger.error(f"❌ 재구독 실패: {e}", exc_info=True)
+        else:
+            logger.warning("⚠️ 이벤트 루프가 실행 중이 아님 - 재구독 불가")
+
+    async def _resubscribe(self):
+        """
+        재구독 (연결 유지)
+
+        WebSocket 연결을 유지한 채로 새로운 Symbol 리스트로 재구독합니다.
+        Upbit 공식 문서: 연결 재생성 없이 메시지만 전송하면 구독 변경 가능
+        """
+        try:
+            if not self.websocket or not self.websocket.is_connected:
+                logger.warning("⚠️ WebSocket 연결 안 됨 - 재구독 불가")
+                return
+
+            # 새로운 Symbol 리스트로 재구독 (기존 연결 유지)
+            await self.websocket.subscribe_ticker(self.symbols)
+            logger.info(f"✅ 재구독 완료: {len(self.symbols)}개 심볼 (연결 유지)")
+
+        except Exception as e:
+            logger.error(f"❌ 재구독 오류: {e}", exc_info=True)
+            raise
+
     def stop(self):
         """WebSocket Worker 중지"""
         logger.info("🛑 WebSocket Worker 중지 요청")

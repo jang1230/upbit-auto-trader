@@ -2213,15 +2213,28 @@ class MainWindow(QMainWindow):
 
     def _start_price_websocket(self, symbols: list):
         """
-        가격 WebSocket 시작
+        가격 WebSocket 시작 또는 업데이트
+
+        옵션 A (공식 Best Practice):
+        - 워커가 실행 중이면 update_symbols() 호출 (연결 유지, 메시지만 재전송)
+        - 워커가 없거나 중지 상태면 새로 시작
 
         Args:
             symbols: 구독할 심볼 리스트
         """
         try:
-            # 기존 워커가 있으면 중지
+            # 🔥 핵심: 워커가 실행 중이면 재구독만 수행 (연결 재시작 X)
             if self.price_websocket_worker and self.price_websocket_worker.isRunning():
-                logger.info("🛑 기존 WebSocket 워커 중지")
+                logger.info(f"🔄 Symbol 리스트 업데이트 시도: {len(symbols)}개")
+                self.price_websocket_worker.update_symbols(symbols)
+                return
+
+            # 워커가 없거나 중지 상태 → 새로 시작
+            logger.info(f"🚀 새 WebSocket 워커 시작: {len(symbols)}개 심볼")
+
+            # 기존 워커가 중지 상태면 정리
+            if self.price_websocket_worker:
+                logger.info("🛑 기존 WebSocket 워커 정리")
                 self.price_websocket_worker.stop()
                 self.price_websocket_worker.wait(3000)  # 3초 대기
 
@@ -2243,12 +2256,12 @@ class MainWindow(QMainWindow):
             self.price_websocket_worker.set_symbols(symbols)
             self.price_websocket_worker.start()
 
-            logger.info(f"🚀 가격 WebSocket 시작: {len(symbols)}개 심볼")
+            logger.info(f"✅ 가격 WebSocket 시작 완료: {len(symbols)}개 심볼")
             self._add_log(f"🔌 실시간 가격 업데이트 시작 ({len(symbols)}개 코인)")
 
         except Exception as e:
-            logger.error(f"❌ WebSocket 시작 실패: {e}", exc_info=True)
-            self._add_log(f"⚠️ 실시간 가격 업데이트 시작 실패: {e}")
+            logger.error(f"❌ WebSocket 시작/업데이트 실패: {e}", exc_info=True)
+            self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {e}")
 
     def _start_myasset_websocket(self):
         """
