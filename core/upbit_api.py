@@ -163,6 +163,13 @@ class UpbitAPI:
             "ttl": 1.0  # 1초 TTL
         }
 
+        # 🔧 Ticker 캐시 (Rate Limit 방지)
+        self.ticker_cache = {
+            "data": {},  # symbol -> ticker 정보
+            "last_updated": {},  # symbol -> 마지막 업데이트 시간
+            "ttl": 5.0  # 5초 TTL (현재가는 5초 정도면 충분)
+        }
+
         logger.info("✅ Upbit API 클라이언트 초기화 완료")
     
     def _generate_jwt_token(self, query: Optional[Dict] = None) -> str:
@@ -514,7 +521,7 @@ class UpbitAPI:
     
     def get_ticker(self, symbol: str) -> Dict:
         """
-        현재가 조회 (시세 조회 API - 인증 불필요, Rate Limit 적용)
+        현재가 조회 (시세 조회 API - 인증 불필요, Rate Limit 적용, 5초 TTL 캐시)
 
         Args:
             symbol: 마켓 코드 (예: 'KRW-BTC')
@@ -529,6 +536,15 @@ class UpbitAPI:
                     ...
                 }
         """
+        # 🔧 캐시 확인 (5초 TTL)
+        now = time.time()
+        if symbol in self.ticker_cache["data"]:
+            last_updated = self.ticker_cache["last_updated"].get(symbol, 0)
+            if now - last_updated < self.ticker_cache["ttl"]:
+                logger.debug(f"✅ Ticker 캐시 사용: {symbol}")
+                return self.ticker_cache["data"][symbol]
+
+        # 캐시 없거나 만료 → API 조회
         # Rate Limit 적용 (ticker: 10 requests/1s)
         self.limiter.acquire("ticker")
 
@@ -547,7 +563,12 @@ class UpbitAPI:
                 logger.debug(f"HTTP {response.status_code} | GET /ticker | {elapsed:.3f}s")
                 data = response.json()
                 if data and len(data) > 0:
-                    return data[0]  # 첫 번째 결과 반환
+                    ticker = data[0]
+                    # 캐시 저장
+                    self.ticker_cache["data"][symbol] = ticker
+                    self.ticker_cache["last_updated"][symbol] = time.time()
+                    logger.debug(f"💾 Ticker 캐시 저장: {symbol}")
+                    return ticker
                 else:
                     logger.warning(f"현재가 조회 결과 없음: {symbol}")
                     return {}
