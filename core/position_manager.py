@@ -487,6 +487,15 @@ class PositionManager:
                     'locked_amount': locked,
                     'total_invested_krw': avg_buy_price * balance
                 }
+
+                # 🔧 그룹 변경 감지 및 업데이트
+                current_group_id = self._find_group_for_coin(symbol, config)
+                old_group_id = position.get('group_id')
+
+                if current_group_id and current_group_id != old_group_id:
+                    updates['group_id'] = current_group_id
+                    print(f"   🔄 그룹 변경 감지: {symbol} ({old_group_id} → {current_group_id})")
+
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
                 print(f"   ✅ 동기화: {symbol} | {balance:.8f} @ {avg_buy_price:,.0f}원")
@@ -652,6 +661,14 @@ class PositionManager:
                         if existing_avg_price > 0:
                             updates['total_invested_krw'] = existing_avg_price * balance
                             logger.debug(f"   ✅ 기존 평균가 유지: {symbol} | avg_price={existing_avg_price:.0f}")
+
+                # 🔧 그룹 변경 감지 및 업데이트
+                current_group_id = self._find_group_for_coin(symbol, config)
+                old_group_id = position.get('group_id')
+
+                if current_group_id and current_group_id != old_group_id:
+                    updates['group_id'] = current_group_id
+                    logger.info(f"   🔄 그룹 변경 감지: {symbol} ({old_group_id} → {current_group_id})")
 
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
