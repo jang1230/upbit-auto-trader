@@ -875,6 +875,95 @@ async def create_candle_stream(
         yield candle
 
 
+class TickerWebSocket(UpbitWebSocket):
+    """
+    Ticker WebSocket with CandleAggregator integration
+
+    실시간 ticker 데이터를 받아서 CandleAggregator에 전달하는 WebSocket 클라이언트
+
+    특징:
+    - 콜백 기능 추가 (on_tick_callback)
+    - CandleAggregator와 즉시 연동
+    - Thread-safe 메시지 처리
+
+    Example:
+        >>> def my_callback(tick_data):
+        >>>     print(f"Price: {tick_data['trade_price']}")
+        >>>
+        >>> ws = TickerWebSocket(on_tick_callback=my_callback)
+        >>> await ws.connect()
+        >>> await ws.subscribe_ticker(['KRW-BTC'])
+        >>> await ws.start_listening()
+    """
+
+    def __init__(self, on_tick_callback: Optional[Callable[[Dict], None]] = None):
+        """
+        TickerWebSocket 초기화
+
+        Args:
+            on_tick_callback: tick 데이터 수신 시 호출될 콜백 함수
+                signature: def callback(tick_data: Dict) -> None
+        """
+        super().__init__()
+        self.on_tick_callback = on_tick_callback
+
+        logger.info(f"✅ TickerWebSocket 초기화 (콜백: {on_tick_callback is not None})")
+
+    def _on_message(self, ws, message):
+        """
+        메시지 수신 콜백 (오버라이드)
+
+        부모 클래스의 처리 + 콜백 호출
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            message: 수신 메시지 (bytes or str)
+        """
+        try:
+            # 부모 클래스의 메시지 처리 (큐에 추가)
+            super()._on_message(ws, message)
+
+            # 바이너리 데이터 디코딩
+            if isinstance(message, bytes):
+                message = message.decode('utf-8')
+
+            # JSON 파싱
+            data = json.loads(message)
+
+            # 콜백이 등록되어 있고 ticker 데이터면 즉시 호출
+            if self.on_tick_callback and data.get('type') == 'ticker':
+                try:
+                    self.on_tick_callback(data)
+                except Exception as e:
+                    logger.error(f"❌ Tick 콜백 오류: {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"❌ 메시지 처리 오류: {e}", exc_info=True)
+
+    async def start_listening(self, timeout: Optional[float] = None):
+        """
+        WebSocket 메시지 수신 대기 (blocking)
+
+        Args:
+            timeout: 타임아웃 (초), None이면 무제한
+
+        Note:
+            이 메서드는 콜백이 없을 때 사용 (콜백이 있으면 자동 처리됨)
+        """
+        if self.on_tick_callback:
+            logger.info("📡 콜백 모드: 자동으로 tick 데이터 처리 중...")
+
+        start_time = time.time()
+
+        while self.is_connected:
+            # 타임아웃 체크
+            if timeout and (time.time() - start_time) > timeout:
+                logger.info(f"⏱️ 타임아웃 ({timeout}초)")
+                break
+
+            await asyncio.sleep(0.1)
+
+
 # 테스트 코드
 if __name__ == "__main__":
     """테스트: 실시간 Ticker 수신"""
