@@ -102,10 +102,12 @@ class V4TradingEngine:
         self.candles_cache: Dict[str, Dict[str, Any]] = {}  # {symbol: {candle_unit: candles}}
 
         # 🔧 잔고 캐시 (Rate Limit 방지)
+        # TTL 60초: 매수/매도 직전에만 호출되므로 긴 TTL 사용
+        # (DailyLossTracker나 포지션 평가 시에도 사용)
         self.balance_cache: Dict[str, Any] = {
             "krw": 0.0,
             "last_updated": None,
-            "ttl": 1.0  # 1초 TTL
+            "ttl": 60.0  # 60초 TTL (최적화됨)
         }
 
         # 🔧 캔들 캐시 (봉 크기별 스마트 캐싱)
@@ -503,6 +505,11 @@ class V4TradingEngine:
         auto_config = group.get("buy_settings", {}).get("auto_config", {})
         buy_amount = auto_config.get("buy_amount_krw", 50000)
 
+        # 잔고 체크 (매수 직전에만 REST API 호출)
+        if not self._check_min_balance(buy_amount):
+            logger.warning(f"⚠️ {symbol} 매수 취소: 잔고 부족")
+            return
+
         logger.info(f"💰 {symbol} 매수 실행 중... (금액: {buy_amount:,}원)")
 
         try:
@@ -663,6 +670,11 @@ class V4TradingEngine:
         base_amount = auto_config.get("buy_amount_krw", 50000)
         buy_ratio = level.get("buy_ratio", 1.0)
         dca_amount = int(base_amount * buy_ratio)
+
+        # 잔고 체크 (DCA 직전에만 REST API 호출)
+        if not self._check_min_balance(dca_amount):
+            logger.warning(f"⚠️ {symbol} DCA 레벨 {dca_level_num} 취소: 잔고 부족")
+            return
 
         logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {buy_ratio}x)")
 
@@ -907,21 +919,8 @@ class V4TradingEngine:
                 logger.info(f"         ❌ 관찰 모드로 인해 거래 불가")
             return False
 
-        # 최소 잔고 체크
-        min_balance_config = self.global_settings.get("min_krw_balance", {})
-        min_balance_enabled = min_balance_config.get("enabled", False)
-        if verbose:
-            logger.info(f"         🔍 최소 잔고 체크 활성화 = {min_balance_enabled}")
-
-        if min_balance_enabled:
-            current_balance = self._get_krw_balance()
-            min_balance = min_balance_config.get("amount", 50000)
-            if verbose:
-                logger.info(f"         🔍 현재 잔고: {current_balance:,.0f}원 / 최소: {min_balance:,.0f}원")
-
-            if current_balance < min_balance:
-                logger.warning(f"⚠️ 최소 잔고 미달로 인해 거래 불가 ({current_balance:,.0f}원 < {min_balance:,.0f}원)")
-                return False
+        # ⚠️ 최소 잔고 체크는 _execute_buy()와 _execute_dca()에서 직접 수행
+        # → 매수 직전에만 API 호출 (불필요한 매초 API 호출 방지)
 
         # 일일 손실 한도 체크
         daily_loss_enabled = self.daily_loss_tracker is not None
@@ -941,6 +940,34 @@ class V4TradingEngine:
             # 한도 체크 (이미 도달한 경우 또는 새로 도달한 경우)
             if self._check_position_loss_limit():
                 logger.warning(f"⚠️ 포지션 손실 한도 도달로 인해 거래 불가")
+                return False
+
+        # 최대 포지션 개수 체크
+        max_positions_config = self.global_settings.get("max_positions", {})
+        max_positions_enabled = max_positions_config.get("enabled", False)
+        if verbose:
+            logger.info(f"         🔍 최대 포지션 개수 체크 활성화 = {max_positions_enabled}")
+
+        if max_positions_enabled:
+            max_limit = max_positions_config.get("limit", 3)
+
+            # 현재 활성 포지션 개수 계산 (observation_only 그룹 제외)
+            all_positions = self.position_manager.get_all_positions()
+            active_positions = 0
+
+            for symbol, position in all_positions.items():
+                group_id = position.get("group_id")
+                if group_id and group_id in self.config.get("groups", {}):
+                    group = self.config["groups"][group_id]
+                    # observation_only가 True인 그룹은 제외
+                    if not group.get("observation_only", False):
+                        active_positions += 1
+
+            if verbose:
+                logger.info(f"         🔍 현재 포지션: {active_positions}개 / 최대: {max_limit}개")
+
+            if active_positions >= max_limit:
+                logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 ({active_positions}개 >= {max_limit}개)")
                 return False
 
         if verbose:
@@ -1189,11 +1216,46 @@ class V4TradingEngine:
             # 기타 봉 크기는 기본적으로 봉 크기만큼 캐시
             return now + timedelta(minutes=candle_minutes)
 
+    def _check_min_balance(self, required_amount: float) -> bool:
+        """
+        최소 잔고 체크 (매수/DCA 직전에만 호출)
+
+        Args:
+            required_amount: 필요한 KRW 금액
+
+        Returns:
+            bool: True면 잔고 충분, False면 잔고 부족
+        """
+        krw_balance = self._get_krw_balance()
+        min_balance_config = self.global_settings.get("min_balance", {})
+        min_balance_enabled = min_balance_config.get("enabled", False)
+
+        if not min_balance_enabled:
+            # 최소 잔고 체크 비활성화 시, 필요 금액만 확인
+            if krw_balance < required_amount:
+                logger.warning(f"⚠️ 잔고 부족: {krw_balance:,.0f}원 < {required_amount:,.0f}원")
+                return False
+            return True
+
+        # 최소 잔고 활성화 시
+        min_reserve = min_balance_config.get("amount", 50000)
+
+        if krw_balance < (required_amount + min_reserve):
+            logger.warning(
+                f"⚠️ 잔고 부족: {krw_balance:,.0f}원 < "
+                f"{required_amount:,.0f}원 (필요) + {min_reserve:,.0f}원 (예비) = "
+                f"{required_amount + min_reserve:,.0f}원"
+            )
+            return False
+
+        return True
+
     def _get_krw_balance(self) -> float:
         """
         KRW 잔고 조회 (캐시 적용)
 
-        Rate Limit 방지를 위해 1초 TTL 캐시 사용
+        Rate Limit 방지를 위해 60초 TTL 캐시 사용
+        매수/DCA 직전에만 호출되므로 긴 TTL 적용
         """
         try:
             # 캐시 유효성 확인
