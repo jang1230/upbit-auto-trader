@@ -276,7 +276,20 @@ class GroupManagementDialog(QDialog):
 
             for group_id, group_data in groups.items():
                 group_name = group_data.get("name", group_id)
-                item = QListWidgetItem(group_name)
+                coins = group_data.get("coins", [])
+                coin_count = len(coins)
+
+                # 코인 목록 요약 생성 (최대 3개까지만 표시)
+                if coin_count > 0:
+                    coin_symbols = [coin.replace('KRW-', '') for coin in coins[:3]]
+                    coin_str = ", ".join(coin_symbols)
+                    if coin_count > 3:
+                        coin_str += f", ... 외 {coin_count - 3}개"
+                    display_text = f"{group_name} ({coin_count}개: {coin_str})"
+                else:
+                    display_text = f"{group_name} (코인 없음)"
+
+                item = QListWidgetItem(display_text)
                 item.setData(Qt.UserRole, group_id)  # group_id 저장
                 self.group_list_widget.addItem(item)
 
@@ -731,6 +744,8 @@ class GroupManagementDialog(QDialog):
     def _on_settings_saved(self):
         """그룹 설정 저장 완료 시"""
         logger.info("✅ 그룹 설정 저장 완료")
+        # 그룹 리스트 다시 로드 (코인 목록 변경사항 반영)
+        self._load_groups()
         # 그룹 변경 시그널 전파 (메인 윈도우 업데이트)
         self.groups_changed.emit()
 
