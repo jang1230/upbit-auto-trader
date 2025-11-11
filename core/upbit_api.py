@@ -684,6 +684,63 @@ class UpbitAPI:
             logger.error(f"캔들 데이터 변환 실패 ({symbol}, {interval}): {e}")
             return None
 
+    def get_market_all(self, is_details: bool = True) -> List[Dict]:
+        """
+        업비트에서 거래 가능한 모든 마켓 목록 조회
+
+        Args:
+            is_details: 유의종목 필드과 같은 상세 정보 포함 여부 (기본값: True)
+
+        Returns:
+            List[Dict]: 마켓 정보 리스트
+                - market: 마켓 코드 (예: "KRW-BTC")
+                - korean_name: 한글명 (예: "비트코인")
+                - english_name: 영문명 (예: "Bitcoin")
+                - market_warning: 유의종목 여부 ("NONE", "CAUTION")
+
+        Example:
+            >>> api = UpbitAPI()
+            >>> markets = api.get_market_all()
+            >>> krw_markets = [m for m in markets if m['market'].startswith('KRW-')]
+            >>> print(krw_markets[0])
+            {'market': 'KRW-BTC', 'korean_name': '비트코인', 'english_name': 'Bitcoin', 'market_warning': 'NONE'}
+        """
+        try:
+            # Rate Limit: market 그룹 (10 requests/1s)
+            self.limiter.acquire("market")
+
+            # GET 요청
+            url = f"{self.base_url}/market/all"
+            params = {"isDetails": str(is_details).lower()}  # true/false 문자열
+
+            response = requests.get(url, params=params, timeout=10)
+
+            # Rate Limit 헤더 업데이트
+            if "Remaining-Req" in response.headers:
+                self.limiter.update_from_header(response.headers["Remaining-Req"])
+
+            # 성공
+            if response.status_code == 200:
+                markets = response.json()
+                logger.debug(f"✅ 마켓 목록 조회 성공 (총 {len(markets)}개)")
+                return markets
+
+            # 실패
+            else:
+                logger.error(f"❌ 마켓 목록 조회 실패: HTTP {response.status_code}")
+                logger.error(f"응답: {response.text}")
+                return []
+
+        except requests.exceptions.Timeout:
+            logger.error("❌ 마켓 목록 조회 시간 초과 (10초)")
+            return []
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ 마켓 목록 조회 실패: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"❌ 마켓 목록 처리 실패: {e}")
+            return []
+
 
 # 테스트 코드
 if __name__ == "__main__":
