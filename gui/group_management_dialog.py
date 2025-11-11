@@ -276,20 +276,9 @@ class GroupManagementDialog(QDialog):
 
             for group_id, group_data in groups.items():
                 group_name = group_data.get("name", group_id)
-                coins = group_data.get("coins", [])
-                coin_count = len(coins)
 
-                # 코인 목록 요약 생성 (최대 3개까지만 표시)
-                if coin_count > 0:
-                    coin_symbols = [coin.replace('KRW-', '') for coin in coins[:3]]
-                    coin_str = ", ".join(coin_symbols)
-                    if coin_count > 3:
-                        coin_str += f", ... 외 {coin_count - 3}개"
-                    display_text = f"{group_name} ({coin_count}개: {coin_str})"
-                else:
-                    display_text = f"{group_name} (코인 없음)"
-
-                item = QListWidgetItem(display_text)
+                # 그룹명만 표시 (코인 목록은 상세 패널에서 확인)
+                item = QListWidgetItem(group_name)
                 item.setData(Qt.UserRole, group_id)  # group_id 저장
                 self.group_list_widget.addItem(item)
 
@@ -550,9 +539,28 @@ class GroupManagementDialog(QDialog):
         self._update_coin_count()
 
     def _update_coin_count(self):
-        """선택된 코인 개수 업데이트"""
-        checked_count = sum(1 for cb in self.coin_checkboxes.values() if cb.isChecked())
-        self.coin_count_label.setText(f"{checked_count}개 선택됨")
+        """선택된 코인 개수 및 목록 업데이트"""
+        # 선택된 코인 추출
+        selected_coins = [
+            symbol for symbol, cb in self.coin_checkboxes.items()
+            if cb.isChecked()
+        ]
+        checked_count = len(selected_coins)
+
+        # 표시 텍스트 생성
+        if checked_count == 0:
+            display_text = "선택된 코인 없음"
+        else:
+            # 최대 3개까지만 표시
+            coin_symbols = [coin.replace('KRW-', '') for coin in selected_coins[:3]]
+            coin_str = ", ".join(coin_symbols)
+
+            if checked_count > 3:
+                coin_str += f", ... 외 {checked_count - 3}개"
+
+            display_text = f"{checked_count}개 선택됨: {coin_str}"
+
+        self.coin_count_label.setText(display_text)
 
     def _filter_coins(self):
         """검색어에 따라 코인 필터링"""
