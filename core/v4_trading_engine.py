@@ -101,6 +101,10 @@ class V4TradingEngine:
             "ttl": 1.0  # 1초 TTL
         }
 
+        # 🔧 캔들 캐시 (봉 크기별 스마트 캐싱)
+        # {symbol_interval: {"candles": DataFrame, "expire_time": datetime}}
+        self.candle_cache: Dict[str, Dict[str, Any]] = {}
+
         # 🔧 스킵 리스트 (404 에러 발생한 코인)
         self.skipped_symbols: set = set()
 
@@ -139,7 +143,12 @@ class V4TradingEngine:
         if self.upbit_api and not self.dry_run:
             logger.info("🔄 Upbit 계좌와 포지션 동기화 중...")
             try:
-                sync_result = self.position_manager.sync_with_upbit(self.config)
+                # accounts 조회 후 캐싱하여 전달 (중복 API 호출 방지)
+                accounts = self.upbit_api.get_accounts()
+                sync_result = self.position_manager.sync_with_upbit(
+                    self.upbit_api,
+                    cached_accounts=accounts
+                )
                 logger.info(f"✅ 동기화 완료: {sync_result}")
             except Exception as e:
                 logger.error(f"❌ 동기화 실패: {e}")
@@ -782,11 +791,11 @@ class V4TradingEngine:
 
     def _get_recent_candles(self, symbol: str, candle_unit: str, count: int = 200):
         """
-        최근 캔들 데이터 가져오기
+        최근 캔들 데이터 가져오기 (스마트 캐싱 적용)
 
         Args:
             symbol: 코인 심볼
-            candle_unit: 캔들 단위 (분, 예: "1", "60", "240")
+            candle_unit: 캔들 단위 (분, 예: "15", "60", "240")
             count: 캔들 개수
 
         Returns:
@@ -797,14 +806,42 @@ class V4TradingEngine:
                 logger.error(f"❌ {symbol} 캔들 조회 실패: UpbitAPI 없음")
                 return None
 
-            # UpbitAPI로 캔들 데이터 가져오기
+            # 캐시 키 생성
+            cache_key = f"{symbol}_minute{candle_unit}"
+            now = datetime.now()
+
+            # 캐시 확인
+            if cache_key in self.candle_cache:
+                cached = self.candle_cache[cache_key]
+                expire_time = cached.get("expire_time")
+
+                if now < expire_time:
+                    # 캐시 유효 → 사용
+                    logger.debug(f"✅ 캐시 사용: {symbol} ({candle_unit}분봉)")
+                    return cached["candles"]
+                else:
+                    logger.debug(f"⏰ 캐시 만료: {symbol} ({candle_unit}분봉)")
+
+            # 캐시 없거나 만료 → API 조회
+            logger.debug(f"📊 API 조회: {symbol} ({candle_unit}분봉)")
             interval = f"minute{candle_unit}"
             candles = self.upbit_api.get_candles(symbol, interval=interval, count=count)
 
             if candles is None or len(candles) == 0:
                 return None
 
-            # 컬럼명은 이미 소문자 (get_candles()에서 변환됨)
+            # 다음 캔들 완성 시간 계산
+            expire_time = self._calculate_next_candle_time(now, int(candle_unit))
+
+            # 캐시 저장
+            self.candle_cache[cache_key] = {
+                "candles": candles,
+                "last_update": now,
+                "expire_time": expire_time
+            }
+
+            logger.debug(f"💾 캐시 저장: {symbol} ({candle_unit}분봉, 만료: {expire_time.strftime('%H:%M:%S')})")
+
             return candles
 
         except SymbolNotFoundError as e:
@@ -816,6 +853,41 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ {symbol} 캔들 데이터 조회 오류: {e}")
             return None
+
+    def _calculate_next_candle_time(self, now: datetime, candle_minutes: int) -> datetime:
+        """
+        다음 캔들 완성 시간 계산
+
+        Args:
+            now: 현재 시간
+            candle_minutes: 캔들 단위 (분)
+
+        Returns:
+            다음 캔들 완성 시간
+        """
+        if candle_minutes == 15:
+            # 다음 15분 정각 (00, 15, 30, 45)
+            next_minute = ((now.minute // 15) + 1) * 15
+            if next_minute >= 60:
+                return (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            else:
+                return now.replace(minute=next_minute, second=0, microsecond=0)
+
+        elif candle_minutes == 60:
+            # 다음 정각
+            return (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+
+        elif candle_minutes == 240:
+            # 다음 4시간 정각 (00, 04, 08, 12, 16, 20)
+            next_hour = ((now.hour // 4) + 1) * 4
+            if next_hour >= 24:
+                return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            else:
+                return now.replace(hour=next_hour, minute=0, second=0, microsecond=0)
+
+        else:
+            # 기타 봉 크기는 기본적으로 봉 크기만큼 캐시
+            return now + timedelta(minutes=candle_minutes)
 
     def _get_krw_balance(self) -> float:
         """
