@@ -357,7 +357,11 @@ class V4TradingEngine:
 
         # 매수 신호 확인
         try:
-            if strategy.should_buy(candles):
+            logger.info(f"         🔍 {symbol}: should_buy() 호출 시작...")
+            buy_signal = strategy.should_buy(candles)
+            logger.info(f"         🔍 {symbol}: should_buy() 결과 = {buy_signal}")
+
+            if buy_signal:
                 logger.info(f"🔔 {symbol}: 매수 신호 발생!")
 
                 # 지표 값 출력
@@ -366,6 +370,8 @@ class V4TradingEngine:
 
                 # 매수 실행
                 self._execute_buy(symbol, group_id, group)
+            else:
+                logger.info(f"         ⏭️ {symbol}: 매수 조건 미충족 (신호 없음)")
         except Exception as e:
             logger.error(f"❌ {symbol} 매수 신호 확인 오류: {e}", exc_info=True)
 
