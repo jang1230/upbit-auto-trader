@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import threading
 import schedule
+import asyncio
 
 from core.config_manager import ConfigManager
 from core.group_manager import GroupManager
@@ -23,6 +24,7 @@ from core.trade_history_manager import TradeHistoryManager
 from core.daily_loss_tracker import DailyLossTracker
 from core.strategies.v4_auto_buy_strategy import V4AutoBuyStrategy
 from core.upbit_api import UpbitAPI, SymbolNotFoundError
+from core.websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,11 @@ class V4TradingEngine:
         self.main_thread = None
         self.scheduler_thread = None
 
+        # 🚀 WebSocket Manager (실시간 캔들 관리)
+        self.websocket_manager = WebSocketManager(upbit_api=upbit_api)
+        self.websocket_loop = None  # asyncio 이벤트 루프
+        self.websocket_thread = None  # WebSocket 스레드
+
         logger.info(f"✅ V4TradingEngine 초기화 완료 (모드: {mode}, 관찰: {self.observation_mode})")
 
     def start(self):
@@ -160,6 +167,15 @@ class V4TradingEngine:
         # 그룹별 전략 초기화
         self._initialize_strategies()
 
+        # 🚀 WebSocket + CandleAggregator 초기화
+        logger.info("🌐 WebSocket 시스템 초기화 중...")
+        try:
+            self._initialize_websockets()
+            logger.info("✅ WebSocket 시스템 초기화 완료")
+        except Exception as e:
+            logger.error(f"❌ WebSocket 초기화 실패: {e}", exc_info=True)
+            logger.warning("⚠️ REST API 폴백 모드로 계속 진행")
+
         # 스케줄러 스레드 시작 (09:00 리셋 등)
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self.scheduler_thread.start()
@@ -179,6 +195,15 @@ class V4TradingEngine:
         logger.info("🛑 V4 거래 엔진 중지 중...")
         self.is_running = False
         self.stop_event.set()
+
+        # 🚀 WebSocket 종료
+        if self.websocket_manager and self.websocket_manager.is_running:
+            logger.info("🌐 WebSocket 연결 종료 중...")
+            try:
+                asyncio.run(self.websocket_manager.stop_all())
+                logger.info("✅ WebSocket 연결 종료 완료")
+            except Exception as e:
+                logger.error(f"❌ WebSocket 종료 실패: {e}")
 
         # 스레드 종료 대기
         if self.main_thread and self.main_thread.is_alive():
@@ -224,6 +249,48 @@ class V4TradingEngine:
                     logger.error(f"❌ {symbol} 전략 생성 실패: {e}")
 
         logger.info(f"✅ 총 {sum(len(s) for s in self.strategies.values())}개 전략 초기화 완료")
+
+    async def _initialize_websockets_async(self):
+        """WebSocket 및 CandleAggregator 초기화 (asyncio)"""
+        logger.info("🌐 WebSocket 및 CandleAggregator 초기화 중...")
+
+        all_groups = self.group_manager.get_all_groups()
+        total_added = 0
+
+        for group_id, group in all_groups.items():
+            # 자동 매수 모드가 아니면 스킵
+            buy_settings = group.get("buy_settings", {})
+            if buy_settings.get("mode") != "auto":
+                continue
+
+            auto_config = buy_settings.get("auto_config", {})
+            candle_unit = int(auto_config.get("candle_unit", "60"))
+
+            # 그룹의 각 코인에 대한 WebSocket + CandleAggregator 생성
+            for symbol in group.get("coins", []):
+                try:
+                    # WebSocket + CandleAggregator 추가
+                    # (내부에서 REST API로 과거 캔들 199개 로드)
+                    await self.websocket_manager.add_symbol(
+                        symbol=symbol,
+                        candle_unit=candle_unit,
+                        completed_candles=None  # REST API로 자동 로드
+                    )
+                    total_added += 1
+                    logger.info(f"  - {group['name']}: {symbol} WebSocket 추가 완료")
+
+                except Exception as e:
+                    logger.error(f"❌ {symbol} WebSocket 추가 실패: {e}")
+
+        logger.info(f"✅ 총 {total_added}개 코인 WebSocket 초기화 완료")
+
+        # 모든 WebSocket 연결 시작
+        logger.info("🚀 WebSocket 연결 시작 중...")
+        await self.websocket_manager.start_all()
+
+    def _initialize_websockets(self):
+        """WebSocket 초기화 (동기 래퍼)"""
+        asyncio.run(self._initialize_websockets_async())
 
     def _run_trading_loop(self):
         """메인 거래 루프"""
