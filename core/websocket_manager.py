@@ -137,17 +137,27 @@ class WebSocketManager:
 
         logger.info(f"🚀 WebSocket 연결 시작 (총 {len(self.websockets)}개 코인)")
 
-        tasks = []
-        for symbol, ws in self.websockets.items():
-            tasks.append(self._start_websocket(symbol, ws))
+        # Rate Limit 준수를 위한 순차 연결
+        success_count = 0
+        fail_count = 0
+        total_count = len(self.websockets)
 
-        # 모든 WebSocket 동시 시작
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, (symbol, ws) in enumerate(self.websockets.items(), 1):
+            logger.debug(f"🔌 WebSocket 연결 중... ({i}/{total_count})")
 
-        # 결과 확인
-        success_count = sum(1 for r in results if r is True)
-        fail_count = len(results) - success_count
+            result = await self._start_websocket(symbol, ws)
 
+            if result:
+                success_count += 1
+            else:
+                fail_count += 1
+
+            # 마지막이 아니면 0.5초 대기 (Rate Limit 준수: 초당 2개 연결)
+            if i < total_count:
+                logger.debug(f"⏳ Rate Limit 준수: 0.5초 대기 중...")
+                await asyncio.sleep(0.5)
+
+        # 결과 로그
         if fail_count > 0:
             logger.warning(f"⚠️ WebSocket 연결: 성공 {success_count}개, 실패 {fail_count}개")
         else:

@@ -620,9 +620,17 @@ class UpbitAPI:
         # Rate Limit 적용 (candle: 10 requests/1s)
         self.limiter.acquire("candle")
 
-        # interval 파싱
+        # interval 파싱 (숫자만 받아도 처리 가능)
         if interval.startswith("minute"):
             unit = interval.replace("minute", "")
+            url = f"https://api.upbit.com/v1/candles/minutes/{unit}"
+        elif interval.isdigit():
+            # 숫자만 전달된 경우 (예: "15" → "minute15")
+            unit = interval
+            # 업비트 지원 분봉: 1, 3, 5, 10, 15, 30, 60, 240
+            if unit not in ["1", "3", "5", "10", "15", "30", "60", "240"]:
+                logger.error(f"지원하지 않는 분봉 interval: {unit}")
+                return None
             url = f"https://api.upbit.com/v1/candles/minutes/{unit}"
         elif interval == "day":
             url = "https://api.upbit.com/v1/candles/days"
