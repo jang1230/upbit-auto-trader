@@ -930,7 +930,7 @@ class V4TradingEngine:
 
     def _get_recent_candles(self, symbol: str, candle_unit: str, count: int = 200):
         """
-        최근 캔들 데이터 가져오기 (스마트 캐싱 적용)
+        최근 캔들 데이터 가져오기 (WebSocket 우선, REST API fallback)
 
         Args:
             symbol: 코인 심볼
@@ -938,11 +938,22 @@ class V4TradingEngine:
             count: 캔들 개수
 
         Returns:
-            DataFrame: 캔들 데이터
+            DataFrame: 캔들 데이터 (과거 199개 + 현재 진행 중 1개)
         """
         try:
+            # 🚀 우선순위 1: WebSocketManager에서 실시간 캔들 가져오기
+            if self.websocket_manager and self.websocket_manager.is_running:
+                candles = self.websocket_manager.get_candles(symbol, count)
+
+                if candles is not None and not candles.empty:
+                    logger.debug(f"🌐 WebSocket 캔들 사용: {symbol} ({candle_unit}분봉, {len(candles)}개)")
+                    return candles
+                else:
+                    logger.debug(f"⚠️ WebSocket 캔들 없음: {symbol}, REST API로 fallback")
+
+            # 📡 우선순위 2: REST API (fallback)
             if not self.upbit_api:
-                logger.error(f"❌ {symbol} 캔들 조회 실패: UpbitAPI 없음")
+                logger.error(f"❌ {symbol} 캔들 조회 실패: UpbitAPI 및 WebSocket 모두 없음")
                 return None
 
             # 캐시 키 생성
@@ -962,7 +973,7 @@ class V4TradingEngine:
                     logger.debug(f"⏰ 캐시 만료: {symbol} ({candle_unit}분봉)")
 
             # 캐시 없거나 만료 → API 조회
-            logger.debug(f"📊 API 조회: {symbol} ({candle_unit}분봉)")
+            logger.debug(f"📊 REST API 조회: {symbol} ({candle_unit}분봉)")
             interval = f"minute{candle_unit}"
             candles = self.upbit_api.get_candles(symbol, interval=interval, count=count)
 
