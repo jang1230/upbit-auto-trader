@@ -230,27 +230,52 @@ class V4TradingEngine:
         logger.info("🔄 메인 거래 루프 시작")
 
         check_interval = 60  # 60초마다 체크 (기본값)
+        loop_count = 0  # 루프 카운터
 
         while not self.stop_event.is_set():
             try:
+                loop_count += 1
+                logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                logger.info(f"🔄 [{loop_count}회차] 거래 체크 시작")
+                logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
                 # 일일 손실 한도 체크 및 리셋
                 if self.daily_loss_tracker:
                     self.daily_loss_tracker.check_and_reset()
 
                 # 모든 그룹 순회
                 all_groups = self.group_manager.get_all_groups()
+                logger.info(f"📊 전체 그룹 개수: {len(all_groups)}개")
 
                 for group_id, group in all_groups.items():
+                    group_name = group.get("name", group_id)
+                    coins = group.get("coins", [])
+                    observation_only = group.get("observation_only", False)
+                    buy_mode = group.get("buy_settings", {}).get("mode", "manual")
+
+                    logger.info(f"")
+                    logger.info(f"📌 그룹: {group_name} (ID: {group_id})")
+                    logger.info(f"   - 코인 개수: {len(coins)}개")
+                    logger.info(f"   - 관찰 전용: {observation_only}")
+                    logger.info(f"   - 매수 모드: {buy_mode}")
+                    logger.info(f"   - 코인 목록: {coins}")
+
                     # 관찰 전용 그룹 스킵
-                    if group.get("observation_only", False):
+                    if observation_only:
+                        logger.info(f"   ⏭️ 관찰 전용 그룹 스킵")
                         continue
 
                     # 그룹의 각 코인 처리
-                    for symbol in group.get("coins", []):
+                    for symbol in coins:
                         try:
+                            logger.info(f"   🔍 {symbol} 처리 시작...")
                             self._process_symbol(symbol, group_id, group)
                         except Exception as e:
                             logger.error(f"❌ {symbol} 처리 오류: {e}", exc_info=True)
+
+                logger.info(f"")
+                logger.info(f"✅ [{loop_count}회차] 거래 체크 완료, {check_interval}초 대기...")
+                logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 # 대기
                 self.stop_event.wait(check_interval)
