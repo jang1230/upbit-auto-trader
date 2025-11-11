@@ -173,6 +173,20 @@ class GroupManagementDialog(QDialog):
         self.coin_count_label.setStyleSheet("color: #666;")
         coin_layout.addWidget(self.coin_count_label)
 
+        # 검색창
+        coin_search_layout = QHBoxLayout()
+        coin_search_label = QLabel("🔍")
+        coin_search_label.setFont(QFont("맑은 고딕", 9))
+        coin_search_layout.addWidget(coin_search_label)
+
+        self.coin_search_edit = QLineEdit()
+        self.coin_search_edit.setPlaceholderText("검색... (예: BTC, 비트)")
+        self.coin_search_edit.setFont(QFont("맑은 고딕", 9))
+        self.coin_search_edit.textChanged.connect(self._filter_coins)
+        coin_search_layout.addWidget(self.coin_search_edit)
+
+        coin_layout.addLayout(coin_search_layout)
+
         # 스크롤 가능한 코인 리스트
         coin_scroll = QScrollArea()
         coin_scroll.setWidgetResizable(True)
@@ -526,6 +540,22 @@ class GroupManagementDialog(QDialog):
         """선택된 코인 개수 업데이트"""
         checked_count = sum(1 for cb in self.coin_checkboxes.values() if cb.isChecked())
         self.coin_count_label.setText(f"{checked_count}개 선택됨")
+
+    def _filter_coins(self):
+        """검색어에 따라 코인 필터링"""
+        search_text = self.coin_search_edit.text().strip().upper()
+
+        # 검색어가 비어있으면 모두 표시
+        if not search_text:
+            for checkbox in self.coin_checkboxes.values():
+                checkbox.setVisible(True)
+            return
+
+        # 검색어와 일치하는 항목만 표시
+        for symbol, checkbox in self.coin_checkboxes.items():
+            # 심볼명 또는 표시 텍스트에서 검색
+            checkbox_text = checkbox.text().upper()
+            checkbox.setVisible(search_text in checkbox_text)
 
     def _save_group(self):
         """그룹 저장"""

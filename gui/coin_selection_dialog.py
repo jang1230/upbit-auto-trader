@@ -5,7 +5,7 @@ Coin Selection Dialog - 코인 선택 다이얼로그
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QCheckBox,
-    QPushButton, QLabel, QGroupBox, QScrollArea, QWidget, QMessageBox
+    QPushButton, QLabel, QGroupBox, QScrollArea, QWidget, QMessageBox, QLineEdit
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
@@ -145,6 +145,20 @@ class CoinSelectionDialog(QDialog):
         header_label.setWordWrap(True)
         main_layout.addWidget(header_label)
 
+        # 검색창
+        search_layout = QHBoxLayout()
+        search_label = QLabel("🔍 검색:")
+        search_label.setFont(QFont("맑은 고딕", 9))
+        search_layout.addWidget(search_label)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("코인 심볼 또는 이름으로 검색... (예: BTC, 비트코인)")
+        self.search_edit.setFont(QFont("맑은 고딕", 9))
+        self.search_edit.textChanged.connect(self._filter_coins)
+        search_layout.addWidget(self.search_edit)
+
+        main_layout.addLayout(search_layout)
+
         # 중단: 코인 선택 체크박스 (스크롤 가능)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -250,6 +264,28 @@ class CoinSelectionDialog(QDialog):
 
         # 선택 정보 업데이트
         self.selection_info_label.setText(self._get_selection_info())
+
+    def _filter_coins(self):
+        """검색어에 따라 코인 필터링"""
+        search_text = self.search_edit.text().strip().upper()
+
+        # 검색어가 비어있으면 모두 표시
+        if not search_text:
+            for checkbox in self.checkboxes.values():
+                checkbox.setVisible(True)
+            return
+
+        # 검색어와 일치하는 항목만 표시
+        for symbol, checkbox in self.checkboxes.items():
+            # 심볼명 검색 (예: "BTC" 입력 시 "KRW-BTC" 매칭)
+            symbol_match = search_text in symbol.upper()
+
+            # 한글명/영문명 검색 (예: "비트" 입력 시 "비트코인" 매칭)
+            coin_name = self.coin_names.get(symbol, "").upper()
+            name_match = search_text in coin_name
+
+            # 둘 중 하나라도 매칭되면 표시
+            checkbox.setVisible(symbol_match or name_match)
 
     def _select_all(self):
         """전체 선택"""
