@@ -297,22 +297,29 @@ class V4TradingEngine:
         """
         # 0. 스킵 리스트 체크 (404 에러 발생한 코인)
         if symbol in self.skipped_symbols:
-            logger.debug(f"⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
+            logger.info(f"      ⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
             return
 
         # 1. 전역 제약 확인
-        if not self._check_global_constraints():
+        constraints_ok = self._check_global_constraints()
+        logger.info(f"      🔧 {symbol}: 전역 제약 체크 = {constraints_ok}")
+        if not constraints_ok:
+            logger.info(f"      ⏭️ {symbol}: 전역 제약 실패로 스킵")
             return
 
         # 2. 매수 신호 확인 (포지션이 없는 경우)
         position = self.position_manager.get_position(symbol)
+        logger.info(f"      📊 {symbol}: 포지션 존재 = {position is not None}")
 
         if not position and group.get("buy_settings", {}).get("mode") == "auto":
+            logger.info(f"      🎯 {symbol}: 매수 신호 체크 시작")
             self._check_buy_signal(symbol, group_id, group)
-
-        # 3. 포지션 관리 (DCA, 익절, 손절)
-        if position:
+        elif position:
+            logger.info(f"      🎯 {symbol}: 포지션 관리 시작")
             self._manage_position(symbol, group_id, group)
+        else:
+            buy_mode = group.get("buy_settings", {}).get("mode", "unknown")
+            logger.info(f"      ⏭️ {symbol}: 매수 신호 체크 스킵 (mode={buy_mode})")
 
     def _check_buy_signal(self, symbol: str, group_id: str, group: Dict[str, Any]):
         """
@@ -761,24 +768,34 @@ class V4TradingEngine:
             거래 가능 여부
         """
         # 관찰 모드 체크
+        logger.info(f"         🔍 observation_mode = {self.observation_mode}")
         if self.observation_mode:
+            logger.info(f"         ❌ 관찰 모드로 인해 거래 불가")
             return False
 
         # 최소 잔고 체크
         min_balance_config = self.global_settings.get("min_krw_balance", {})
-        if min_balance_config.get("enabled", False):
+        min_balance_enabled = min_balance_config.get("enabled", False)
+        logger.info(f"         🔍 최소 잔고 체크 활성화 = {min_balance_enabled}")
+
+        if min_balance_enabled:
             current_balance = self._get_krw_balance()
             min_balance = min_balance_config.get("amount", 50000)
+            logger.info(f"         🔍 현재 잔고: {current_balance:,.0f}원 / 최소: {min_balance:,.0f}원")
 
             if current_balance < min_balance:
-                logger.debug(f"⚠️ 최소 잔고 미달: {current_balance:,}원 < {min_balance:,}원")
+                logger.info(f"         ❌ 최소 잔고 미달로 인해 거래 불가")
                 return False
 
         # 일일 손실 한도 체크
+        daily_loss_enabled = self.daily_loss_tracker is not None
+        logger.info(f"         🔍 일일 손실 한도 체크 활성화 = {daily_loss_enabled}")
+
         if self.daily_loss_tracker and self.daily_loss_tracker.is_limit_reached():
-            logger.debug("⚠️ 일일 손실 한도 도달")
+            logger.info(f"         ❌ 일일 손실 한도 도달로 인해 거래 불가")
             return False
 
+        logger.info(f"         ✅ 전역 제약 모두 통과")
         return True
 
     def _get_current_price_safe(self, symbol: str) -> Optional[float]:
