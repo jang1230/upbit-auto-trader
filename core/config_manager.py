@@ -441,8 +441,8 @@ class ConfigManager:
             group_id: 그룹 ID
             updates: 업데이트할 필드들
         """
-        if self.config is None:
-            self.load_config()
+        # ✅ 수정: 항상 최신 파일을 로드하여 다른 다이얼로그의 변경사항 덮어쓰기 방지
+        self.load_config()
 
         if group_id not in self.config['groups']:
             raise ValueError(f"그룹을 찾을 수 없습니다: {group_id}")
