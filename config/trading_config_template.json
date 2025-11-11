@@ -16,6 +16,12 @@
       "calculation_method": "daily_only",
       "action": "alert"
     },
+    "position_loss_limit": {
+      "enabled": false,
+      "limit_pct": -10.0,
+      "action": "alert",
+      "exclude_observation_groups": true
+    },
     "telegram": {
       "enabled": false,
       "token": "",
