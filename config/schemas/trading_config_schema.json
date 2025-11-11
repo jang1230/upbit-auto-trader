@@ -75,6 +75,31 @@
             }
           }
         },
+        "position_loss_limit": {
+          "type": "object",
+          "required": ["enabled", "limit_pct", "action", "exclude_observation_groups"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable position loss limit"
+            },
+            "limit_pct": {
+              "type": "number",
+              "minimum": -50,
+              "maximum": 0,
+              "description": "Position loss limit percentage (negative value, e.g., -10.0 for -10%)"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["alert", "liquidate"],
+              "description": "Action when limit is reached"
+            },
+            "exclude_observation_groups": {
+              "type": "boolean",
+              "description": "Whether to exclude observation_only groups from loss calculation"
+            }
+          }
+        },
         "telegram": {
           "type": "object",
           "required": ["enabled"],

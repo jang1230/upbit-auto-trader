@@ -77,7 +77,7 @@ class V4TradingEngine:
         # Upbit API
         self.upbit_api = upbit_api
 
-        # 일일 손실 추적
+        # 일일 손실 추적 (deprecated - 포지션 손실 한도로 대체)
         daily_loss_config = self.global_settings.get("daily_loss_limit", {})
         if daily_loss_config.get("enabled", False):
             self.daily_loss_tracker = DailyLossTracker(
@@ -89,6 +89,11 @@ class V4TradingEngine:
             )
         else:
             self.daily_loss_tracker = None
+
+        # 포지션 손실 한도 (새로운 방식)
+        self.position_loss_limit_config = self.global_settings.get("position_loss_limit", {})
+        self.loss_limit_reached = False  # 손실 한도 도달 플래그
+        self.loss_limit_reached_time = None  # 도달 시각
 
         # 그룹별 전략 캐시
         self.strategies: Dict[str, Dict[str, V4AutoBuyStrategy]] = {}  # {group_id: {symbol: strategy}}
@@ -200,8 +205,16 @@ class V4TradingEngine:
         if self.websocket_manager and self.websocket_manager.is_running:
             logger.info("🌐 WebSocket 연결 종료 중...")
             try:
-                asyncio.run(self.websocket_manager.stop_all())
-                logger.info("✅ WebSocket 연결 종료 완료")
+                # 기존 이벤트 루프가 있는지 확인
+                try:
+                    loop = asyncio.get_running_loop()
+                    # 이미 실행 중인 루프가 있으면 태스크 생성
+                    loop.create_task(self.websocket_manager.stop_all())
+                    logger.info("✅ WebSocket 종료 태스크 생성 완료")
+                except RuntimeError:
+                    # 실행 중인 루프가 없으면 새로 실행
+                    asyncio.run(self.websocket_manager.stop_all())
+                    logger.info("✅ WebSocket 연결 종료 완료")
             except Exception as e:
                 logger.error(f"❌ WebSocket 종료 실패: {e}")
 
@@ -892,6 +905,16 @@ class V4TradingEngine:
             logger.info(f"         ❌ 일일 손실 한도 도달로 인해 거래 불가")
             return False
 
+        # 포지션 손실 한도 체크
+        position_loss_enabled = self.position_loss_limit_config.get("enabled", False)
+        logger.info(f"         🔍 포지션 손실 한도 체크 활성화 = {position_loss_enabled}")
+
+        if position_loss_enabled:
+            # 한도 체크 (이미 도달한 경우 또는 새로 도달한 경우)
+            if self._check_position_loss_limit():
+                logger.info(f"         ❌ 포지션 손실 한도 도달로 인해 거래 불가")
+                return False
+
         logger.info(f"         ✅ 전역 제약 모두 통과")
         return True
 
@@ -939,6 +962,92 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ {symbol} 현재가 조회 오류: {e}")
             return None
+
+    def _calculate_trading_groups_profit_loss(self) -> dict:
+        """
+        거래 그룹의 합산 손익 계산 (관찰 그룹 제외)
+
+        Returns:
+            dict: {
+                "total_invested": 총 투자금,
+                "total_profit_loss": 총 손익금,
+                "total_profit_loss_pct": 합산 수익률 (%),
+                "positions": [포지션 상세 리스트]
+            }
+        """
+        total_invested = 0.0
+        total_profit_loss = 0.0
+        position_details = []
+
+        # 모든 그룹 조회
+        all_groups = self.group_manager.get_all_groups()
+
+        for group_id, group in all_groups.items():
+            # 관찰 전용 그룹 제외
+            if group.get("observation_mode", False):
+                logger.debug(f"⏭️ 손익 계산 제외 (관찰 그룹): {group.get('name', group_id)}")
+                continue
+
+            # 해당 그룹의 코인들
+            group_coins = group.get("coins", [])
+
+            for symbol in group_coins:
+                # 포지션 존재 여부 확인
+                all_positions = self.position_manager.get_all_positions()
+                position = None
+
+                for pos_id, pos in all_positions.items():
+                    if pos.get("symbol") == symbol and pos.get("group_id") == group_id:
+                        position = pos
+                        break
+
+                if not position:
+                    continue
+
+                # 현재가 조회
+                current_price = self._get_current_price_safe(symbol)
+                if not current_price:
+                    logger.warning(f"⚠️ {symbol} 현재가 조회 실패, 손익 계산 스킵")
+                    continue
+
+                # 수익률 계산
+                avg_price = position.get('avg_price', 0)
+                amount = position.get('amount', 0)
+                invested = position.get('total_invested', 0)
+
+                if invested == 0:
+                    continue
+
+                current_value = amount * current_price
+                profit_loss = current_value - invested
+                profit_loss_pct = (profit_loss / invested) * 100
+
+                total_invested += invested
+                total_profit_loss += profit_loss
+
+                position_details.append({
+                    "symbol": symbol,
+                    "group_id": group_id,
+                    "invested": invested,
+                    "current_value": current_value,
+                    "profit_loss": profit_loss,
+                    "profit_loss_pct": profit_loss_pct
+                })
+
+                logger.debug(f"   {symbol}: {profit_loss:+,.0f}원 ({profit_loss_pct:+.2f}%)")
+
+        # 합산 수익률 계산
+        if total_invested > 0:
+            total_profit_loss_pct = (total_profit_loss / total_invested) * 100
+        else:
+            total_profit_loss_pct = 0.0
+
+        return {
+            "total_invested": total_invested,
+            "total_profit_loss": total_profit_loss,
+            "total_profit_loss_pct": total_profit_loss_pct,
+            "positions": position_details
+        }
 
     def _get_recent_candles(self, symbol: str, candle_unit: str, count: int = 200):
         """
@@ -1118,6 +1227,79 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ 자산 평가액 계산 오류: {e}")
             return 0.0
+
+    def _check_position_loss_limit(self) -> bool:
+        """
+        포지션 손실 한도 체크
+
+        Returns:
+            bool: True면 한도 도달 (거래 중단), False면 정상
+        """
+        # 설정 확인
+        if not self.position_loss_limit_config.get("enabled", False):
+            return False  # 비활성화 상태
+
+        # 이미 한도 도달한 경우
+        if self.loss_limit_reached:
+            logger.debug("⚠️ 이미 포지션 손실 한도 도달 상태 (재시작 필요)")
+            return True
+
+        # 손익 계산
+        result = self._calculate_trading_groups_profit_loss()
+
+        total_pct = result["total_profit_loss_pct"]
+        limit_pct = self.position_loss_limit_config.get("limit_pct", -10.0)
+
+        logger.debug(f"💰 거래 그룹 합산 수익률: {total_pct:+.2f}% (한도: {limit_pct}%)")
+
+        # 한도 체크
+        if total_pct <= limit_pct:
+            logger.error(f"🚨 포지션 손실 한도 도달!")
+            logger.error(f"   합산 수익률: {total_pct:.2f}% ≤ 한도: {limit_pct}%")
+            logger.error(f"   총 투자금: {result['total_invested']:,.0f}원")
+            logger.error(f"   총 손익금: {result['total_profit_loss']:+,.0f}원")
+
+            # 상세 내역 로그
+            for pos in result["positions"]:
+                logger.error(f"   - {pos['symbol']}: {pos['profit_loss']:+,.0f}원 "
+                           f"({pos['profit_loss_pct']:+.2f}%)")
+
+            # 플래그 설정
+            self.loss_limit_reached = True
+            self.loss_limit_reached_time = datetime.now()
+
+            # 액션 실행
+            action = self.position_loss_limit_config.get("action", "alert")
+
+            if action == "liquidate":
+                logger.error("🔴 전량 청산 시작...")
+                self._liquidate_all_positions(reason="포지션 손실 한도 도달")
+            elif action == "alert":
+                logger.warning("⚠️ 텔레그램 알림 발송...")
+                self._send_loss_limit_alert(result)
+
+            return True
+
+        return False
+
+    def _send_loss_limit_alert(self, result: dict):
+        """포지션 손실 한도 도달 알림"""
+        message = f"""
+🚨 포지션 손실 한도 도달!
+
+📊 합산 수익률: {result['total_profit_loss_pct']:+.2f}%
+💰 총 투자금: {result['total_invested']:,.0f}원
+💸 총 손익금: {result['total_profit_loss']:+,.0f}원
+
+📋 포지션 상세:
+"""
+
+        for pos in result["positions"]:
+            message += f"- {pos['symbol']}: {pos['profit_loss']:+,.0f}원 ({pos['profit_loss_pct']:+.2f}%)\n"
+
+        message += "\n⚠️ 매수가 중단됩니다. 프로그램 재시작 필요."
+
+        self._send_telegram_alert(message)
 
     def _liquidate_all_positions(self, reason: str = "일일 손실 한도 도달"):
         """모든 포지션 청산"""
