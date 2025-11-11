@@ -897,7 +897,7 @@ class V4TradingEngine:
 
     def _get_current_price_safe(self, symbol: str) -> Optional[float]:
         """
-        현재가 안전 조회 (Dry-run/Live 모드 호환)
+        현재가 안전 조회 (WebSocket 우선, REST API fallback)
 
         Args:
             symbol: 코인 심볼 (예: 'KRW-BTC')
@@ -906,16 +906,28 @@ class V4TradingEngine:
             float: 현재가 (실패 시 None)
         """
         try:
+            # 🚀 우선순위 1: WebSocketManager에서 실시간 현재가 가져오기
+            if self.websocket_manager and self.websocket_manager.is_running:
+                current_price = self.websocket_manager.get_current_price(symbol)
+
+                if current_price is not None:
+                    logger.debug(f"🌐 WebSocket 현재가 사용: {symbol} = {current_price:,.0f}")
+                    return current_price
+                else:
+                    logger.debug(f"⚠️ WebSocket 현재가 없음: {symbol}, REST API로 fallback")
+
+            # 📡 우선순위 2: REST API (fallback)
             if self.upbit_api:
-                # UpbitAPI 사용 (Live/Dry-run 모두 사용 가능)
                 ticker = self.upbit_api.get_ticker(symbol)
                 if ticker and 'trade_price' in ticker:
-                    return float(ticker['trade_price'])
+                    price = float(ticker['trade_price'])
+                    logger.debug(f"📊 REST API 현재가 사용: {symbol} = {price:,.0f}")
+                    return price
                 else:
                     logger.error(f"❌ {symbol} 현재가 조회 실패: ticker 데이터 없음")
                     return None
             else:
-                logger.error(f"❌ {symbol} 현재가 조회 실패: UpbitAPI 없음 (Dry-run 모드에서는 UpbitAPI 필요)")
+                logger.error(f"❌ {symbol} 현재가 조회 실패: WebSocket 및 UpbitAPI 모두 없음")
                 return None
 
         except SymbolNotFoundError as e:
