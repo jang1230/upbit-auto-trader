@@ -293,26 +293,34 @@ class V4TradingEngine:
         asyncio.run(self._initialize_websockets_async())
 
     def _run_trading_loop(self):
-        """메인 거래 루프"""
-        logger.info("🔄 메인 거래 루프 시작")
+        """메인 거래 루프 (1초마다 실시간 체크)"""
+        logger.info("🔄 메인 거래 루프 시작 (1초 간격 실시간 체크)")
 
-        check_interval = 60  # 60초마다 체크 (기본값)
+        check_interval = 1  # 🚀 1초마다 실시간 체크 (기존: 60초)
         loop_count = 0  # 루프 카운터
+        verbose_interval = 60  # 60회마다 상세 로그 출력 (60초마다)
 
         while not self.stop_event.is_set():
             try:
                 loop_count += 1
-                logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                logger.info(f"🔄 [{loop_count}회차] 거래 체크 시작")
-                logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                # 일일 손실 한도 체크 및 리셋
+                # 상세 로그는 60회(60초)마다만 출력
+                verbose = (loop_count % verbose_interval == 1)
+
+                if verbose:
+                    logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    logger.info(f"🔄 [{loop_count}회차] 거래 체크 시작 (1초 간격)")
+                    logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+                # 일일 손실 한도 체크 및 리셋 (1초마다)
                 if self.daily_loss_tracker:
                     self.daily_loss_tracker.check_and_reset()
 
                 # 모든 그룹 순회
                 all_groups = self.group_manager.get_all_groups()
-                logger.info(f"📊 전체 그룹 개수: {len(all_groups)}개")
+
+                if verbose:
+                    logger.info(f"📊 전체 그룹 개수: {len(all_groups)}개")
 
                 for group_id, group in all_groups.items():
                     group_name = group.get("name", group_id)
@@ -320,29 +328,34 @@ class V4TradingEngine:
                     observation_only = group.get("observation_only", False)
                     buy_mode = group.get("buy_settings", {}).get("mode", "manual")
 
-                    logger.info(f"")
-                    logger.info(f"📌 그룹: {group_name} (ID: {group_id})")
-                    logger.info(f"   - 코인 개수: {len(coins)}개")
-                    logger.info(f"   - 관찰 전용: {observation_only}")
-                    logger.info(f"   - 매수 모드: {buy_mode}")
-                    logger.info(f"   - 코인 목록: {coins}")
+                    if verbose:
+                        logger.info(f"")
+                        logger.info(f"📌 그룹: {group_name} (ID: {group_id})")
+                        logger.info(f"   - 코인 개수: {len(coins)}개")
+                        logger.info(f"   - 관찰 전용: {observation_only}")
+                        logger.info(f"   - 매수 모드: {buy_mode}")
+                        logger.info(f"   - 코인 목록: {coins}")
 
                     # 관찰 전용 그룹 스킵
                     if observation_only:
-                        logger.info(f"   ⏭️ 관찰 전용 그룹 스킵")
+                        if verbose:
+                            logger.info(f"   ⏭️ 관찰 전용 그룹 스킵")
                         continue
 
-                    # 그룹의 각 코인 처리
+                    # 그룹의 각 코인 처리 (1초마다 체크)
                     for symbol in coins:
                         try:
-                            logger.info(f"   🔍 {symbol} 처리 시작...")
+                            # 상세 로그는 verbose 모드에서만
+                            if verbose:
+                                logger.info(f"   🔍 {symbol} 처리 시작...")
                             self._process_symbol(symbol, group_id, group)
                         except Exception as e:
                             logger.error(f"❌ {symbol} 처리 오류: {e}", exc_info=True)
 
-                logger.info(f"")
-                logger.info(f"✅ [{loop_count}회차] 거래 체크 완료, {check_interval}초 대기...")
-                logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                if verbose:
+                    logger.info(f"")
+                    logger.info(f"✅ [{loop_count}회차] 거래 체크 완료, {check_interval}초 대기...")
+                    logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
                 # 대기
                 self.stop_event.wait(check_interval)
