@@ -331,17 +331,28 @@ class V4TradingEngine:
             group: 그룹 데이터
         """
         # 전략 가져오기
+        logger.info(f"         🔍 전략 검색: group_id={group_id}, symbol={symbol}")
+        logger.info(f"         🔍 self.strategies.keys() = {list(self.strategies.keys())}")
+
         strategy = self.strategies.get(group_id, {}).get(symbol)
+        logger.info(f"         🔍 전략 찾기 결과: {strategy is not None}")
+
         if not strategy:
+            logger.info(f"         ❌ {symbol}: 전략 없음 (그룹: {group_id})")
             return
 
         # 캔들 데이터 가져오기
         auto_config = group.get("buy_settings", {}).get("auto_config", {})
         candle_unit = auto_config.get("candle_unit", "60")
+        logger.info(f"         🔍 캔들 단위: {candle_unit}분")
 
+        logger.info(f"         📊 {symbol}: 캔들 조회 시작 (단위: {candle_unit}분, 개수: 200개)")
         candles = self._get_recent_candles(symbol, candle_unit, count=200)
+        candle_count = len(candles) if candles is not None else 0
+        logger.info(f"         📊 {symbol}: 캔들 조회 완료 (조회됨: {candle_count}개)")
+
         if candles is None or len(candles) < 50:
-            logger.debug(f"{symbol}: 캔들 데이터 부족 (필요: 50개, 현재: {len(candles) if candles is not None else 0}개)")
+            logger.info(f"         ❌ {symbol}: 캔들 데이터 부족 (필요: 50개, 현재: {candle_count}개)")
             return
 
         # 매수 신호 확인
