@@ -9,7 +9,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from typing import List
+from typing import List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CoinSelectionDialog(QDialog):
@@ -23,38 +26,20 @@ class CoinSelectionDialog(QDialog):
     # 시그널 정의
     coins_changed = Signal(list)  # 코인 선택이 변경되면 발생 (선택된 코인 리스트 전달)
 
-    # 사용 가능한 모든 코인 리스트 (나중에 확장 가능)
-    ALL_COINS = [
-        'KRW-BTC',
-        'KRW-ETH',
-        'KRW-XRP',
-        'KRW-SOL',
-        'KRW-DOGE',
-        'KRW-USDT',
-        # 나중에 추가 가능
-        # 'KRW-ADA',
-        # 'KRW-AVAX',
-        # 'KRW-MATIC',
-        # 'KRW-DOT',
+    # 상장폐지 또는 제외할 코인 블랙리스트
+    BLACKLIST = [
+        'KRW-MATIC',  # 상장폐지
+        # 추가 제외 코인이 있으면 여기에 추가
     ]
 
-    # 코인 이름 매핑 (한글 표시용)
-    COIN_NAMES = {
-        'KRW-BTC': 'Bitcoin (비트코인)',
-        'KRW-ETH': 'Ethereum (이더리움)',
-        'KRW-XRP': 'Ripple (리플)',
-        'KRW-SOL': 'Solana (솔라나)',
-        'KRW-DOGE': 'Dogecoin (도지코인)',
-        'KRW-USDT': 'Tether (테더)',
-    }
-
-    def __init__(self, parent=None, selected_coins: List[str] = None):
+    def __init__(self, parent=None, selected_coins: List[str] = None, upbit_api=None):
         """
         코인 선택 다이얼로그 초기화
 
         Args:
             parent: 부모 위젯
             selected_coins: 현재 선택된 코인 리스트 (예: ['KRW-BTC', 'KRW-ETH'])
+            upbit_api: UpbitAPI 인스턴스 (마켓 목록 조회용)
         """
         super().__init__(parent)
 
@@ -64,12 +49,88 @@ class CoinSelectionDialog(QDialog):
 
         self.selected_coins = selected_coins.copy()  # 복사본 생성
         self.checkboxes = {}  # {심볼: QCheckBox}
+        self.upbit_api = upbit_api
+
+        # 동적으로 코인 목록 로드
+        self.all_coins = []  # 사용 가능한 모든 KRW 마켓
+        self.coin_names = {}  # {심볼: 한글명}
+        self._load_market_list()
 
         self.setWindowTitle("🎯 거래할 코인 선택")
         self.setMinimumSize(500, 400)
         self.setModal(True)  # 모달 다이얼로그 (다른 창 조작 불가)
 
         self._init_ui()
+
+    def _load_market_list(self):
+        """
+        Upbit API에서 마켓 목록을 동적으로 로드
+
+        KRW 마켓만 필터링하고, 블랙리스트 코인 제외
+        """
+        if self.upbit_api is None:
+            logger.warning("⚠️ UpbitAPI 인스턴스가 없어서 기본 코인 목록 사용")
+            # Fallback: 기본 코인 목록
+            self.all_coins = [
+                'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL',
+                'KRW-DOGE', 'KRW-USDT', 'KRW-ADA', 'KRW-AVAX'
+            ]
+            self.coin_names = {
+                'KRW-BTC': 'Bitcoin (비트코인)',
+                'KRW-ETH': 'Ethereum (이더리움)',
+                'KRW-XRP': 'Ripple (리플)',
+                'KRW-SOL': 'Solana (솔라나)',
+                'KRW-DOGE': 'Dogecoin (도지코인)',
+                'KRW-USDT': 'Tether (테더)',
+                'KRW-ADA': 'Cardano (에이다)',
+                'KRW-AVAX': 'Avalanche (아발란체)',
+            }
+            return
+
+        try:
+            # Upbit API로 전체 마켓 목록 조회
+            markets = self.upbit_api.get_market_all(is_details=True)
+
+            if not markets:
+                logger.warning("⚠️ 마켓 목록 조회 실패, 기본 목록 사용")
+                self._load_market_list()  # Fallback 호출
+                return
+
+            # KRW 마켓만 필터링 (블랙리스트 제외)
+            for market in markets:
+                symbol = market.get('market', '')
+                korean_name = market.get('korean_name', '')
+                english_name = market.get('english_name', '')
+                market_warning = market.get('market_warning', 'NONE')
+
+                # KRW 마켓만
+                if not symbol.startswith('KRW-'):
+                    continue
+
+                # 블랙리스트 제외
+                if symbol in self.BLACKLIST:
+                    logger.info(f"⛔ {symbol}: 스킵 리스트에 추가 (상장폐지)")
+                    continue
+
+                # 유의종목 제외 (선택사항)
+                # if market_warning == "CAUTION":
+                #     logger.info(f"⚠️ {symbol}: 유의종목 제외")
+                #     continue
+
+                # 추가
+                self.all_coins.append(symbol)
+                self.coin_names[symbol] = f"{english_name} ({korean_name})"
+
+            # 심볼 기준 정렬 (BTC, ETH, ... 순서)
+            self.all_coins.sort()
+
+            logger.info(f"✅ KRW 마켓 {len(self.all_coins)}개 로드 완료")
+
+        except Exception as e:
+            logger.error(f"❌ 마켓 목록 로드 실패: {e}")
+            # Fallback 재귀 호출 방지를 위해 직접 설정
+            self.upbit_api = None
+            self._load_market_list()
 
     def _init_ui(self):
         """UI 초기화"""
@@ -79,7 +140,7 @@ class CoinSelectionDialog(QDialog):
         header_label = QLabel(
             "<h2>🎯 거래할 코인을 선택하세요</h2>"
             "<p>체크된 코인만 감시하고 전략을 적용합니다.</p>"
-            "<p style='color: #666;'>최소 1개, 최대 6개까지 선택 가능합니다.</p>"
+            f"<p style='color: #666;'>전체 {len(self.all_coins)}개 KRW 마켓 중 선택 가능</p>"
         )
         header_label.setWordWrap(True)
         main_layout.addWidget(header_label)
@@ -97,7 +158,7 @@ class CoinSelectionDialog(QDialog):
         coins_layout = QVBoxLayout()
 
         # 각 코인에 대한 체크박스 생성
-        for symbol in self.ALL_COINS:
+        for symbol in self.all_coins:
             checkbox = QCheckBox(self._get_coin_display_name(symbol))
             checkbox.setFont(QFont("맑은 고딕", 10))
 
@@ -167,7 +228,7 @@ class CoinSelectionDialog(QDialog):
         Returns:
             str: 표시용 이름 (예: 'KRW-BTC - Bitcoin (비트코인)')
         """
-        coin_name = self.COIN_NAMES.get(symbol, symbol)
+        coin_name = self.coin_names.get(symbol, symbol)
         return f"{symbol} - {coin_name}"
 
     def _get_selection_info(self) -> str:
@@ -211,17 +272,11 @@ class CoinSelectionDialog(QDialog):
             )
             return
 
-        # 검증: 최대 6개까지
-        if len(self.selected_coins) > 6:
-            QMessageBox.warning(
-                self,
-                "선택 초과",
-                f"⚠️ 최대 6개까지만 선택할 수 있습니다.\n현재 {len(self.selected_coins)}개 선택됨"
-            )
-            return
-
         # 확인 메시지
-        coins_str = ", ".join([symbol.replace('KRW-', '') for symbol in self.selected_coins])
+        coins_str = ", ".join([symbol.replace('KRW-', '') for symbol in self.selected_coins[:10]])
+        if len(self.selected_coins) > 10:
+            coins_str += f", ... 외 {len(self.selected_coins) - 10}개"
+
         reply = QMessageBox.question(
             self,
             "코인 선택 저장",
@@ -256,9 +311,10 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    # 테스트: 기본 선택값 전달
+    # 테스트: 기본 선택값 전달 (upbit_api=None이면 fallback 리스트 사용)
     dialog = CoinSelectionDialog(
-        selected_coins=['KRW-BTC', 'KRW-ETH', 'KRW-XRP']
+        selected_coins=['KRW-BTC', 'KRW-ETH', 'KRW-XRP'],
+        upbit_api=None  # 실제 사용 시에는 UpbitAPI 인스턴스 전달
     )
 
     # 시그널 연결 (테스트)

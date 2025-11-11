@@ -722,8 +722,8 @@ class MainWindow(QMainWindow):
         # 현재 선택된 코인 리스트 가져오기
         selected_coins = self.config_manager.get_selected_coins()
 
-        # 코인 선택 다이얼로그 열기
-        dialog = CoinSelectionDialog(self, selected_coins=selected_coins)
+        # 코인 선택 다이얼로그 열기 (upbit_api 전달하여 동적 코인 목록 로드)
+        dialog = CoinSelectionDialog(self, selected_coins=selected_coins, upbit_api=self.upbit_api)
 
         # 코인 선택 변경 시그널 연결
         dialog.coins_changed.connect(self._on_coins_changed)
