@@ -30,19 +30,21 @@ class GroupManagementDialog(QDialog):
     # 시그널: 그룹 변경 완료 (메인 윈도우에서 새로고침용)
     groups_changed = Signal()
 
-    def __init__(self, config_manager, group_manager, parent=None, is_trading_running=False):
+    def __init__(self, config_manager, group_manager, parent=None, is_trading_running=False, upbit_api=None):
         """
         Args:
             config_manager: ConfigManager 인스턴스
             group_manager: GroupManager 인스턴스
             parent: 부모 위젯
             is_trading_running: 거래 실행 중 여부
+            upbit_api: UpbitAPI 인스턴스 (마켓 목록 조회용)
         """
         super().__init__(parent)
 
         self.config_manager = config_manager
         self.group_manager = group_manager
         self.is_trading_running = is_trading_running  # 거래 실행 상태
+        self.upbit_api = upbit_api
 
         # 현재 선택된 그룹 ID
         self.selected_group_id: Optional[str] = None
@@ -274,6 +276,63 @@ class GroupManagementDialog(QDialog):
                 f"그룹 목록을 불러올 수 없습니다.\n{e}"
             )
 
+    def _fetch_available_coins(self) -> List[tuple]:
+        """
+        Upbit API에서 사용 가능한 코인 목록 조회
+
+        Returns:
+            List[tuple]: (symbol, name) 튜플 리스트
+                예: [("KRW-BTC", "Bitcoin (비트코인)"), ...]
+        """
+        if self.upbit_api is None:
+            logger.warning("⚠️ UpbitAPI 인스턴스가 없어서 기본 코인 목록 사용")
+            # Fallback: 기본 코인 목록
+            return [
+                ("KRW-BTC", "Bitcoin (비트코인)"),
+                ("KRW-ETH", "Ethereum (이더리움)"),
+                ("KRW-XRP", "Ripple (리플)"),
+                ("KRW-SOL", "Solana (솔라나)"),
+                ("KRW-DOGE", "Dogecoin (도지코인)"),
+                ("KRW-USDT", "Tether (테더)"),
+                ("KRW-ADA", "Cardano (에이다)"),
+                ("KRW-AVAX", "Avalanche (아발란체)"),
+            ]
+
+        try:
+            # Upbit API로 전체 마켓 목록 조회
+            markets = self.upbit_api.get_market_all(is_details=True)
+
+            if not markets:
+                logger.warning("⚠️ 마켓 목록 조회 실패, 기본 목록 사용")
+                return self._fetch_available_coins()  # Fallback 재귀 호출
+
+            # KRW 마켓만 필터링
+            available_coins = []
+            for market in markets:
+                symbol = market.get('market', '')
+                korean_name = market.get('korean_name', '')
+                english_name = market.get('english_name', '')
+
+                # KRW 마켓만
+                if not symbol.startswith('KRW-'):
+                    continue
+
+                # 추가
+                name = f"{english_name} ({korean_name})"
+                available_coins.append((symbol, name))
+
+            # 심볼 기준 정렬
+            available_coins.sort(key=lambda x: x[0])
+
+            logger.info(f"✅ KRW 마켓 {len(available_coins)}개 로드 완료")
+            return available_coins
+
+        except Exception as e:
+            logger.error(f"❌ 마켓 목록 로드 실패: {e}")
+            # Fallback 재귀 호출 방지
+            self.upbit_api = None
+            return self._fetch_available_coins()
+
     def _load_available_coins(self):
         """사용 가능한 코인 목록 로드 및 체크박스 생성"""
         # 기존 체크박스 제거
@@ -282,20 +341,11 @@ class GroupManagementDialog(QDialog):
             checkbox.deleteLater()
         self.coin_checkboxes.clear()
 
-        # TODO: 실제로는 Upbit API에서 전체 마켓 목록을 가져와야 함
-        # 현재는 하드코딩된 상위 코인 사용
-        available_coins = [
-            ("KRW-BTC", "Bitcoin"),
-            ("KRW-ETH", "Ethereum"),
-            ("KRW-XRP", "Ripple"),
-            ("KRW-DOGE", "Dogecoin"),
-            ("KRW-SOL", "Solana"),
-            ("KRW-ADA", "Cardano"),
-            ("KRW-AVAX", "Avalanche"),
-            ("KRW-DOT", "Polkadot"),
-            ("KRW-MATIC", "Polygon"),
-            ("KRW-LINK", "Chainlink"),
-        ]
+        # Upbit API에서 동적으로 마켓 목록 로드
+        available_coins = self._fetch_available_coins()
+
+        # 상장폐지 코인 블랙리스트 (CoinSelectionDialog와 동일)
+        blacklist = ['KRW-MATIC']
 
         # 현재 설정에서 이미 다른 그룹에 할당된 코인 확인
         try:
@@ -315,6 +365,11 @@ class GroupManagementDialog(QDialog):
 
         # 체크박스 생성
         for symbol, name in available_coins:
+            # 블랙리스트 코인 제외
+            if symbol in blacklist:
+                logger.info(f"⛔ {symbol}: 스킵 리스트에 추가 (상장폐지)")
+                continue
+
             checkbox = QCheckBox(f"{symbol} - {name}")
             checkbox.setFont(QFont("맑은 고딕", 9))
 
