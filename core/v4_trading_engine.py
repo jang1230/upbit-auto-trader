@@ -361,7 +361,7 @@ class V4TradingEngine:
                             # 상세 로그는 verbose 모드에서만
                             if verbose:
                                 logger.info(f"   🔍 {symbol} 처리 시작...")
-                            self._process_symbol(symbol, group_id, group)
+                            self._process_symbol(symbol, group_id, group, verbose=verbose)
                         except Exception as e:
                             logger.error(f"❌ {symbol} 처리 오류: {e}", exc_info=True)
 
@@ -379,7 +379,7 @@ class V4TradingEngine:
 
         logger.info("🛑 메인 거래 루프 종료")
 
-    def _process_symbol(self, symbol: str, group_id: str, group: Dict[str, Any]):
+    def _process_symbol(self, symbol: str, group_id: str, group: Dict[str, Any], verbose: bool = False):
         """
         코인 처리 (매수 신호 확인, 포지션 관리)
 
@@ -387,34 +387,42 @@ class V4TradingEngine:
             symbol: 코인 심볼 (예: KRW-BTC)
             group_id: 그룹 ID
             group: 그룹 데이터
+            verbose: 상세 로그 출력 여부
         """
         # 0. 스킵 리스트 체크 (404 에러 발생한 코인)
         if symbol in self.skipped_symbols:
-            logger.info(f"      ⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
+            if verbose:
+                logger.info(f"      ⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
             return
 
         # 1. 전역 제약 확인
-        constraints_ok = self._check_global_constraints()
-        logger.info(f"      🔧 {symbol}: 전역 제약 체크 = {constraints_ok}")
+        constraints_ok = self._check_global_constraints(verbose=verbose)
+        if verbose:
+            logger.info(f"      🔧 {symbol}: 전역 제약 체크 = {constraints_ok}")
         if not constraints_ok:
-            logger.info(f"      ⏭️ {symbol}: 전역 제약 실패로 스킵")
+            if verbose:
+                logger.info(f"      ⏭️ {symbol}: 전역 제약 실패로 스킵")
             return
 
         # 2. 매수 신호 확인 (포지션이 없는 경우)
         position = self.position_manager.get_position(symbol)
-        logger.info(f"      📊 {symbol}: 포지션 존재 = {position is not None}")
+        if verbose:
+            logger.info(f"      📊 {symbol}: 포지션 존재 = {position is not None}")
 
         if not position and group.get("buy_settings", {}).get("mode") == "auto":
-            logger.info(f"      🎯 {symbol}: 매수 신호 체크 시작")
-            self._check_buy_signal(symbol, group_id, group)
+            if verbose:
+                logger.info(f"      🎯 {symbol}: 매수 신호 체크 시작")
+            self._check_buy_signal(symbol, group_id, group, verbose=verbose)
         elif position:
-            logger.info(f"      🎯 {symbol}: 포지션 관리 시작")
+            if verbose:
+                logger.info(f"      🎯 {symbol}: 포지션 관리 시작")
             self._manage_position(symbol, group_id, group)
         else:
-            buy_mode = group.get("buy_settings", {}).get("mode", "unknown")
-            logger.info(f"      ⏭️ {symbol}: 매수 신호 체크 스킵 (mode={buy_mode})")
+            if verbose:
+                buy_mode = group.get("buy_settings", {}).get("mode", "unknown")
+                logger.info(f"      ⏭️ {symbol}: 매수 신호 체크 스킵 (mode={buy_mode})")
 
-    def _check_buy_signal(self, symbol: str, group_id: str, group: Dict[str, Any]):
+    def _check_buy_signal(self, symbol: str, group_id: str, group: Dict[str, Any], verbose: bool = False):
         """
         매수 신호 확인
 
@@ -422,39 +430,49 @@ class V4TradingEngine:
             symbol: 코인 심볼
             group_id: 그룹 ID
             group: 그룹 데이터
+            verbose: 상세 로그 출력 여부
         """
         # 전략 가져오기
-        logger.info(f"         🔍 전략 검색: group_id={group_id}, symbol={symbol}")
-        logger.info(f"         🔍 self.strategies.keys() = {list(self.strategies.keys())}")
+        if verbose:
+            logger.info(f"         🔍 전략 검색: group_id={group_id}, symbol={symbol}")
+            logger.info(f"         🔍 self.strategies.keys() = {list(self.strategies.keys())}")
 
         strategy = self.strategies.get(group_id, {}).get(symbol)
-        logger.info(f"         🔍 전략 찾기 결과: {strategy is not None}")
+        if verbose:
+            logger.info(f"         🔍 전략 찾기 결과: {strategy is not None}")
 
         if not strategy:
-            logger.info(f"         ❌ {symbol}: 전략 없음 (그룹: {group_id})")
+            if verbose:
+                logger.info(f"         ❌ {symbol}: 전략 없음 (그룹: {group_id})")
             return
 
         # 캔들 데이터 가져오기
         auto_config = group.get("buy_settings", {}).get("auto_config", {})
         candle_unit = auto_config.get("candle_unit", "60")
-        logger.info(f"         🔍 캔들 단위: {candle_unit}분")
+        if verbose:
+            logger.info(f"         🔍 캔들 단위: {candle_unit}분")
 
-        logger.info(f"         📊 {symbol}: 캔들 조회 시작 (단위: {candle_unit}분, 개수: 200개)")
+        if verbose:
+            logger.info(f"         📊 {symbol}: 캔들 조회 시작 (단위: {candle_unit}분, 개수: 200개)")
         candles = self._get_recent_candles(symbol, candle_unit, count=200)
         candle_count = len(candles) if candles is not None else 0
-        logger.info(f"         📊 {symbol}: 캔들 조회 완료 (조회됨: {candle_count}개)")
+        if verbose:
+            logger.info(f"         📊 {symbol}: 캔들 조회 완료 (조회됨: {candle_count}개)")
 
         if candles is None or len(candles) < 50:
-            logger.info(f"         ❌ {symbol}: 캔들 데이터 부족 (필요: 50개, 현재: {candle_count}개)")
+            logger.warning(f"⚠️ {symbol}: 캔들 데이터 부족 (필요: 50개, 현재: {candle_count}개)")
             return
 
         # 매수 신호 확인
         try:
-            logger.info(f"         🔍 {symbol}: should_buy() 호출 시작...")
+            if verbose:
+                logger.info(f"         🔍 {symbol}: should_buy() 호출 시작...")
             buy_signal = strategy.should_buy(candles)
-            logger.info(f"         🔍 {symbol}: should_buy() 결과 = {buy_signal}")
+            if verbose:
+                logger.info(f"         🔍 {symbol}: should_buy() 결과 = {buy_signal}")
 
             if buy_signal:
+                # 매수 신호는 항상 로깅 (중요 이벤트)
                 logger.info(f"🔔 {symbol}: 매수 신호 발생!")
 
                 # 지표 값 출력
@@ -464,7 +482,8 @@ class V4TradingEngine:
                 # 매수 실행
                 self._execute_buy(symbol, group_id, group)
             else:
-                logger.info(f"         ⏭️ {symbol}: 매수 조건 미충족 (신호 없음)")
+                if verbose:
+                    logger.info(f"         ⏭️ {symbol}: 매수 조건 미충족 (신호 없음)")
         except Exception as e:
             logger.error(f"❌ {symbol} 매수 신호 확인 오류: {e}", exc_info=True)
 
@@ -870,52 +889,62 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ {symbol} 매도 실행 오류: {e}", exc_info=True)
 
-    def _check_global_constraints(self) -> bool:
+    def _check_global_constraints(self, verbose: bool = False) -> bool:
         """
         전역 제약 확인
+
+        Args:
+            verbose: 상세 로그 출력 여부
 
         Returns:
             거래 가능 여부
         """
         # 관찰 모드 체크
-        logger.info(f"         🔍 observation_mode = {self.observation_mode}")
+        if verbose:
+            logger.info(f"         🔍 observation_mode = {self.observation_mode}")
         if self.observation_mode:
-            logger.info(f"         ❌ 관찰 모드로 인해 거래 불가")
+            if verbose:
+                logger.info(f"         ❌ 관찰 모드로 인해 거래 불가")
             return False
 
         # 최소 잔고 체크
         min_balance_config = self.global_settings.get("min_krw_balance", {})
         min_balance_enabled = min_balance_config.get("enabled", False)
-        logger.info(f"         🔍 최소 잔고 체크 활성화 = {min_balance_enabled}")
+        if verbose:
+            logger.info(f"         🔍 최소 잔고 체크 활성화 = {min_balance_enabled}")
 
         if min_balance_enabled:
             current_balance = self._get_krw_balance()
             min_balance = min_balance_config.get("amount", 50000)
-            logger.info(f"         🔍 현재 잔고: {current_balance:,.0f}원 / 최소: {min_balance:,.0f}원")
+            if verbose:
+                logger.info(f"         🔍 현재 잔고: {current_balance:,.0f}원 / 최소: {min_balance:,.0f}원")
 
             if current_balance < min_balance:
-                logger.info(f"         ❌ 최소 잔고 미달로 인해 거래 불가")
+                logger.warning(f"⚠️ 최소 잔고 미달로 인해 거래 불가 ({current_balance:,.0f}원 < {min_balance:,.0f}원)")
                 return False
 
         # 일일 손실 한도 체크
         daily_loss_enabled = self.daily_loss_tracker is not None
-        logger.info(f"         🔍 일일 손실 한도 체크 활성화 = {daily_loss_enabled}")
+        if verbose:
+            logger.info(f"         🔍 일일 손실 한도 체크 활성화 = {daily_loss_enabled}")
 
         if self.daily_loss_tracker and self.daily_loss_tracker.is_limit_reached():
-            logger.info(f"         ❌ 일일 손실 한도 도달로 인해 거래 불가")
+            logger.warning(f"⚠️ 일일 손실 한도 도달로 인해 거래 불가")
             return False
 
         # 포지션 손실 한도 체크
         position_loss_enabled = self.position_loss_limit_config.get("enabled", False)
-        logger.info(f"         🔍 포지션 손실 한도 체크 활성화 = {position_loss_enabled}")
+        if verbose:
+            logger.info(f"         🔍 포지션 손실 한도 체크 활성화 = {position_loss_enabled}")
 
         if position_loss_enabled:
             # 한도 체크 (이미 도달한 경우 또는 새로 도달한 경우)
             if self._check_position_loss_limit():
-                logger.info(f"         ❌ 포지션 손실 한도 도달로 인해 거래 불가")
+                logger.warning(f"⚠️ 포지션 손실 한도 도달로 인해 거래 불가")
                 return False
 
-        logger.info(f"         ✅ 전역 제약 모두 통과")
+        if verbose:
+            logger.info(f"         ✅ 전역 제약 모두 통과")
         return True
 
     def _get_current_price_safe(self, symbol: str) -> Optional[float]:
