@@ -554,8 +554,16 @@ class UpbitAPI:
             else:
                 logger.warning(f"HTTP {response.status_code} | GET /ticker | {elapsed:.3f}s")
 
+                # 429 에러: Rate Limit 초과 → 재시도
+                if response.status_code == 429:
+                    logger.warning(f"⚠️ Rate Limit 초과 (ticker): {symbol}")
+                    self.limiter.mark_exhausted("ticker")
+                    time.sleep(1.0)  # 1초 대기
+                    logger.info(f"🔄 재시도: {symbol} ticker 조회")
+                    return self.get_ticker(symbol)  # 재귀 호출로 재시도
+
                 # 404 에러는 예외 발생 (상장폐지된 코인)
-                if response.status_code == 404:
+                elif response.status_code == 404:
                     logger.info(f"현재가 조회 실패 ({symbol}): 코인이 존재하지 않음 (상장폐지 가능성)")
                     raise SymbolNotFoundError(f"{symbol}이(가) 존재하지 않습니다 (상장폐지 가능성)")
                 else:
@@ -646,8 +654,16 @@ class UpbitAPI:
             else:
                 logger.warning(f"HTTP {response.status_code} | GET /candles/{interval} | {elapsed:.3f}s")
 
+                # 429 에러: Rate Limit 초과 → 재시도
+                if response.status_code == 429:
+                    logger.warning(f"⚠️ Rate Limit 초과 (candle): {symbol}, {interval}")
+                    self.limiter.mark_exhausted("candle")
+                    time.sleep(1.0)  # 1초 대기
+                    logger.info(f"🔄 재시도: {symbol} {interval} 캔들 조회")
+                    return self.get_candles(symbol, interval, count)  # 재귀 호출로 재시도
+
                 # 404 에러는 예외 발생 (상장폐지된 코인)
-                if response.status_code == 404:
+                elif response.status_code == 404:
                     logger.info(f"캔들 조회 실패 ({symbol}, {interval}): 코인이 존재하지 않음 (상장폐지 가능성)")
                     raise SymbolNotFoundError(f"{symbol}이(가) 존재하지 않습니다 (상장폐지 가능성)")
                 else:
