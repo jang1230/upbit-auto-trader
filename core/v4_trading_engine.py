@@ -146,8 +146,8 @@ class V4TradingEngine:
                 # accounts 조회 후 캐싱하여 전달 (중복 API 호출 방지)
                 accounts = self.upbit_api.get_accounts()
                 sync_result = self.position_manager.sync_with_upbit(
-                    self.upbit_api,
-                    cached_accounts=accounts
+                    self.config,
+                    accounts=accounts
                 )
                 logger.info(f"✅ 동기화 완료: {sync_result}")
             except Exception as e:
