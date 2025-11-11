@@ -41,9 +41,9 @@ class GlobalSettingsDialog(QDialog):
         self.trading_limits_tab = self._create_trading_limits_tab()
         self.tab_widget.addTab(self.trading_limits_tab, "거래 제한")
 
-        # Tab 2: 일일 손실 한도
-        self.daily_loss_tab = self._create_daily_loss_tab()
-        self.tab_widget.addTab(self.daily_loss_tab, "일일 손실 한도")
+        # Tab 2: 손실 한도 (일일 손실 한도 + 포지션 손실 한도)
+        self.loss_limit_tab = self._create_loss_limit_tab()
+        self.tab_widget.addTab(self.loss_limit_tab, "손실 한도")
 
         # Tab 3: 텔레그램 알림
         self.telegram_tab = self._create_telegram_tab()
@@ -137,11 +137,12 @@ class GlobalSettingsDialog(QDialog):
         widget.setLayout(layout)
         return widget
 
-    def _create_daily_loss_tab(self) -> QWidget:
-        """일일 손실 한도 탭 생성"""
+    def _create_loss_limit_tab(self) -> QWidget:
+        """손실 한도 탭 생성 (일일 손실 한도 + 포지션 손실 한도)"""
         widget = QWidget()
         layout = QVBoxLayout()
 
+        # ========== 1. 일일 손실 한도 ==========
         daily_loss_group = QGroupBox("일일 손실 한도 설정")
         daily_loss_layout = QVBoxLayout()
 
@@ -194,6 +195,63 @@ class GlobalSettingsDialog(QDialog):
 
         daily_loss_group.setLayout(daily_loss_layout)
         layout.addWidget(daily_loss_group)
+
+        # ========== 2. 포지션 손실 한도 (새로 추가) ==========
+        position_loss_group = QGroupBox("포지션 손실 한도 설정")
+        position_loss_layout = QVBoxLayout()
+
+        # 활성화 체크박스
+        self.position_loss_enabled = QCheckBox("포지션 손실 한도 활성화")
+        self.position_loss_enabled.toggled.connect(self._on_position_loss_toggled)
+        position_loss_layout.addWidget(self.position_loss_enabled)
+
+        # 손실 퍼센트
+        pos_loss_pct_layout = QFormLayout()
+        self.position_loss_pct_spin = QDoubleSpinBox()
+        self.position_loss_pct_spin.setRange(-50.0, 0.0)
+        self.position_loss_pct_spin.setSingleStep(1.0)
+        self.position_loss_pct_spin.setSuffix("%")
+        self.position_loss_pct_spin.setValue(-10.0)
+        pos_loss_pct_layout.addRow("손실 한도:", self.position_loss_pct_spin)
+
+        pos_loss_info = QLabel(
+            "거래 그룹의 합산 손익률이 이 값 이하가 되면 조치를 취합니다.\n"
+            "(예: -10% → 총 투자금 대비 -10% 손실 시 발동)"
+        )
+        pos_loss_info.setStyleSheet("color: gray; font-size: 11px;")
+        pos_loss_pct_layout.addRow("", pos_loss_info)
+
+        position_loss_layout.addLayout(pos_loss_pct_layout)
+
+        # 관찰 그룹 제외
+        self.exclude_observation_groups = QCheckBox("관찰 전용 그룹 제외")
+        self.exclude_observation_groups.setChecked(True)
+        position_loss_layout.addWidget(self.exclude_observation_groups)
+
+        exclude_info = QLabel(
+            "체크 시: 관찰 전용 그룹의 포지션은 손실 계산에서 제외됩니다."
+        )
+        exclude_info.setStyleSheet("color: gray; font-size: 11px;")
+        position_loss_layout.addWidget(exclude_info)
+
+        # 조치 방식
+        pos_action_layout = QFormLayout()
+        self.position_action_combo = QComboBox()
+        self.position_action_combo.addItem("알림만 (alert)", "alert")
+        self.position_action_combo.addItem("전체 청산 (liquidate)", "liquidate")
+        pos_action_layout.addRow("조치:", self.position_action_combo)
+
+        pos_action_info = QLabel(
+            "• 알림만: 텔레그램 알림 + 매수 중단 (재시작 필요)\n"
+            "• 전체 청산: 거래 그룹 포지션 전량 매도 + 매수 중단"
+        )
+        pos_action_info.setStyleSheet("color: gray; font-size: 11px;")
+        pos_action_layout.addRow("", pos_action_info)
+
+        position_loss_layout.addLayout(pos_action_layout)
+
+        position_loss_group.setLayout(position_loss_layout)
+        layout.addWidget(position_loss_group)
 
         layout.addStretch()
         widget.setLayout(layout)
@@ -280,6 +338,19 @@ class GlobalSettingsDialog(QDialog):
 
         self._on_daily_loss_toggled(daily_loss.get("enabled", False))
 
+        # 포지션 손실 한도
+        position_loss = global_settings.get("position_loss_limit", {})
+        self.position_loss_enabled.setChecked(position_loss.get("enabled", False))
+        self.position_loss_pct_spin.setValue(position_loss.get("limit_pct", -10.0))
+        self.exclude_observation_groups.setChecked(position_loss.get("exclude_observation_groups", True))
+
+        pos_action = position_loss.get("action", "alert")
+        index = self.position_action_combo.findData(pos_action)
+        if index >= 0:
+            self.position_action_combo.setCurrentIndex(index)
+
+        self._on_position_loss_toggled(position_loss.get("enabled", False))
+
         # 텔레그램
         telegram = global_settings.get("telegram", {})
         self.telegram_enabled.setChecked(telegram.get("enabled", False))
@@ -300,6 +371,12 @@ class GlobalSettingsDialog(QDialog):
         self.daily_loss_pct_spin.setEnabled(checked)
         self.calc_method_combo.setEnabled(checked)
         self.action_combo.setEnabled(checked)
+
+    def _on_position_loss_toggled(self, checked: bool):
+        """포지션 손실 한도 토글"""
+        self.position_loss_pct_spin.setEnabled(checked)
+        self.exclude_observation_groups.setEnabled(checked)
+        self.position_action_combo.setEnabled(checked)
 
     def _on_telegram_toggled(self, checked: bool):
         """텔레그램 토글"""
@@ -336,6 +413,14 @@ class GlobalSettingsDialog(QDialog):
                 "loss_pct": self.daily_loss_pct_spin.value(),
                 "calculation_method": self.calc_method_combo.currentData(),
                 "action": self.action_combo.currentData()
+            }
+
+            # 포지션 손실 한도
+            global_settings["position_loss_limit"] = {
+                "enabled": self.position_loss_enabled.isChecked(),
+                "limit_pct": self.position_loss_pct_spin.value(),
+                "action": self.position_action_combo.currentData(),
+                "exclude_observation_groups": self.exclude_observation_groups.isChecked()
             }
 
             # 텔레그램
