@@ -231,8 +231,16 @@ class V4TradingEngine:
                 self.balance_polling_manager.start_polling()
                 logger.info("🔴 상태: NOT_RECEIVING - REST API Polling 활성화 (1초 간격)")
 
-                # 2. MyAsset WebSocket 연결 및 구독 (비동기 태스크로 실행)
-                asyncio.run(self._start_myasset_websocket())
+                # 2. MyAsset WebSocket 연결 및 구독 (백그라운드 스레드로 실행, 메인 루프 블로킹 방지)
+                def run_myasset_websocket():
+                    try:
+                        asyncio.run(self._start_myasset_websocket())
+                    except Exception as e:
+                        logger.error(f"❌ MyAsset WebSocket 실행 오류: {e}", exc_info=True)
+
+                self.myasset_thread = threading.Thread(target=run_myasset_websocket, daemon=True)
+                self.myasset_thread.start()
+                logger.info("✅ MyAsset WebSocket 백그라운드 스레드 시작")
 
             except Exception as e:
                 logger.error(f"❌ Adaptive Polling 시작 실패: {e}", exc_info=True)
