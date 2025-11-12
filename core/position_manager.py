@@ -193,7 +193,7 @@ class PositionManager:
                     'entry_krw': buy_amount_krw,
                     'total_amount': entry_amount,
                     'total_invested_krw': buy_amount_krw,
-                    'average_price': entry_price,
+                    'avg_buy_price': entry_price,
                     **kwargs
                 })
             else:
@@ -214,7 +214,7 @@ class PositionManager:
             "dca_history": [],
             "total_invested_krw": buy_amount_krw,
             "total_amount": entry_amount,
-            "average_price": entry_price,
+            "avg_buy_price": entry_price,
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             # V4 다중 레벨 익절/손절 추적 (11/12 추가)
@@ -338,7 +338,7 @@ class PositionManager:
             'dca_history': position['dca_history'],
             'total_amount': total_amount,
             'total_invested_krw': total_invested,
-            'average_price': average_price
+            'avg_buy_price': average_price
         }
 
         print(f"✅ DCA 추가 ({self.mode}): {symbol} @ {dca_price:,.0f}원 (레벨 {level})")
@@ -537,7 +537,7 @@ class PositionManager:
                 # 기존 포지션 업데이트 (Upbit = Source of Truth)
                 updates = {
                     'total_amount': balance,
-                    'average_price': avg_buy_price,
+                    'avg_buy_price': avg_buy_price,
                     'locked_amount': locked,
                     'total_invested_krw': avg_buy_price * balance
                 }
@@ -698,7 +698,7 @@ class PositionManager:
                 # avg_buy_price 처리: MyAsset → REST API (수량 변동 시) → 기존 포지션 순서로 사용
                 if avg_buy_price > 0:
                     # MyAsset에서 제공한 평균가 사용
-                    updates['average_price'] = avg_buy_price
+                    updates['avg_buy_price'] = avg_buy_price
                     updates['total_invested_krw'] = avg_buy_price * balance
                     logger.debug(f"   ✅ MyAsset 평균가 사용: {symbol} | avg_price={avg_buy_price:.0f}")
                 else:
@@ -713,13 +713,13 @@ class PositionManager:
                             for acc in accounts:
                                 if f"KRW-{acc['currency']}" == symbol:
                                     fetched_avg_price = float(acc.get('avg_buy_price', 0))
-                                    updates['average_price'] = fetched_avg_price
+                                    updates['avg_buy_price'] = fetched_avg_price
                                     updates['total_invested_krw'] = fetched_avg_price * balance
                                     logger.info(f"   📊 REST API 평균가 조회: {symbol} = {fetched_avg_price:.0f}원")
                                     break
                     else:
                         # 수량 변화 없으면 기존 평균가 재사용 (단순 locked 변동 등)
-                        existing_avg_price = position.get('average_price', 0)
+                        existing_avg_price = position.get('avg_buy_price', 0)
                         if existing_avg_price > 0:
                             updates['total_invested_krw'] = existing_avg_price * balance
                             logger.debug(f"   ✅ 기존 평균가 유지: {symbol} | avg_price={existing_avg_price:.0f}")
@@ -938,7 +938,7 @@ if __name__ == "__main__":
         buy_amount_krw=95000
     )
     print(f"   - 진입가: {position['entry_price']:,.0f}원")
-    print(f"   - 평균가: {position['average_price']:,.0f}원")
+    print(f"   - 평균가: {position['avg_buy_price']:,.0f}원")
     print()
 
     # 2. 가격 업데이트
@@ -958,7 +958,7 @@ if __name__ == "__main__":
         level=1
     )
     print(f"   - DCA 횟수: {dca_pos['dca_count']}")
-    print(f"   - 평균가: {dca_pos['average_price']:,.0f}원")
+    print(f"   - 평균가: {dca_pos['avg_buy_price']:,.0f}원")
     print()
 
     # 4. 포지션 종료

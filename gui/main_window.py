@@ -2278,7 +2278,7 @@ class MainWindow(QMainWindow):
                 loss_text = "ON" if loss_mode in ["auto", "alert"] else "OFF"
 
                 # 포지션 데이터
-                average_price = pos.get("average_price", 0)
+                average_price = pos.get("avg_buy_price", 0)
                 current_price = pos.get("current_price", average_price)
                 total_amount = pos.get("total_amount", 0)
                 profit_krw = pos.get("profit_krw", 0)
