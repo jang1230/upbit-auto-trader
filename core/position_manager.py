@@ -555,29 +555,34 @@ class PositionManager:
                 print(f"   ✅ 동기화: {symbol} | {balance:.8f} @ {avg_buy_price:,.0f}원")
             else:
                 # 새 포지션 발견 (Upbit에는 있지만 로컬에 없음)
-                # config 그룹에 속한 코인만 자동 생성
                 group_id = self._find_group_for_coin(symbol, config)
 
-                if group_id:
-                    # 그룹에 속한 코인 → 자동 생성
-                    try:
-                        new_position = self.create_position(
-                            symbol=symbol,
-                            group_id=group_id,
-                            entry_price=avg_buy_price,
-                            entry_amount=balance,
-                            buy_amount_krw=avg_buy_price * balance,
-                            locked_amount=locked
-                        )
-                        new_positions.append(symbol)
-                        print(f"   🆕 포지션 생성: {symbol} → {group_id} | {balance:.8f} @ {avg_buy_price:,.0f}원")
-                    except Exception as e:
-                        print(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
-                        skipped_positions.append(symbol)
-                else:
-                    # 그룹에 속하지 않은 코인 → 스킵
+                # 그룹이 없으면 group_null 사용
+                if not group_id:
+                    group_id = "group_null"
+                    print(f"   📝 {symbol} 그룹 없음 → group_null로 설정")
+
+                # avg_buy_price가 0이면 스킵 (에어드랍)
+                if avg_buy_price <= 0:
                     skipped_positions.append(symbol)
-                    print(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f} @ {avg_buy_price:,.0f}원")
+                    print(f"   ⏭️ 스킵: {symbol} (avg_buy_price=0, 에어드랍 추정)")
+                    continue
+
+                # 포지션 생성
+                try:
+                    new_position = self.create_position(
+                        symbol=symbol,
+                        group_id=group_id,
+                        entry_price=avg_buy_price,
+                        entry_amount=balance,
+                        buy_amount_krw=avg_buy_price * balance,
+                        locked_amount=locked
+                    )
+                    new_positions.append(symbol)
+                    print(f"   🆕 포지션 생성: {symbol} → {group_id} | {balance:.8f} @ {avg_buy_price:,.0f}원")
+                except Exception as e:
+                    print(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
+                    skipped_positions.append(symbol)
 
         # 로컬 포지션 정리: Upbit에 없거나 그룹에서 제외된 포지션 삭제
         upbit_symbols = {f"KRW-{account['currency']}" for account in accounts if account['currency'] != 'KRW'}
@@ -595,9 +600,12 @@ class PositionManager:
                 print(f"   🗑️ 자동 삭제: {symbol} (Upbit에 없음, 완전 매도된 것으로 간주)")
                 continue
 
-            # 조건 2: 어떤 그룹에도 속하지 않는 포지션 (그룹에서 제외됨)
-            group_id = self._find_group_for_coin(symbol, config)
-            if not group_id:
+            # 조건 2: 그룹에서 제외된 포지션 삭제 (단, group_null은 유지)
+            current_group_id = position.get('group_id')
+            found_group_id = self._find_group_for_coin(symbol, config)
+
+            # group_null 포지션은 유지, 다른 그룹 포지션은 그룹이 없으면 삭제
+            if not found_group_id and current_group_id != "group_null":
                 self.delete_position(symbol)
                 removed_positions.append(symbol)
                 print(f"   🗑️ 자동 삭제: {symbol} (그룹에서 제외됨)")
