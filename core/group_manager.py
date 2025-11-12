@@ -222,7 +222,15 @@ class GroupManager:
         coins = group.get('coins', [])
         if symbol not in coins:
             coins.append(symbol)
-            return self.update_group_settings(group_id, {'coins': coins})
+            result = self.update_group_settings(group_id, {'coins': coins})
+
+            # 활성 포지션이 있으면 group_id 업데이트
+            position = self.position_manager.get_position(symbol)
+            if position and position.get('status') == 'active':
+                self.position_manager.update_position(symbol, {'group_id': group_id})
+                print(f"  ↳ 활성 포지션의 그룹 ID 업데이트: {symbol} → {group_id}")
+
+            return result
 
         return group
 
@@ -253,7 +261,15 @@ class GroupManager:
         coins = group.get('coins', [])
         if symbol in coins:
             coins.remove(symbol)
-            return self.update_group_settings(group_id, {'coins': coins})
+            result = self.update_group_settings(group_id, {'coins': coins})
+
+            # 활성 포지션이 있으면 group_id를 None으로 설정
+            position = self.position_manager.get_position(symbol)
+            if position and position.get('status') == 'active':
+                self.position_manager.update_position(symbol, {'group_id': None})
+                print(f"  ↳ 활성 포지션의 그룹 ID 제거: {symbol}")
+
+            return result
 
         return group
 
