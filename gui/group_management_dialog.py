@@ -627,10 +627,10 @@ class GroupManagementDialog(QDialog):
             config = self.config_manager.load_config()
             old_coins = config.get("groups", {}).get(self.selected_group_id, {}).get("coins", [])
 
-            # 제거할 코인 (거래 중지 상태이므로 force=True 안전)
+            # 제거할 코인
             for coin in old_coins:
                 if coin not in selected_coins:
-                    self.group_manager.remove_coin_from_group(self.selected_group_id, coin, force=True)
+                    self.group_manager.remove_coin_from_group(self.selected_group_id, coin)
 
             # 추가할 코인
             for coin in selected_coins:
