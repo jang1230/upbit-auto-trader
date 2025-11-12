@@ -161,7 +161,7 @@ def test_sync_with_upbit():
 
     print("🔄 동기화 전 포지션 상태:")
     for symbol, pos in pm.positions.items():
-        print(f"   - {symbol}: {pos['total_amount']:.8f} @ {pos['average_price']:,.0f}원")
+        print(f"   - {symbol}: {pos['total_amount']:.8f} @ {pos['avg_buy_price']:,.0f}원")
     print()
 
     # 설정 생성
@@ -184,7 +184,7 @@ def test_sync_with_upbit():
 
     print("🔍 동기화 후 포지션 상태:")
     for symbol, pos in pm.positions.items():
-        print(f"   - {symbol}: {pos['total_amount']:.8f} @ {pos['average_price']:,.0f}원 (그룹: {pos['group_id']})")
+        print(f"   - {symbol}: {pos['total_amount']:.8f} @ {pos['avg_buy_price']:,.0f}원 (그룹: {pos['group_id']})")
     print()
 
     # 검증
@@ -193,7 +193,7 @@ def test_sync_with_upbit():
     print("=" * 60)
 
     checks = [
-        ("KRW-BTC 업데이트", pm.has_position("KRW-BTC") and pm.get_position("KRW-BTC")["average_price"] == 95000000),
+        ("KRW-BTC 업데이트", pm.has_position("KRW-BTC") and pm.get_position("KRW-BTC")["avg_buy_price"] == 95000000),
         ("KRW-ETH 생성", pm.has_position("KRW-ETH")),
         ("KRW-ADA 삭제", not pm.has_position("KRW-ADA")),
         ("KRW-SOL 스킵", not pm.has_position("KRW-SOL")),
@@ -209,7 +209,7 @@ def test_sync_with_upbit():
     if pm.has_position("KRW-BTC"):
         btc_pos = pm.get_position("KRW-BTC")
         print(f"📍 KRW-BTC 상세:")
-        print(f"   - 평균가: {btc_pos['average_price']:,.0f}원 (예상: 95,000,000원)")
+        print(f"   - 평균가: {btc_pos['avg_buy_price']:,.0f}원 (예상: 95,000,000원)")
         print(f"   - 수량: {btc_pos['total_amount']:.8f}")
         print(f"   - 투자금: {btc_pos['total_invested_krw']:,.0f}원")
         print()
@@ -218,7 +218,7 @@ def test_sync_with_upbit():
         eth_pos = pm.get_position("KRW-ETH")
         print(f"📍 KRW-ETH 상세:")
         print(f"   - 그룹: {eth_pos['group_id']}")
-        print(f"   - 평균가: {eth_pos['average_price']:,.0f}원")
+        print(f"   - 평균가: {eth_pos['avg_buy_price']:,.0f}원")
         print(f"   - 수량: {eth_pos['total_amount']:.8f}")
         print()
 
