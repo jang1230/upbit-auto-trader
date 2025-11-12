@@ -775,33 +775,45 @@ class V4TradingEngine:
         current_price: float,
         profit_pct: float
     ):
-        """익절 체크 및 실행"""
+        """익절 체크 및 실행 (순차적 단발성 실행)"""
         profit_settings = group.get("profit_settings", {})
 
         if profit_settings.get("mode") not in ["auto", "alert"]:
             return
 
-        profit_levels = profit_settings.get("levels", [])
+        # pending_order 체크: 진행 중인 주문이 있으면 스킵
+        pending_order = position.get("pending_order")
+        if pending_order:
+            logger.debug(f"   ⏳ {symbol}: 익절 스킵 (진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')})")
+            return
 
-        for level in profit_levels:
+        profit_levels = profit_settings.get("levels", [])
+        profit_levels_executed = position.get("profit_levels_executed", [])
+
+        # 레벨을 순차적으로 확인 (인덱스 포함)
+        for level_index, level in enumerate(profit_levels):
+            # 이미 실행된 레벨은 스킵 (단발성 보장)
+            if level_index in profit_levels_executed:
+                continue
+
             target_pct = level.get("price_ratio", 5.0)
             quantity_ratio = level.get("quantity_ratio", 100) / 100.0
 
             if profit_pct >= target_pct:
-                logger.info(f"🎯 {symbol}: 익절 목표 도달 (현재: {profit_pct:.2f}%, 목표: {target_pct:.2f}%)")
+                logger.info(f"🎯 {symbol}: 익절 레벨 {level_index} 도달 (현재: {profit_pct:.2f}%, 목표: {target_pct:.2f}%)")
 
                 if profit_settings.get("mode") == "auto":
-                    self._execute_sell(symbol, group_id, group, "profit", quantity_ratio)
+                    self._execute_sell(symbol, group_id, group, "profit", quantity_ratio, level_index)
                 else:
                     self._send_telegram_alert(
-                        f"🎯 익절 알림\n"
+                        f"🎯 익절 알림 (레벨 {level_index})\n"
                         f"그룹: {group.get('name')}\n"
                         f"코인: {symbol}\n"
                         f"수익률: {profit_pct:.2f}%\n"
                         f"목표: {target_pct:.2f}%"
                     )
 
-                break  # 첫 번째 달성한 레벨만 실행
+                break  # 한 번에 하나의 레벨만 실행 (순차적 실행)
 
     def _check_stop_loss(
         self,
@@ -846,11 +858,12 @@ class V4TradingEngine:
         group_id: str,
         group: Dict[str, Any],
         reason: str,  # "profit" or "loss"
-        quantity_ratio: float = 1.0  # 판매 비율 (1.0 = 전량)
+        quantity_ratio: float = 1.0,  # 판매 비율 (1.0 = 전량)
+        level_index: int = 0  # 익절/손절 레벨 인덱스
     ):
-        """매도 실행"""
+        """매도 실행 (주문 체결 확인 포함)"""
         if self.observation_mode:
-            logger.info(f"[관찰] {symbol} 매도 신호 (사유: {reason}, 실행 안 함)")
+            logger.info(f"[관찰] {symbol} 매도 신호 (사유: {reason}, 레벨: {level_index}, 실행 안 함)")
             return
 
         position = self.position_manager.get_position(symbol)
@@ -860,11 +873,11 @@ class V4TradingEngine:
         total_amount = position.get("total_amount", 0)
         sell_amount = total_amount * quantity_ratio
 
-        logger.info(f"💰 {symbol} 매도 실행 중... (사유: {reason}, 수량: {sell_amount:.8f}개)")
+        logger.info(f"💰 {symbol} 매도 실행 중... (사유: {reason}, 레벨: {level_index}, 수량: {sell_amount:.8f}개)")
 
         try:
             if self.dry_run or not self.upbit_api:
-                # Dry-run 모드
+                # Dry-run 모드: 즉시 실행 (체결 확인 불필요)
                 current_price = self._get_current_price_safe(symbol)
                 if not current_price:
                     logger.error(f"❌ {symbol} 현재가 조회 실패")
@@ -873,59 +886,95 @@ class V4TradingEngine:
                 sell_value = sell_amount * current_price
                 profit = sell_value - (position.get("total_invested_krw", 0) * quantity_ratio)
 
-                # 포지션 종료
+                # 포지션 업데이트 (executed_levels 추가)
                 if quantity_ratio >= 0.99:  # 거의 전량 매도
                     self.position_manager.close_position(symbol)
                     logger.info(f"✅ [Dry-run] {symbol} 전량 매도 완료: {sell_amount:.8f}개 @ {current_price:,}원 (수익: {profit:+,.0f}원)")
                 else:
-                    # 부분 매도 (나중에 구현)
-                    logger.warning(f"⚠️ 부분 매도는 아직 미구현")
-                    return
+                    # 부분 매도: executed_levels 업데이트
+                    if reason == "profit":
+                        profit_levels_executed = position.get("profit_levels_executed", [])
+                        if level_index not in profit_levels_executed:
+                            profit_levels_executed.append(level_index)
+                            self.position_manager.update_position(symbol, {
+                                "profit_levels_executed": profit_levels_executed
+                            })
+                    elif reason == "loss":
+                        loss_levels_executed = position.get("loss_levels_executed", [])
+                        if level_index not in loss_levels_executed:
+                            loss_levels_executed.append(level_index)
+                            self.position_manager.update_position(symbol, {
+                                "loss_levels_executed": loss_levels_executed
+                            })
+                    logger.info(f"✅ [Dry-run] {symbol} 부분 매도 완료: {sell_amount:.8f}개 @ {current_price:,}원")
 
             else:
-                # Live 모드
+                # Live 모드: 주문 → 콜백 등록 → pending_order 저장
                 order_result = self.upbit_api.sell_market_order(symbol, sell_amount)
 
                 if not order_result or 'error' in order_result:
                     logger.error(f"❌ {symbol} 매도 실패: {order_result}")
                     return
 
-                executed_volume = float(order_result.get('executed_volume', 0))
-                avg_price = float(order_result.get('avg_price', 0))
-                sell_value = executed_volume * avg_price
-                profit = sell_value - (position.get("total_invested_krw", 0) * quantity_ratio)
-
-                # 포지션 종료
-                if quantity_ratio >= 0.99:
-                    self.position_manager.close_position(symbol)
-                    logger.info(f"✅ {symbol} 전량 매도 완료: {executed_volume:.8f}개 @ {avg_price:,}원 (수익: {profit:+,.0f}원)")
-                else:
-                    logger.warning(f"⚠️ 부분 매도는 아직 미구현")
+                order_uuid = order_result.get('uuid')
+                if not order_uuid:
+                    logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
                     return
 
-            # 거래 기록
-            self.trade_history.add_trade(
-                group_id=group_id,
-                group_name=group.get("name", "Unknown"),
-                symbol=symbol,
-                action="sell",
-                trade_type=reason,  # "profit" or "loss"
-                price=current_price if self.dry_run else avg_price,
-                amount=sell_amount,
-                total_krw=sell_value,
-                dry_run=self.dry_run,
-                profit_loss=profit  # 추가 정보
-            )
+                executed_volume = float(order_result.get('executed_volume', 0))
+                avg_price = float(order_result.get('avg_price', 0))
 
-            # 텔레그램 알림
-            emoji = "🎉" if profit > 0 else "😢"
-            self._send_telegram_alert(
-                f"{emoji} 매도 완료 ({reason})\n"
-                f"그룹: {group.get('name')}\n"
-                f"코인: {symbol}\n"
-                f"수익: {profit:+,.0f}원\n"
-                f"수익률: {(profit / position.get('total_invested_krw', 1) * 100):+.2f}%"
-            )
+                logger.info(f"   📝 {symbol} 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
+
+                # pending_order 저장
+                from datetime import datetime
+                self.position_manager.update_position(symbol, {
+                    "pending_order": {
+                        "order_id": order_uuid,
+                        "type": reason,  # "profit" or "loss"
+                        "level": level_index,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                })
+
+                # MyOrderWebSocket 콜백 등록 (Live 모드에서만)
+                if self.myorder_ws:
+                    self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
+                    logger.info(f"   📡 {symbol} 주문 {order_uuid[:8]}... 콜백 등록 완료")
+                else:
+                    logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+
+                # 포지션 종료 (전량 매도인 경우)
+                if quantity_ratio >= 0.99:
+                    # 체결 확인 후 포지션 종료는 _on_order_completed에서 처리
+                    logger.info(f"   ⏳ {symbol} 전량 매도 주문 대기 중...")
+                else:
+                    logger.info(f"   ⏳ {symbol} 부분 매도 주문 대기 중...")
+
+            # 거래 기록 (Dry-run만 즉시 기록, Live는 체결 확인 후)
+            if self.dry_run:
+                self.trade_history.add_trade(
+                    group_id=group_id,
+                    group_name=group.get("name", "Unknown"),
+                    symbol=symbol,
+                    action="sell",
+                    trade_type=reason,  # "profit" or "loss"
+                    price=current_price,
+                    amount=sell_amount,
+                    total_krw=sell_value,
+                    dry_run=self.dry_run,
+                    profit_loss=profit  # 추가 정보
+                )
+
+                # 텔레그램 알림 (Dry-run)
+                emoji = "🎉" if profit > 0 else "😢"
+                self._send_telegram_alert(
+                    f"{emoji} 매도 완료 ({reason}, 레벨 {level_index})\n"
+                    f"그룹: {group.get('name')}\n"
+                    f"코인: {symbol}\n"
+                    f"수익: {profit:+,.0f}원\n"
+                    f"수익률: {(profit / position.get('total_invested_krw', 1) * 100):+.2f}%"
+                )
 
         except Exception as e:
             logger.error(f"❌ {symbol} 매도 실행 오류: {e}", exc_info=True)
