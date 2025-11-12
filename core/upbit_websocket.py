@@ -836,6 +836,373 @@ class MyAssetWebSocket:
                 logger.error(f"❌ MyAsset 콜백 처리 오류: {e}")
 
 
+class MyOrderWebSocket:
+    """
+    내 주문 및 체결 실시간 알림 WebSocket (인증 필요)
+
+    주문 상태 변화를 실시간으로 감지합니다:
+    - wait: 체결 대기
+    - trade: 부분 체결 발생
+    - done: 전체 체결 완료 ✅
+    - cancel: 주문 취소
+    - prevented: 체결 방지
+
+    공식 Upbit 예제 구조 사용:
+    - websocket-client 라이브러리
+    - PING/PONG 활성화 (ping_interval=30, ping_timeout=10)
+    - reconnect=5 (자동 재연결)
+    - JWT 인증
+
+    Example:
+        >>> ws = MyOrderWebSocket(access_key, secret_key)
+        >>> await ws.connect()
+        >>> await ws.subscribe_myorder()
+        >>> async for order_data in ws.listen():
+        >>>     if order_data['state'] == 'done':
+        >>>         print("주문 체결 완료!")
+    """
+
+    def __init__(self, access_key: str, secret_key: str):
+        """
+        내 주문 WebSocket 초기화
+
+        Args:
+            access_key: Upbit Access Key
+            secret_key: Upbit Secret Key
+        """
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.url = "wss://api.upbit.com/websocket/v1/private"
+        self.ws_app = None
+        self.ws_thread = None
+        self.is_connected = False
+
+        # 메시지 큐 (thread-safe)
+        self.message_queue = Queue()
+
+        # 종료 이벤트
+        self.stop_event = threading.Event()
+
+        # Rate Limiter (초당 5회, 분당 100회)
+        self.rate_limiter = WebSocketRateLimiter()
+
+        # 주문 ID별 콜백 등록
+        # {uuid: callback_function}
+        self.order_callbacks = {}
+
+        logger.info("✅ MyOrderWebSocket 초기화 완료")
+
+    def _generate_jwt_token(self) -> str:
+        """
+        JWT 토큰 생성 (WebSocket 인증용)
+
+        공식 Upbit JWT 스펙:
+        - payload: access_key, nonce (timestamp 없음)
+        - algorithm: HS256 (공식 문서 명시)
+
+        Returns:
+            str: JWT 토큰 (Bearer 제외)
+        """
+        payload = {
+            'access_key': self.access_key,
+            'nonce': str(uuid.uuid4())
+        }
+
+        jwt_token = pyjwt.encode(payload, self.secret_key, algorithm='HS256')
+        return jwt_token
+
+    def _on_message(self, ws, message):
+        """
+        메시지 수신 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            message: 수신 메시지 (bytes or str)
+        """
+        try:
+            # 바이너리 데이터 디코딩
+            if isinstance(message, bytes):
+                message = message.decode('utf-8')
+
+            # JSON 파싱
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError as je:
+                logger.error(f"❌ JSON 파싱 실패: {je}, 원본: {message[:100]}")
+                return
+
+            # JSON_LIST 형식 처리 (배열의 모든 요소를 순회)
+            if isinstance(data, list):
+                for item in data:
+                    if item.get('type') == 'myOrder':
+                        self._process_order_message(item)
+            else:
+                # DEFAULT 형식 (단일 객체)
+                if data.get('type') == 'myOrder':
+                    self._process_order_message(data)
+
+        except Exception as e:
+            logger.error(f"❌ MyOrder 메시지 처리 오류: {e}", exc_info=True)
+
+    def _process_order_message(self, data: Dict):
+        """
+        주문 메시지 처리
+
+        Args:
+            data: 주문 데이터
+        """
+        order_uuid = data.get('uuid')
+        state = data.get('state')
+        code = data.get('code')
+
+        # 메시지 큐에 추가 (메인 listen에서도 접근 가능)
+        self.message_queue.put(data)
+
+        logger.debug(f"📩 MyOrder: {code} | uuid={order_uuid[:8]}... | state={state}")
+
+        # 등록된 콜백 호출
+        if order_uuid in self.order_callbacks:
+            callback = self.order_callbacks[order_uuid]
+            try:
+                # 콜백 실행
+                callback(data)
+
+                # 완료된 주문은 콜백 제거
+                if state in ['done', 'cancel', 'prevented']:
+                    del self.order_callbacks[order_uuid]
+                    logger.debug(f"🗑️ 콜백 제거: {order_uuid[:8]}... (state={state})")
+
+            except Exception as e:
+                logger.error(f"❌ 주문 콜백 오류 (uuid={order_uuid}): {e}", exc_info=True)
+
+    def _on_error(self, ws, error):
+        """
+        에러 발생 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            error: 에러 객체
+        """
+        logger.error(f"❌ MyOrder WebSocket 에러: {error}")
+
+    def _on_close(self, ws, close_status_code, close_msg):
+        """
+        연결 종료 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+            close_status_code: 종료 상태 코드
+            close_msg: 종료 메시지
+        """
+        self.is_connected = False
+        logger.warning(f"⚠️ MyOrder WebSocket 연결 종료 (code={close_status_code}, msg={close_msg})")
+
+    def _on_open(self, ws):
+        """
+        연결 성공 콜백
+
+        Args:
+            ws: WebSocketApp 인스턴스
+        """
+        self.is_connected = True
+        logger.info("✅ MyOrder WebSocket 연결 성공 (인증 완료)")
+
+    def _run_websocket(self):
+        """
+        WebSocket 실행 (별도 스레드에서 실행)
+
+        Upbit WebSocket 설정:
+        - ping_interval=30: 30초마다 PING 전송 (120초 Idle Timeout 방지)
+        - ping_timeout=10: PONG 응답 10초 대기
+        - reconnect=5: 연결 끊김 시 5초 후 재연결
+
+        NOTE: Upbit WebSocket은 120초간 데이터가 없으면 연결을 종료합니다.
+              PING을 주기적으로 전송하여 연결을 유지합니다.
+        """
+        try:
+            self.ws_app.run_forever(
+                ping_interval=30,    # ✅ 30초마다 PING (Idle Timeout 방지)
+                ping_timeout=10,     # ✅ PONG 응답 10초 대기
+                reconnect=5          # ✅ 재연결 대기 시간
+            )
+        except Exception as e:
+            logger.error(f"❌ MyOrder WebSocket 실행 오류: {e}")
+        finally:
+            self.is_connected = False
+
+    async def connect(self) -> bool:
+        """
+        WebSocket 연결 (JWT 인증 포함)
+
+        Returns:
+            bool: 연결 성공 여부
+        """
+        try:
+            # JWT 토큰 생성
+            token = self._generate_jwt_token()
+
+            # WebSocketApp 생성 (Authorization 헤더 포함)
+            self.ws_app = websocket.WebSocketApp(
+                self.url,
+                header={
+                    "Authorization": f"Bearer {token}"
+                },
+                on_open=self._on_open,
+                on_message=self._on_message,
+                on_error=self._on_error,
+                on_close=self._on_close
+            )
+
+            # 별도 스레드에서 WebSocket 실행
+            self.ws_thread = threading.Thread(
+                target=self._run_websocket,
+                daemon=True
+            )
+            self.ws_thread.start()
+
+            # 연결 대기 (최대 5초)
+            for _ in range(50):
+                if self.is_connected:
+                    return True
+                await asyncio.sleep(0.1)
+
+            logger.error("❌ MyOrder WebSocket 연결 타임아웃 (5초)")
+            return False
+
+        except Exception as e:
+            logger.error(f"❌ MyOrder WebSocket 연결 실패: {e}")
+            self.is_connected = False
+            return False
+
+    async def disconnect(self):
+        """WebSocket 연결 종료"""
+        self.is_connected = False
+        self.stop_event.set()
+
+        if self.ws_app:
+            try:
+                self.ws_app.close()
+                logger.info("MyOrder WebSocket 연결 종료")
+            except Exception as e:
+                logger.warning(f"⚠️ MyOrder WebSocket 종료 중 에러: {e}")
+
+        # 스레드 종료 대기 (최대 2초)
+        if self.ws_thread and self.ws_thread.is_alive():
+            self.ws_thread.join(timeout=2.0)
+
+    async def subscribe_myorder(self, symbols: Optional[List[str]] = None):
+        """
+        내 주문 구독
+
+        Args:
+            symbols: 심볼 리스트 (None이면 전체 마켓)
+
+        주의:
+        - 주문 또는 체결이 발생할 때만 데이터 수신됨
+        - 연결 후 주문이 없으면 데이터 수신 없음 (정상)
+        """
+        if not self.is_connected:
+            raise ConnectionError("WebSocket이 연결되지 않았습니다.")
+
+        # myOrder 구독 요청
+        subscribe_fmt = [
+            {"ticket": str(uuid.uuid4())},
+            {"type": "myOrder"}
+        ]
+
+        # 특정 심볼 지정 (optional)
+        if symbols:
+            subscribe_fmt[1]["codes"] = symbols
+        else:
+            subscribe_fmt[1]["codes"] = []  # 전체 마켓
+
+        # JSON_LIST 형식 사용 (효율적)
+        subscribe_fmt.append({"format": "JSON_LIST"})
+
+        try:
+            # Rate Limit 체크 (초당 5회, 분당 100회)
+            await self.rate_limiter.acquire()
+
+            # WebSocket send는 thread-safe
+            self.ws_app.send(json.dumps(subscribe_fmt))
+
+            symbols_str = f"{symbols}" if symbols else "전체 마켓"
+            logger.info(f"📋 MyOrder 구독 완료 - 주문 상태 실시간 감지 시작 ({symbols_str})")
+
+        except Exception as e:
+            logger.error(f"❌ MyOrder 구독 실패: {e}")
+            self.is_connected = False
+            raise
+
+    def register_order_callback(self, order_uuid: str, callback: Callable[[Dict], None]):
+        """
+        특정 주문의 상태 변화 콜백 등록
+
+        Args:
+            order_uuid: 주문 UUID
+            callback: 콜백 함수 (order_data를 인자로 받음)
+                      signature: def callback(order_data: Dict) -> None
+        """
+        self.order_callbacks[order_uuid] = callback
+        logger.debug(f"📌 주문 콜백 등록: {order_uuid[:8]}...")
+
+    def unregister_order_callback(self, order_uuid: str):
+        """
+        주문 콜백 등록 해제
+
+        Args:
+            order_uuid: 주문 UUID
+        """
+        if order_uuid in self.order_callbacks:
+            del self.order_callbacks[order_uuid]
+            logger.debug(f"🗑️ 주문 콜백 해제: {order_uuid[:8]}...")
+
+    async def listen(self) -> AsyncIterator[Dict]:
+        """
+        주문 메시지 수신 (Generator)
+
+        Yields:
+            Dict: 주문 데이터
+                - type: 'myOrder'
+                - code: 페어 코드 (예: 'KRW-BTC')
+                - uuid: 주문 UUID
+                - state: 주문 상태 ('wait', 'trade', 'done', 'cancel', 'prevented')
+                - price: 주문 가격 또는 체결 가격
+                - volume: 주문량 또는 체결량
+                - ... (기타 필드)
+        """
+        if not self.is_connected:
+            raise ConnectionError("WebSocket이 연결되지 않았습니다.")
+
+        while self.is_connected:
+            try:
+                # 큐에서 메시지 가져오기 (non-blocking)
+                if not self.message_queue.empty():
+                    data = self.message_queue.get_nowait()
+                    yield data
+                else:
+                    # 큐가 비어있으면 잠시 대기
+                    await asyncio.sleep(0.01)
+
+            except Exception as e:
+                logger.error(f"❌ MyOrder 메시지 수신 오류: {e}", exc_info=True)
+                self.is_connected = False
+                break
+
+    async def listen_with_callback(self, callback: Callable):
+        """
+        주문 메시지 수신 (Callback)
+
+        Args:
+            callback: 메시지 처리 콜백 함수
+        """
+        async for data in self.listen():
+            try:
+                await callback(data)
+            except Exception as e:
+                logger.error(f"❌ MyOrder 콜백 처리 오류: {e}")
+
+
 # 편의 함수
 async def create_ticker_stream(symbols: List[str]) -> AsyncIterator[Dict]:
     """
