@@ -286,8 +286,7 @@ class GroupManager:
         self,
         symbol: str,
         from_group_id: str,
-        to_group_id: str,
-        force: bool = False
+        to_group_id: str
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         코인을 그룹 간 이동
@@ -296,14 +295,12 @@ class GroupManager:
             symbol: 코인 심볼
             from_group_id: 원본 그룹 ID
             to_group_id: 대상 그룹 ID
-            force: 강제 이동 (활성 포지션 무시)
 
         Returns:
             (원본 그룹, 대상 그룹)
 
         Raises:
             GroupNotFoundError: 그룹을 찾을 수 없음
-            ActivePositionError: 활성 포지션이 존재함 (force=False인 경우)
         """
         # 두 그룹 모두 존재 확인
         from_group = self.config_manager.get_group_by_id(from_group_id)
@@ -313,15 +310,6 @@ class GroupManager:
             raise GroupNotFoundError(f"원본 그룹을 찾을 수 없습니다: {from_group_id}")
         if not to_group:
             raise GroupNotFoundError(f"대상 그룹을 찾을 수 없습니다: {to_group_id}")
-
-        # 활성 포지션 확인
-        if not force:
-            position = self.position_manager.get_position(symbol)
-            if position and position.get('status') == 'active':
-                raise ActivePositionError(
-                    f"코인 {symbol}에 활성 포지션이 존재합니다. "
-                    f"설정 변경은 위험할 수 있습니다. force=True로 강제 이동하세요."
-                )
 
         # 원본 그룹에서 제거
         from_coins = from_group.get('coins', [])
