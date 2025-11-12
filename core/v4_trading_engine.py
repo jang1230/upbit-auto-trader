@@ -824,33 +824,45 @@ class V4TradingEngine:
         current_price: float,
         profit_pct: float
     ):
-        """손절 체크 및 실행"""
+        """손절 체크 및 실행 (순차적 단발성 실행)"""
         loss_settings = group.get("loss_settings", {})
 
         if loss_settings.get("mode") not in ["auto", "alert"]:
             return
 
-        loss_levels = loss_settings.get("levels", [])
+        # pending_order 체크: 진행 중인 주문이 있으면 스킵
+        pending_order = position.get("pending_order")
+        if pending_order:
+            logger.debug(f"   ⏳ {symbol}: 손절 스킵 (진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')})")
+            return
 
-        for level in loss_levels:
+        loss_levels = loss_settings.get("levels", [])
+        loss_levels_executed = position.get("loss_levels_executed", [])
+
+        # 레벨을 순차적으로 확인 (인덱스 포함)
+        for level_index, level in enumerate(loss_levels):
+            # 이미 실행된 레벨은 스킵 (단발성 보장)
+            if level_index in loss_levels_executed:
+                continue
+
             stop_pct = level.get("price_ratio", -15.0)
             quantity_ratio = level.get("quantity_ratio", 100) / 100.0
 
             if profit_pct <= stop_pct:
-                logger.warning(f"🛑 {symbol}: 손절 기준 도달 (현재: {profit_pct:.2f}%, 기준: {stop_pct:.2f}%)")
+                logger.warning(f"🛑 {symbol}: 손절 레벨 {level_index} 도달 (현재: {profit_pct:.2f}%, 기준: {stop_pct:.2f}%)")
 
                 if loss_settings.get("mode") == "auto":
-                    self._execute_sell(symbol, group_id, group, "loss", quantity_ratio)
+                    self._execute_sell(symbol, group_id, group, "loss", quantity_ratio, level_index)
                 else:
                     self._send_telegram_alert(
-                        f"🛑 손절 알림\n"
+                        f"🛑 손절 알림 (레벨 {level_index})\n"
                         f"그룹: {group.get('name')}\n"
                         f"코인: {symbol}\n"
                         f"수익률: {profit_pct:.2f}%\n"
                         f"기준: {stop_pct:.2f}%"
                     )
 
-                break  # 첫 번째 달성한 레벨만 실행
+                break  # 한 번에 하나의 레벨만 실행 (순차적 실행)
 
     def _execute_sell(
         self,
