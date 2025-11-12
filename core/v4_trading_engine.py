@@ -930,6 +930,92 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ {symbol} 매도 실행 오류: {e}", exc_info=True)
 
+    def _on_order_completed(self, order_data: Dict):
+        """
+        주문 체결 완료 콜백 (MyOrderWebSocket에서 호출됨)
+
+        Args:
+            order_data: MyOrder WebSocket에서 전달된 주문 데이터
+                - uuid: 주문 고유 ID
+                - code: 코인 심볼 (예: KRW-BTC)
+                - state: 주문 상태 (done, cancel, prevented)
+                - ask_bid: 매수/매도 (BID/ASK)
+                - executed_volume: 체결된 수량
+                - avg_price: 평균 체결 가격
+        """
+        try:
+            order_uuid = order_data.get('uuid')
+            symbol = order_data.get('code')
+            state = order_data.get('state')
+            ask_bid = order_data.get('ask_bid')
+            executed_volume = order_data.get('executed_volume', 0)
+            avg_price = order_data.get('avg_price', 0)
+
+            logger.info(f"📬 주문 체결 이벤트 수신: {symbol} {order_uuid[:8]}... state={state}")
+
+            # 완료되지 않은 주문은 무시
+            if state not in ['done', 'cancel', 'prevented']:
+                logger.debug(f"   ⏳ 주문 {order_uuid[:8]}... 아직 진행 중 (state={state})")
+                return
+
+            # 취소/방지된 주문 처리
+            if state in ['cancel', 'prevented']:
+                logger.warning(f"   ⚠️ 주문 {order_uuid[:8]}... 취소됨 (state={state})")
+                # pending_order 필드 정리
+                position = self.position_manager.get_position(symbol)
+                if position and position.get('pending_order', {}).get('order_id') == order_uuid:
+                    self.position_manager.update_position(symbol, {
+                        'pending_order': None
+                    })
+                return
+
+            # 정상 체결된 주문 처리 (state == 'done')
+            position = self.position_manager.get_position(symbol)
+            if not position:
+                logger.warning(f"   ⚠️ {symbol} 포지션 없음 (주문 {order_uuid[:8]}...)")
+                return
+
+            pending_order = position.get('pending_order')
+            if not pending_order or pending_order.get('order_id') != order_uuid:
+                logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
+                return
+
+            # pending_order에서 주문 타입과 레벨 정보 가져오기
+            order_type = pending_order.get('type')  # 'profit', 'loss', 'dca'
+            level_index = pending_order.get('level')  # 0, 1, 2, ...
+
+            logger.info(f"   ✅ {symbol} {order_type} 레벨 {level_index} 체결 완료 "
+                       f"(수량: {executed_volume:.8f}, 가격: {avg_price:,.0f}원)")
+
+            # executed_levels 배열에 추가
+            updates = {'pending_order': None}
+
+            if order_type == 'profit':
+                profit_levels_executed = position.get('profit_levels_executed', [])
+                if level_index not in profit_levels_executed:
+                    profit_levels_executed.append(level_index)
+                    updates['profit_levels_executed'] = profit_levels_executed
+                    logger.info(f"   📝 {symbol} profit_levels_executed 업데이트: {profit_levels_executed}")
+
+            elif order_type == 'loss':
+                loss_levels_executed = position.get('loss_levels_executed', [])
+                if level_index not in loss_levels_executed:
+                    loss_levels_executed.append(level_index)
+                    updates['loss_levels_executed'] = loss_levels_executed
+                    logger.info(f"   📝 {symbol} loss_levels_executed 업데이트: {loss_levels_executed}")
+
+            elif order_type == 'dca':
+                # DCA는 기존 dca_count로 관리 (이미 add_dca()에서 증가됨)
+                logger.info(f"   📝 {symbol} DCA 레벨 {level_index} 체결 완료 (dca_count는 이미 업데이트됨)")
+
+            # 포지션 업데이트
+            self.position_manager.update_position(symbol, updates)
+
+            logger.info(f"   🎉 {symbol} 주문 {order_uuid[:8]}... 처리 완료")
+
+        except Exception as e:
+            logger.error(f"❌ 주문 체결 콜백 처리 오류: {e}", exc_info=True)
+
     def _check_global_constraints(self, verbose: bool = False) -> bool:
         """
         전역 제약 확인
