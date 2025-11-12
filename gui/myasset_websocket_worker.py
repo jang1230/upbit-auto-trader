@@ -201,6 +201,9 @@ class MyAssetWebSocketWorker(QThread):
             for asset in assets:
                 currency = asset.get('currency')
 
+                # 🐛 디버깅: WebSocket 데이터 전체 확인
+                logger.debug(f"📊 [DEBUG] WebSocket asset 데이터: {asset}")
+
                 # KRW는 제외
                 if currency == 'KRW':
                     continue
@@ -222,8 +225,12 @@ class MyAssetWebSocketWorker(QThread):
                     # 새 자산 발견!
                     logger.info(f"🆕 신규 보유 코인 감지 (WebSocket): {symbol}")
 
-                    # ⚠️ avg_buy_price가 WebSocket 데이터에 없으므로 REST API로 조회
-                    avg_buy_price = 0.0
+                    # 🐛 디버깅: WebSocket에 avg_buy_price가 있는지 확인
+                    ws_avg_buy_price = float(asset.get('avg_buy_price', 0))
+                    logger.info(f"   📊 [DEBUG] WebSocket avg_buy_price: {ws_avg_buy_price:,.0f}원")
+
+                    # WebSocket 데이터에서 먼저 avg_buy_price 확인
+                    avg_buy_price = ws_avg_buy_price
 
                     if self.upbit_api:
                         try:

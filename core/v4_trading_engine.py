@@ -201,6 +201,20 @@ class V4TradingEngine:
             try:
                 # accounts 조회 후 캐싱하여 전달 (중복 API 호출 방지)
                 accounts = self.upbit_api.get_accounts()
+
+                # 🐛 디버깅: REST API 응답 상세 로그
+                logger.info(f"📊 [DEBUG] REST API 응답: 총 {len(accounts)}개 자산")
+                for acc in accounts:
+                    currency = acc.get('currency')
+                    balance = float(acc.get('balance', 0))
+                    locked = float(acc.get('locked', 0))
+                    avg_buy_price = float(acc.get('avg_buy_price', 0))
+
+                    if currency == 'KRW':
+                        logger.info(f"   💰 {currency}: 잔액={balance:,.0f}원, 주문중={locked:,.0f}원")
+                    elif balance > 0 or locked > 0:
+                        logger.info(f"   🪙 {currency}: 수량={balance:.8f}, 주문중={locked:.8f}, 평균가={avg_buy_price:,.0f}원")
+
                 sync_result = self.position_manager.sync_with_upbit(
                     self.config,
                     accounts=accounts
