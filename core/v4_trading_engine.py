@@ -25,6 +25,7 @@ from core.daily_loss_tracker import DailyLossTracker
 from core.strategies.v4_auto_buy_strategy import V4AutoBuyStrategy
 from core.upbit_api import UpbitAPI, SymbolNotFoundError
 from core.websocket_manager import WebSocketManager
+from core.balance_polling_manager import BalancePollingManager
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,33 @@ class V4TradingEngine:
             except Exception as e:
                 logger.warning(f"⚠️ MyOrderWebSocket 초기화 실패 (REST API 폴백): {e}")
                 self.myorder_ws = None
+
+        # 🆕 MyAsset WebSocket + Adaptive Polling (잔고 실시간 감지)
+        self.myasset_ws = None
+        self.balance_polling_manager = None
+        if self.upbit_api and not self.dry_run:
+            try:
+                from core.upbit_websocket import MyAssetWebSocket
+
+                # BalancePollingManager 초기화 (1초 폴링)
+                self.balance_polling_manager = BalancePollingManager(
+                    upbit_api=self.upbit_api,
+                    position_manager=self.position_manager,
+                    interval=1.0  # 1초 간격
+                )
+                logger.info("✅ BalancePollingManager 인스턴스 생성 완료")
+
+                # MyAssetWebSocket 초기화
+                self.myasset_ws = MyAssetWebSocket(
+                    access_key=self.upbit_api.access_key,
+                    secret_key=self.upbit_api.secret_key
+                )
+                logger.info("✅ MyAssetWebSocket 인스턴스 생성 완료")
+
+            except Exception as e:
+                logger.warning(f"⚠️ MyAssetWebSocket/Polling 초기화 실패 (동기화 제한): {e}")
+                self.myasset_ws = None
+                self.balance_polling_manager = None
 
         # 일일 손실 추적 (deprecated - 포지션 손실 한도로 대체)
         daily_loss_config = self.global_settings.get("daily_loss_limit", {})
@@ -181,6 +209,21 @@ class V4TradingEngine:
             except Exception as e:
                 logger.error(f"❌ 동기화 실패: {e}")
 
+        # 🆕 Adaptive Polling 시작 (MyAsset WebSocket + REST API 폴링)
+        if self.balance_polling_manager and self.myasset_ws:
+            logger.info("🔄 Adaptive Polling 시스템 시작 중...")
+            try:
+                # 1. REST API Polling 시작 (초기 상태: NOT_RECEIVING)
+                self.balance_polling_manager.start_polling()
+                logger.info("🔴 상태: NOT_RECEIVING - REST API Polling 활성화 (1초 간격)")
+
+                # 2. MyAsset WebSocket 연결 및 구독 (비동기 태스크로 실행)
+                asyncio.run(self._start_myasset_websocket())
+
+            except Exception as e:
+                logger.error(f"❌ Adaptive Polling 시작 실패: {e}", exc_info=True)
+                logger.warning("⚠️ REST API 폴링만 사용 (WebSocket 없이)")
+
         # 일일 손실 추적 초기화
         if self.daily_loss_tracker:
             self.daily_loss_tracker.check_and_reset()
@@ -216,6 +259,23 @@ class V4TradingEngine:
         logger.info("🛑 V4 거래 엔진 중지 중...")
         self.is_running = False
         self.stop_event.set()
+
+        # 🆕 Adaptive Polling 종료
+        if self.balance_polling_manager:
+            logger.info("🛑 REST API Polling 중지 중...")
+            try:
+                self.balance_polling_manager.stop_polling()
+                logger.info("✅ REST API Polling 중지 완료")
+            except Exception as e:
+                logger.error(f"❌ Polling 중지 실패: {e}")
+
+        if self.myasset_ws:
+            logger.info("🔌 MyAsset WebSocket 연결 종료 중...")
+            try:
+                asyncio.run(self.myasset_ws.disconnect())
+                logger.info("✅ MyAsset WebSocket 연결 종료 완료")
+            except Exception as e:
+                logger.error(f"❌ MyAsset WebSocket 종료 실패: {e}")
 
         # 🚀 WebSocket 종료
         if self.websocket_manager and self.websocket_manager.is_running:
@@ -331,6 +391,137 @@ class V4TradingEngine:
             except Exception as e:
                 logger.error(f"❌ MyOrder WebSocket 초기화 실패: {e}")
                 self.myorder_ws = None
+
+    async def _start_myasset_websocket(self):
+        """
+        MyAsset WebSocket 연결 및 메시지 수신 시작
+
+        Adaptive Polling 전략:
+        - 첫 메시지 수신 시 REST API Polling 중지
+        - 연결 끊김 시 REST API Polling 재시작
+        """
+        try:
+            logger.info("🔌 MyAsset WebSocket 연결 시도...")
+            await self.myasset_ws.connect()
+            logger.info("✅ MyAsset WebSocket 연결 성공")
+
+            # MyAsset 구독
+            await self.myasset_ws.subscribe_myasset()
+            logger.info("💰 MyAsset 구독 완료 - 잔고 변동 실시간 감지 시작")
+
+            first_message_received = False
+
+            # 메시지 수신 루프
+            listener = self.myasset_ws.listen()
+            try:
+                async for data in listener:
+                    if not self.is_running:
+                        break
+
+                    # 첫 메시지 수신 시 Polling 중지
+                    if not first_message_received:
+                        first_message_received = True
+                        if self.balance_polling_manager:
+                            self.balance_polling_manager.stop_polling()
+                        logger.info("🟢 상태: RECEIVING - MyAsset WebSocket 정상 수신 확인, REST API Polling 비활성화")
+
+                    # 메시지 처리
+                    await self._process_myasset_data(data)
+
+            finally:
+                await listener.aclose()
+
+        except Exception as e:
+            logger.error(f"❌ MyAsset WebSocket 실행 오류: {e}", exc_info=True)
+
+            # 연결 끊김 시 Polling 재시작
+            if first_message_received and self.balance_polling_manager:
+                self.balance_polling_manager.start_polling()
+                logger.warning("🟠 상태: DISCONNECTED - 연결 끊김으로 인해 REST API Polling 재활성화")
+
+        finally:
+            if self.myasset_ws:
+                await self.myasset_ws.disconnect()
+            logger.info("🔌 MyAsset WebSocket 연결 종료")
+
+    async def _process_myasset_data(self, data: dict):
+        """
+        MyAsset 데이터 처리 및 새 자산 감지
+
+        Args:
+            data: WebSocket에서 수신한 데이터
+        """
+        try:
+            if data.get('type') != 'myAsset':
+                return
+
+            assets = data.get('assets', [])
+            if not assets:
+                return
+
+            logger.debug(f"💰 MyAsset 메시지 수신: {len(assets)}개 자산")
+
+            # 새 자산 감지 및 group_null 포지션 생성
+            for asset in assets:
+                currency = asset.get('currency')
+
+                # KRW는 제외
+                if currency == 'KRW':
+                    continue
+
+                balance = float(asset.get('balance', 0))
+                locked = float(asset.get('locked', 0))
+                total = balance + locked
+
+                # 잔고가 0이면 스킵
+                if total <= 0:
+                    continue
+
+                symbol = f"KRW-{currency}"
+
+                # 포지션 확인
+                position = self.position_manager.get_position_by_symbol(symbol)
+
+                if not position:
+                    # 새 자산 발견!
+                    logger.info(f"🆕 신규 보유 코인 감지 (WebSocket): {symbol}")
+
+                    # avg_buy_price 조회 (WebSocket에 없으므로 REST API 사용)
+                    avg_buy_price = 0.0
+                    if self.upbit_api:
+                        try:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                if acc['currency'] == currency:
+                                    avg_buy_price = float(acc.get('avg_buy_price', 0))
+                                    break
+                            logger.debug(f"   - REST API로 평균가 조회: {avg_buy_price:,.0f}원")
+                        except Exception as e:
+                            logger.error(f"❌ avg_buy_price 조회 실패 ({symbol}): {e}")
+
+                    # avg_buy_price > 0인 경우에만 포지션 생성
+                    if avg_buy_price > 0:
+                        try:
+                            self.position_manager.create_position(
+                                group_id="group_null",
+                                symbol=symbol,
+                                buy_price=avg_buy_price,
+                                quantity=total,
+                                force_create_for_sync=True
+                            )
+                            logger.info(f"✅ group_null 포지션 생성: {symbol}")
+
+                            # BalancePollingManager의 known_symbols에도 추가
+                            if self.balance_polling_manager:
+                                self.balance_polling_manager.add_known_symbol(symbol)
+
+                        except Exception as e:
+                            logger.error(f"❌ 포지션 생성 실패 ({symbol}): {e}", exc_info=True)
+                    else:
+                        logger.warning(f"⚠️ {symbol} avg_buy_price가 0이라 포지션 생성 생략")
+
+        except Exception as e:
+            logger.error(f"❌ MyAsset 데이터 처리 오류: {e}", exc_info=True)
 
     def _initialize_websockets(self):
         """WebSocket 초기화 (동기 래퍼)"""
