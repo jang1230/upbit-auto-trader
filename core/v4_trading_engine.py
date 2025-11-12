@@ -77,6 +77,20 @@ class V4TradingEngine:
         # Upbit API
         self.upbit_api = upbit_api
 
+        # MyOrder WebSocket (주문 체결 실시간 감지)
+        self.myorder_ws = None
+        if self.upbit_api and not self.dry_run:
+            try:
+                from core.upbit_websocket import MyOrderWebSocket
+                self.myorder_ws = MyOrderWebSocket(
+                    access_key=self.upbit_api.access_key,
+                    secret_key=self.upbit_api.secret_key
+                )
+                logger.info("✅ MyOrderWebSocket 인스턴스 생성 완료")
+            except Exception as e:
+                logger.warning(f"⚠️ MyOrderWebSocket 초기화 실패 (REST API 폴백): {e}")
+                self.myorder_ws = None
+
         # 일일 손실 추적 (deprecated - 포지션 손실 한도로 대체)
         daily_loss_config = self.global_settings.get("daily_loss_limit", {})
         if daily_loss_config.get("enabled", False):
@@ -302,6 +316,21 @@ class V4TradingEngine:
         # 모든 WebSocket 연결 시작
         logger.info("🚀 WebSocket 연결 시작 중...")
         await self.websocket_manager.start_all()
+
+        # MyOrderWebSocket 연결 (Live 모드에서만)
+        if self.myorder_ws:
+            logger.info("📋 MyOrder WebSocket 연결 중...")
+            try:
+                connected = await self.myorder_ws.connect()
+                if connected:
+                    await self.myorder_ws.subscribe_myorder()  # 전체 마켓 구독
+                    logger.info("✅ MyOrder WebSocket 연결 및 구독 완료")
+                else:
+                    logger.warning("⚠️ MyOrder WebSocket 연결 실패 (REST API 폴백)")
+                    self.myorder_ws = None
+            except Exception as e:
+                logger.error(f"❌ MyOrder WebSocket 초기화 실패: {e}")
+                self.myorder_ws = None
 
     def _initialize_websockets(self):
         """WebSocket 초기화 (동기 래퍼)"""
