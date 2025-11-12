@@ -242,8 +242,7 @@ class GroupManager:
     def remove_coin_from_group(
         self,
         group_id: str,
-        symbol: str,
-        force: bool = False
+        symbol: str
     ) -> Dict[str, Any]:
         """
         그룹에서 코인 제거
@@ -251,28 +250,17 @@ class GroupManager:
         Args:
             group_id: 그룹 ID
             symbol: 코인 심볼
-            force: 강제 제거 (활성 포지션 무시)
 
         Returns:
             업데이트된 그룹
 
         Raises:
             GroupNotFoundError: 그룹을 찾을 수 없음
-            ActivePositionError: 활성 포지션이 존재함 (force=False인 경우)
         """
         # 그룹 존재 확인
         group = self.config_manager.get_group_by_id(group_id)
         if not group:
             raise GroupNotFoundError(f"그룹을 찾을 수 없습니다: {group_id}")
-
-        # 활성 포지션 확인
-        if not force:
-            position = self.position_manager.get_position(symbol)
-            if position and position.get('status') == 'active':
-                raise ActivePositionError(
-                    f"코인 {symbol}에 활성 포지션이 존재합니다. "
-                    f"포지션을 먼저 정리하거나 force=True로 강제 제거하세요."
-                )
 
         # 코인 제거
         coins = group.get('coins', [])
