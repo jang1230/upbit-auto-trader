@@ -90,6 +90,20 @@ class PositionManager:
         """
         return self.positions.get(symbol)
 
+    def get_position_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        포지션 조회 (get_position의 별칭)
+
+        MyAssetWebSocketWorker와 BalancePollingManager에서 사용하는 메서드 이름
+
+        Args:
+            symbol: 코인 심볼 (예: "KRW-BTC")
+
+        Returns:
+            포지션 정보 또는 None
+        """
+        return self.get_position(symbol)
+
     def get_all_positions(self) -> Dict[str, Dict[str, Any]]:
         """모든 포지션 반환"""
         return self.positions.copy()
@@ -127,9 +141,13 @@ class PositionManager:
         self,
         symbol: str,
         group_id: str,
-        entry_price: float,
-        entry_amount: float,
-        buy_amount_krw: float,
+        entry_price: float = None,
+        entry_amount: float = None,
+        buy_amount_krw: float = None,
+        # Alternative parameter names for backward compatibility
+        buy_price: float = None,
+        quantity: float = None,
+        force_create_for_sync: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -138,16 +156,48 @@ class PositionManager:
         Args:
             symbol: 코인 심볼
             group_id: 그룹 ID
-            entry_price: 진입 가격
-            entry_amount: 진입 수량
+            entry_price: 진입 가격 (또는 buy_price)
+            entry_amount: 진입 수량 (또는 quantity)
             buy_amount_krw: 매수 금액 (KRW)
+            buy_price: 진입 가격 (entry_price의 별칭)
+            quantity: 진입 수량 (entry_amount의 별칭)
+            force_create_for_sync: True일 경우 기존 포지션이 있어도 업데이트 (동기화용)
             **kwargs: 추가 정보
 
         Returns:
             생성된 포지션
         """
+        # Parameter name aliases for backward compatibility
+        if buy_price is not None and entry_price is None:
+            entry_price = buy_price
+        if quantity is not None and entry_amount is None:
+            entry_amount = quantity
+
+        # Calculate buy_amount_krw if not provided
+        if buy_amount_krw is None and entry_price is not None and entry_amount is not None:
+            buy_amount_krw = entry_price * entry_amount
+
+        # Validation
+        if entry_price is None or entry_amount is None or buy_amount_krw is None:
+            raise ValueError("entry_price, entry_amount, buy_amount_krw는 필수입니다")
+
+        # Check for existing position
         if symbol in self.positions:
-            raise ValueError(f"포지션이 이미 존재합니다: {symbol}")
+            if force_create_for_sync:
+                # Sync mode: Update existing position instead of raising error
+                logger.info(f"🔄 동기화 모드: 기존 포지션 업데이트 - {symbol}")
+                return self.update_position(symbol, {
+                    'group_id': group_id,
+                    'entry_price': entry_price,
+                    'entry_amount': entry_amount,
+                    'entry_krw': buy_amount_krw,
+                    'total_amount': entry_amount,
+                    'total_invested_krw': buy_amount_krw,
+                    'average_price': entry_price,
+                    **kwargs
+                })
+            else:
+                raise ValueError(f"포지션이 이미 존재합니다: {symbol}")
 
         position = {
             "group_id": group_id,
