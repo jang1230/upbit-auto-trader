@@ -139,6 +139,14 @@ class GroupManager:
         if not group:
             raise GroupNotFoundError(f"그룹을 찾을 수 없습니다: {group_id}")
 
+        # 그룹의 모든 코인에 대해 활성 포지션 group_id를 None으로 설정
+        coins = group.get('coins', [])
+        for symbol in coins:
+            position = self.position_manager.get_position(symbol)
+            if position and position.get('status') == 'active':
+                self.position_manager.update_position(symbol, {'group_id': None})
+                print(f"  ↳ 활성 포지션의 그룹 ID 제거: {symbol} (그룹 삭제로 인해)")
+
         # 그룹 삭제
         self.config_manager.remove_group(group_id)
         self.config = self.config_manager.load_config()  # 리로드
