@@ -82,7 +82,8 @@ class LevelSettingsDialog(QDialog):
         # 설명
         desc_label = QLabel("💡 DCA (Dollar Cost Averaging): 가격이 하락할 때 추가 매수하여 평균 단가를 낮춥니다.\n"
                            "• 하락률: 최초 매수가 대비 하락 퍼센트 (예: -3, -5, -7)\n"
-                           "• 수량 비율: 최초 매수 금액 대비 비율 (100 = 같은 금액, 200 = 2배)")
+                           "• 수량 비율: 현재 보유 금액 대비 비율 (100 = 100%, 최대 100%)\n"
+                           "  예) 2만원 보유 → 100% = 2만원 추가 → 총 4만원")
         desc_label.setFont(QFont("맑은 고딕", 9))
         desc_label.setStyleSheet("background-color: #e3f2fd; padding: 10px; border-radius: 5px;")
         desc_label.setWordWrap(True)

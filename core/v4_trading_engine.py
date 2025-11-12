@@ -776,8 +776,8 @@ class V4TradingEngine:
                     group_id=group_id,
                     symbol=symbol,
                     buy_price=current_price,
-                    buy_amount=buy_quantity,
-                    buy_value_krw=buy_amount
+                    quantity=buy_quantity,
+                    buy_amount_krw=buy_amount
                 )
 
                 logger.info(f"✅ [Dry-run] {symbol} 매수 완료: {buy_quantity:.8f}개 @ {current_price:,}원")
@@ -801,8 +801,8 @@ class V4TradingEngine:
                     group_id=group_id,
                     symbol=symbol,
                     buy_price=avg_price,
-                    buy_amount=executed_volume,
-                    buy_value_krw=total_paid
+                    quantity=executed_volume,
+                    buy_amount_krw=total_paid
                 )
 
                 logger.info(f"✅ {symbol} 매수 완료: {executed_volume:.8f}개 @ {avg_price:,}원 (수수료: {paid_fee:,}원)")
@@ -910,7 +910,7 @@ class V4TradingEngine:
 
             if profit_pct <= price_ratio:
                 logger.info(f"🔔 {symbol}: DCA 레벨 {i+1} 트리거 (현재: {profit_pct:.2f}%, 기준: {price_ratio:.2f}%)")
-                self._execute_dca(symbol, group_id, group, level, i)
+                self._execute_dca(symbol, group_id, group, position, level, i)
                 break  # 한 번에 하나의 DCA만 실행
 
     def _execute_dca(
@@ -918,6 +918,7 @@ class V4TradingEngine:
         symbol: str,
         group_id: str,
         group: Dict[str, Any],
+        position: Dict[str, Any],
         level: Dict[str, Any],
         dca_level_index: int  # 0-based index
     ):
@@ -928,18 +929,18 @@ class V4TradingEngine:
             logger.info(f"[관찰] {symbol} DCA 레벨 {dca_level_num} (실행 안 함)")
             return
 
-        # DCA 금액 계산
-        auto_config = group.get("buy_settings", {}).get("auto_config", {})
-        base_amount = auto_config.get("buy_amount_krw", 50000)
-        quantity_ratio = level.get("quantity_ratio", 100) / 100.0  # 100 = 1.0배, 200 = 2.0배
-        dca_amount = int(base_amount * quantity_ratio)
+        # DCA 금액 계산: 현재 총 투자 금액 대비 비율
+        total_invested = position.get("total_invested_krw", 50000)
+        quantity_ratio = level.get("quantity_ratio", 100) / 100.0  # 100 = 1.0배 (100%)
+        quantity_ratio = min(quantity_ratio, 1.0)  # 최대 100% 제한
+        dca_amount = int(total_invested * quantity_ratio)
 
         # 잔고 체크 (DCA 직전에만 REST API 호출)
         if not self._check_min_balance(dca_amount):
             logger.warning(f"⚠️ {symbol} DCA 레벨 {dca_level_num} 취소: 잔고 부족")
             return
 
-        logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {quantity_ratio}x)")
+        logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {quantity_ratio * 100:.0f}% of {total_invested:,}원)")
 
         try:
             if self.dry_run or not self.upbit_api:
