@@ -463,6 +463,13 @@ class V4TradingEngine:
             group: 그룹 데이터
             verbose: 상세 로그 출력 여부
         """
+        # 🔴 그룹 관찰 모드 체크 (최우선)
+        # 관찰 모드 그룹은 자동 매수를 하지 않음
+        if group.get("observation_only", False):
+            if verbose:
+                logger.debug(f"   👁️ {symbol}: 그룹 관찰 모드 (매수 신호 체크 스킵)")
+            return
+
         # 전략 가져오기
         if verbose:
             logger.info(f"         🔍 전략 검색: group_id={group_id}, symbol={symbol}")
@@ -622,6 +629,12 @@ class V4TradingEngine:
             group_id: 그룹 ID
             group: 그룹 데이터
         """
+        # 🔴 그룹 관찰 모드 체크 (최우선)
+        # 관찰 모드 그룹은 프로그램에서 아무 동작도 하지 않음
+        if group.get("observation_only", False):
+            logger.debug(f"   👁️ {symbol}: 그룹 관찰 모드 (포지션 관리 스킵)")
+            return
+
         position = self.position_manager.get_position(symbol)
         if not position or position.get("status") != "active":
             return
