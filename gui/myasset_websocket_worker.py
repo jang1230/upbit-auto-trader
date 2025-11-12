@@ -198,22 +198,37 @@ class MyAssetWebSocketWorker(QThread):
                 logger.info("🟢 상태: RECEIVING - MyAsset WebSocket 정상 수신 확인, REST API Polling 비활성화")
 
             # 🆕 새 자산 감지 시 처리
+            logger.info("=" * 80)
+            logger.info(f"📊 [DEBUG] WebSocket 수신: {len(assets)}개 자산")
             for asset in assets:
                 currency = asset.get('currency')
 
-                # 🐛 디버깅: WebSocket 데이터 전체 확인
-                logger.debug(f"📊 [DEBUG] WebSocket asset 데이터: {asset}")
+                # 🐛 디버깅: WebSocket 데이터 전체 확인 (INFO 레벨로 변경)
+                logger.info(f"   📦 {currency} 전체 데이터: {asset}")
 
                 # KRW는 제외
                 if currency == 'KRW':
+                    logger.info(f"   ⏭️  {currency}: KRW이므로 스킵")
                     continue
 
                 balance = float(asset.get('balance', 0))
                 locked = float(asset.get('locked', 0))
                 total = balance + locked
+                ws_avg_buy_price = float(asset.get('avg_buy_price', 0))
+                ws_avg_buy_price_modified = asset.get('avg_buy_price_modified', False)
+                ws_unit_currency = asset.get('unit_currency', 'N/A')
+
+                logger.info(f"   🔍 {currency} 상세:")
+                logger.info(f"      - balance: {balance:.8f}")
+                logger.info(f"      - locked: {locked:.8f}")
+                logger.info(f"      - total: {total:.8f}")
+                logger.info(f"      - avg_buy_price: {ws_avg_buy_price:,.0f}원")
+                logger.info(f"      - avg_buy_price_modified: {ws_avg_buy_price_modified}")
+                logger.info(f"      - unit_currency: {ws_unit_currency}")
 
                 # 잔고가 0이면 스킵
                 if total <= 0:
+                    logger.info(f"   ⏭️  {currency}: 잔고 0이므로 스킵 (total={total:.8f})")
                     continue
 
                 symbol = f"KRW-{currency}"
@@ -223,14 +238,11 @@ class MyAssetWebSocketWorker(QThread):
 
                 if not position:
                     # 새 자산 발견!
-                    logger.info(f"🆕 신규 보유 코인 감지 (WebSocket): {symbol}")
-
-                    # 🐛 디버깅: WebSocket에 avg_buy_price가 있는지 확인
-                    ws_avg_buy_price = float(asset.get('avg_buy_price', 0))
-                    logger.info(f"   📊 [DEBUG] WebSocket avg_buy_price: {ws_avg_buy_price:,.0f}원")
+                    logger.info(f"   🆕 신규 보유 코인 감지 (WebSocket): {symbol}")
 
                     # WebSocket 데이터에서 먼저 avg_buy_price 확인
                     avg_buy_price = ws_avg_buy_price
+                    logger.info(f"      - WebSocket에서 가져온 avg_buy_price: {avg_buy_price:,.0f}원")
 
                     if self.upbit_api:
                         try:
