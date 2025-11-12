@@ -121,36 +121,23 @@ class GroupManager:
         print(f"✅ 그룹 생성: {name} (ID: {group_id}, 코인: {len(coins)}개)")
         return group
 
-    def delete_group(self, group_id: str, force: bool = False) -> bool:
+    def delete_group(self, group_id: str) -> bool:
         """
         그룹 삭제
 
         Args:
             group_id: 그룹 ID
-            force: 강제 삭제 (활성 포지션 무시)
 
         Returns:
             삭제 성공 여부
 
         Raises:
             GroupNotFoundError: 그룹을 찾을 수 없음
-            ActivePositionError: 활성 포지션이 존재함 (force=False인 경우)
         """
         # 그룹 존재 확인
         group = self.config_manager.get_group_by_id(group_id)
         if not group:
             raise GroupNotFoundError(f"그룹을 찾을 수 없습니다: {group_id}")
-
-        # 활성 포지션 확인
-        if not force:
-            active_positions = self.position_manager.get_positions_by_group(group_id)
-            active_count = len([p for p in active_positions.values() if p.get('status') == 'active'])
-
-            if active_count > 0:
-                raise ActivePositionError(
-                    f"그룹에 {active_count}개의 활성 포지션이 존재합니다. "
-                    f"포지션을 먼저 정리하거나 force=True로 강제 삭제하세요."
-                )
 
         # 그룹 삭제
         self.config_manager.remove_group(group_id)
