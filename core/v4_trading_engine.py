@@ -656,10 +656,16 @@ class V4TradingEngine:
         current_price: float,
         profit_pct: float
     ):
-        """DCA 체크 및 실행"""
+        """DCA 체크 및 실행 (체결 확인)"""
         dca_settings = group.get("dca_settings", {})
 
         if dca_settings.get("mode") != "auto":
+            return
+
+        # pending_order 체크: 진행 중인 주문이 있으면 스킵
+        pending_order = position.get("pending_order")
+        if pending_order:
+            logger.debug(f"   ⏳ {symbol}: DCA 스킵 (진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')})")
             return
 
         dca_levels = dca_settings.get("levels", [])
@@ -678,7 +684,7 @@ class V4TradingEngine:
 
             if profit_pct <= drop_pct:
                 logger.info(f"🔔 {symbol}: DCA 레벨 {i+1} 트리거 (현재: {profit_pct:.2f}%, 기준: {drop_pct:.2f}%)")
-                self._execute_dca(symbol, group_id, group, level, i+1)
+                self._execute_dca(symbol, group_id, group, level, i)
                 break  # 한 번에 하나의 DCA만 실행
 
     def _execute_dca(
@@ -687,9 +693,11 @@ class V4TradingEngine:
         group_id: str,
         group: Dict[str, Any],
         level: Dict[str, Any],
-        dca_level_num: int
+        dca_level_index: int  # 0-based index
     ):
-        """DCA 매수 실행"""
+        """DCA 매수 실행 (주문 체결 확인 포함)"""
+        dca_level_num = dca_level_index + 1  # 1-based for display
+
         if self.observation_mode:
             logger.info(f"[관찰] {symbol} DCA 레벨 {dca_level_num} (실행 안 함)")
             return
@@ -709,7 +717,7 @@ class V4TradingEngine:
 
         try:
             if self.dry_run or not self.upbit_api:
-                # Dry-run 모드
+                # Dry-run 모드: 즉시 실행 (체결 확인 불필요)
                 current_price = self._get_current_price_safe(symbol)
                 if not current_price:
                     logger.error(f"❌ {symbol} 현재가 조회 실패")
@@ -717,7 +725,7 @@ class V4TradingEngine:
 
                 dca_quantity = dca_amount / current_price
 
-                # 포지션 DCA 추가
+                # 포지션 DCA 추가 (즉시)
                 self.position_manager.add_dca(
                     symbol=symbol,
                     dca_price=current_price,
@@ -727,41 +735,65 @@ class V4TradingEngine:
 
                 logger.info(f"✅ [Dry-run] {symbol} DCA 완료: {dca_quantity:.8f}개 @ {current_price:,}원")
 
+                # 거래 기록 (Dry-run)
+                position = self.position_manager.get_position(symbol)
+                self.trade_history.add_trade(
+                    group_id=group_id,
+                    group_name=group.get("name", "Unknown"),
+                    symbol=symbol,
+                    action="buy",
+                    trade_type="dca",
+                    price=position.get("avg_buy_price"),
+                    amount=position.get("total_amount"),
+                    total_krw=dca_amount,
+                    dry_run=self.dry_run,
+                    dca_level=dca_level_num  # 추가 정보
+                )
+
             else:
-                # Live 모드
+                # Live 모드: 주문 → 콜백 등록 → pending_order 저장
                 order_result = self.upbit_api.buy_market_order(symbol, dca_amount)
 
                 if not order_result or 'error' in order_result:
                     logger.error(f"❌ {symbol} DCA 실패: {order_result}")
                     return
 
+                order_uuid = order_result.get('uuid')
+                if not order_uuid:
+                    logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
+                    return
+
                 executed_volume = float(order_result.get('executed_volume', 0))
                 avg_price = float(order_result.get('avg_price', 0))
 
-                # 포지션 DCA 추가
-                self.position_manager.add_dca(
-                    symbol=symbol,
-                    dca_price=avg_price,
-                    dca_amount=executed_volume,
-                    dca_value_krw=dca_amount
-                )
+                logger.info(f"   📝 {symbol} DCA 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
 
-                logger.info(f"✅ {symbol} DCA 완료: {executed_volume:.8f}개 @ {avg_price:,}원")
+                # pending_order 저장
+                from datetime import datetime
+                position = self.position_manager.get_position(symbol)
+                self.position_manager.update_position(symbol, {
+                    "pending_order": {
+                        "order_id": order_uuid,
+                        "type": "dca",
+                        "level": dca_level_index,
+                        "timestamp": datetime.now().isoformat(),
+                        # DCA 정보 저장 (체결 후 add_dca 호출용)
+                        "dca_price": avg_price,
+                        "dca_amount": executed_volume,
+                        "dca_value_krw": dca_amount,
+                        "group_id": group_id,
+                        "group_name": group.get("name", "Unknown")
+                    }
+                })
 
-            # 거래 기록
-            position = self.position_manager.get_position(symbol)
-            self.trade_history.add_trade(
-                group_id=group_id,
-                group_name=group.get("name", "Unknown"),
-                symbol=symbol,
-                action="buy",
-                trade_type="dca",
-                price=position.get("avg_buy_price"),
-                amount=position.get("total_amount"),
-                total_krw=dca_amount,
-                dry_run=self.dry_run,
-                dca_level=dca_level_num  # 추가 정보
-            )
+                # MyOrderWebSocket 콜백 등록 (Live 모드에서만)
+                if self.myorder_ws:
+                    self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
+                    logger.info(f"   📡 {symbol} DCA 주문 {order_uuid[:8]}... 콜백 등록 완료")
+                else:
+                    logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+
+                logger.info(f"   ⏳ {symbol} DCA 레벨 {dca_level_num} 주문 대기 중...")
 
         except Exception as e:
             logger.error(f"❌ {symbol} DCA 실행 오류: {e}", exc_info=True)
@@ -1066,10 +1098,39 @@ class V4TradingEngine:
                     logger.info(f"   📝 {symbol} loss_levels_executed 업데이트: {loss_levels_executed}")
 
             elif order_type == 'dca':
-                # DCA는 기존 dca_count로 관리 (이미 add_dca()에서 증가됨)
-                logger.info(f"   📝 {symbol} DCA 레벨 {level_index} 체결 완료 (dca_count는 이미 업데이트됨)")
+                # DCA 주문 체결 완료 → add_dca() 호출
+                dca_price = pending_order.get('dca_price', avg_price)
+                dca_amount = pending_order.get('dca_amount', executed_volume)
+                dca_value_krw = pending_order.get('dca_value_krw', 0)
+                group_id = pending_order.get('group_id', 'unknown')
+                group_name = pending_order.get('group_name', 'Unknown')
 
-            # 포지션 업데이트
+                # 포지션 DCA 추가 (체결 확인 후)
+                self.position_manager.add_dca(
+                    symbol=symbol,
+                    dca_price=dca_price,
+                    dca_amount=dca_amount,
+                    dca_value_krw=dca_value_krw
+                )
+
+                logger.info(f"   📝 {symbol} DCA 레벨 {level_index} 체결 완료 → add_dca() 호출 완료")
+
+                # 거래 기록 (Live 모드에서만, Dry-run은 _execute_dca에서 이미 기록)
+                updated_position = self.position_manager.get_position(symbol)
+                self.trade_history.add_trade(
+                    group_id=group_id,
+                    group_name=group_name,
+                    symbol=symbol,
+                    action="buy",
+                    trade_type="dca",
+                    price=updated_position.get("avg_buy_price"),
+                    amount=updated_position.get("total_amount"),
+                    total_krw=dca_value_krw,
+                    dry_run=False,  # Live 모드
+                    dca_level=level_index + 1  # 1-based for display
+                )
+
+            # 포지션 업데이트 (pending_order 제거)
             self.position_manager.update_position(symbol, updates)
 
             logger.info(f"   🎉 {symbol} 주문 {order_uuid[:8]}... 처리 완료")
