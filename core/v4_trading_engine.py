@@ -202,30 +202,18 @@ class V4TradingEngine:
                 # accounts 조회 후 캐싱하여 전달 (중복 API 호출 방지)
                 accounts = self.upbit_api.get_accounts()
 
-                # 🐛 디버깅: REST API 응답 상세 로그
-                logger.info(f"📊 [DEBUG] REST API 응답: 총 {len(accounts)}개 자산")
-                logger.info("=" * 80)
+                # 디버깅: REST API 응답 (DEBUG 레벨)
+                logger.debug(f"📊 REST API 응답: 총 {len(accounts)}개 자산")
                 for acc in accounts:
                     currency = acc.get('currency')
                     balance = float(acc.get('balance', 0))
                     locked = float(acc.get('locked', 0))
-                    avg_buy_price = float(acc.get('avg_buy_price', 0))
-                    avg_buy_price_modified = acc.get('avg_buy_price_modified', False)
-                    unit_currency = acc.get('unit_currency', 'N/A')
 
                     if currency == 'KRW':
-                        logger.info(f"   💰 {currency}:")
-                        logger.info(f"      - balance: {balance:,.0f}원")
-                        logger.info(f"      - locked: {locked:,.0f}원")
+                        logger.debug(f"   💰 {currency}: balance={balance:,.0f}원, locked={locked:,.0f}원")
                     elif balance > 0 or locked > 0:
-                        logger.info(f"   🪙 {currency}:")
-                        logger.info(f"      - balance: {balance:.8f}")
-                        logger.info(f"      - locked: {locked:.8f}")
-                        logger.info(f"      - avg_buy_price: {avg_buy_price:,.0f}원")
-                        logger.info(f"      - avg_buy_price_modified: {avg_buy_price_modified}")
-                        logger.info(f"      - unit_currency: {unit_currency}")
-                        logger.info(f"      - 전체 데이터: {acc}")
-                logger.info("=" * 80)
+                        avg_buy_price = float(acc.get('avg_buy_price', 0))
+                        logger.debug(f"   🪙 {currency}: balance={balance:.8f}, avg_price={avg_buy_price:,.0f}원 | {acc}")
 
                 sync_result = self.position_manager.sync_with_upbit(
                     self.config,

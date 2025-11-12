@@ -731,40 +731,46 @@ class PositionManager:
                 # 새 포지션 발견 (외부 앱에서 매수한 경우)
                 group_id = self._find_group_for_coin(symbol, config)
 
-                if group_id:
-                    # 그룹에 속한 코인 → 자동 생성
-                    try:
-                        # avg_buy_price 사용 (MyAsset에 포함됨)
-                        entry_price = avg_buy_price if avg_buy_price > 0 else 0
+                # 그룹이 없으면 group_null 사용
+                if not group_id:
+                    group_id = "group_null"
+                    logger.info(f"   📝 {symbol} 그룹 없음 → group_null로 설정")
 
-                        if entry_price == 0:
-                            # MyAsset에 avg_buy_price가 없으면 REST API로 조회
-                            logger.warning(f"   ⚠️ {symbol} MyAsset에 평균가 없음, REST API 조회 필요")
-                            if self.upbit_api:
-                                accounts = self.upbit_api.get_accounts()
-                                for acc in accounts:
-                                    if f"KRW-{acc['currency']}" == symbol:
-                                        entry_price = float(acc.get('avg_buy_price', 0))
-                                        logger.info(f"   📊 REST API 평균가 조회: {symbol} = {entry_price:.0f}원")
-                                        break
+                # 포지션 생성
+                try:
+                    # avg_buy_price 사용 (MyAsset에 포함됨)
+                    entry_price = avg_buy_price if avg_buy_price > 0 else 0
 
+                    if entry_price == 0:
+                        # MyAsset에 avg_buy_price가 없으면 REST API로 조회
+                        logger.warning(f"   ⚠️ {symbol} MyAsset에 평균가 없음, REST API 조회 필요")
+                        if self.upbit_api:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                if f"KRW-{acc['currency']}" == symbol:
+                                    entry_price = float(acc.get('avg_buy_price', 0))
+                                    logger.info(f"   📊 REST API 평균가 조회: {symbol} = {entry_price:.0f}원")
+                                    break
+
+                    # entry_price가 여전히 0이면 생성하지 않음 (진짜 에어드랍 코인)
+                    if entry_price > 0:
                         new_position = self.create_position(
                             symbol=symbol,
                             group_id=group_id,
                             entry_price=entry_price,
                             entry_amount=balance,
-                            buy_amount_krw=entry_price * balance if entry_price > 0 else 0,
+                            buy_amount_krw=entry_price * balance,
                             locked_amount=locked
                         )
                         new_positions.append(symbol)
                         logger.info(f"   🆕 MyAsset 포지션 생성: {symbol} → {group_id} | {balance:.8f} @ {entry_price:.0f}원")
-                    except Exception as e:
-                        logger.warning(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
+                    else:
+                        # REST API 조회 후에도 entry_price가 0이면 진짜 에어드랍
                         skipped_positions.append(symbol)
-                else:
-                    # 그룹에 속하지 않은 코인 → 스킵
+                        logger.debug(f"   ⏭️ 스킵: {symbol} (avg_buy_price=0, 에어드랍 추정)")
+                except Exception as e:
+                    logger.warning(f"   ⚠️ 포지션 생성 실패: {symbol} - {e}")
                     skipped_positions.append(symbol)
-                    logger.debug(f"   ⏭️ 스킵: {symbol} (그룹 없음) | {balance:.8f}")
 
         # ⚠️ 중요: MyAsset WebSocket은 변동이 있는 자산만 전송하므로,
         # "메시지에 없음" ≠ "매도됨"입니다. 따라서 이 섹션은 제거합니다.
