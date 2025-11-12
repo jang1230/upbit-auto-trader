@@ -134,50 +134,33 @@ class BalancePollingManager:
                 accounts = self.upbit_api.get_accounts()
 
                 # 2. 각 자산 검사
-                logger.info("=" * 80)
-                logger.info(f"📊 [DEBUG] Polling 수신: {len(accounts)}개 자산")
+                logger.debug(f"📊 Polling 수신: {len(accounts)}개 자산")
                 for account in accounts:
                     currency = account['currency']
 
-                    # 🐛 디버깅: 전체 데이터 출력
-                    logger.info(f"   📦 {currency} 전체 데이터: {account}")
-
                     # KRW는 제외 (코인이 아님)
                     if currency == 'KRW':
-                        logger.info(f"   ⏭️  {currency}: KRW이므로 스킵")
                         continue
 
                     # 필터링: 실제 보유 중인 코인만
                     balance = float(account['balance'])
                     locked = float(account['locked'])
                     avg_buy_price = float(account['avg_buy_price'])
-                    avg_buy_price_modified = account.get('avg_buy_price_modified', False)
-                    unit_currency = account.get('unit_currency', 'N/A')
                     total = balance + locked
 
-                    logger.info(f"   🔍 {currency} 상세:")
-                    logger.info(f"      - balance: {balance:.8f}")
-                    logger.info(f"      - locked: {locked:.8f}")
-                    logger.info(f"      - total: {total:.8f}")
-                    logger.info(f"      - avg_buy_price: {avg_buy_price:,.0f}원")
-                    logger.info(f"      - avg_buy_price_modified: {avg_buy_price_modified}")
-                    logger.info(f"      - unit_currency: {unit_currency}")
+                    # 디버깅: Polling 데이터 (DEBUG 레벨)
+                    logger.debug(f"   🪙 {currency}: balance={balance:.8f}, avg_price={avg_buy_price:,.0f}원 | {account}")
 
                     # 조건: 평균가 > 0 AND 잔고 > 0
                     # (AQUQ 같은 평가금 0원 코인 제외)
-                    if avg_buy_price <= 0:
-                        logger.info(f"   ⏭️  {currency}: avg_buy_price <= 0 이므로 스킵 (avg_buy_price={avg_buy_price})")
-                        continue
-
-                    if total <= 0:
-                        logger.info(f"   ⏭️  {currency}: 잔고 0이므로 스킵 (total={total:.8f})")
+                    if avg_buy_price <= 0 or total <= 0:
                         continue
 
                     symbol = f"KRW-{currency}"
 
                     # 이미 알고 있는 코인이면 스킵
                     if symbol in self.known_symbols:
-                        logger.info(f"   ⏭️  {currency}: 이미 known_symbols에 있음, 스킵")
+                        logger.debug(f"   ⏭️  {currency}: 이미 known_symbols에 있음, 스킵")
                         continue
 
                     # 3. 새 코인 발견!
