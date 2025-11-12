@@ -7,6 +7,7 @@ import sys
 import os
 import time
 import logging
+import threading
 
 # 🔧 로거 초기화
 logger = logging.getLogger(__name__)
@@ -982,8 +983,16 @@ class MainWindow(QMainWindow):
                 upbit_api=self.upbit_api
             )
 
-            # 엔진 시작
-            self.v4_engine.start()
+            # 엔진을 백그라운드 스레드에서 시작 (GUI 블로킹 방지)
+            def run_engine():
+                try:
+                    self.v4_engine.start()
+                except Exception as e:
+                    logger.error(f"❌ V4 엔진 실행 오류: {e}", exc_info=True)
+                    # GUI 스레드에서 처리할 수 있도록 시그널 필요 시 추가
+
+            self.engine_thread = threading.Thread(target=run_engine, daemon=True)
+            self.engine_thread.start()
 
             # 상태 업데이트
             self.is_running = True

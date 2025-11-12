@@ -369,9 +369,9 @@ class UpbitAPI:
             return self.accounts_cache["data"]
 
         # 캐시 만료 또는 없음 → API 호출
-        logger.info("📊 계좌 정보 조회 중...")
+        logger.debug("📊 계좌 정보 조회 중...")
         accounts = self._request("GET", "/accounts")
-        logger.info(f"✅ 계좌 정보 조회 완료: {len(accounts)}개 자산")
+        logger.debug(f"✅ 계좌 정보 조회 완료: {len(accounts)}개 자산")
 
         # 캐시 업데이트
         self.accounts_cache["data"] = accounts
