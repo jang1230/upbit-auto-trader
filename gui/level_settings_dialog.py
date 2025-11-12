@@ -242,7 +242,7 @@ class LevelSettingsDialog(QDialog):
 
             # 하락률 (%)
             price_ratio = level.get("price_ratio", -3.0)
-            drop_item = QTableWidgetItem(str(int(price_ratio)))
+            drop_item = QTableWidgetItem(f"{price_ratio:.1f}")
             drop_item.setTextAlignment(Qt.AlignCenter)
             self.dca_table.setItem(i, 1, drop_item)
 
@@ -265,7 +265,7 @@ class LevelSettingsDialog(QDialog):
 
             # 수익률 (%)
             price_ratio = level.get("price_ratio", 5.0)
-            price_item = QTableWidgetItem(str(int(price_ratio)))
+            price_item = QTableWidgetItem(f"{price_ratio:.1f}")
             price_item.setTextAlignment(Qt.AlignCenter)
             self.profit_table.setItem(i, 1, price_item)
 
@@ -288,7 +288,7 @@ class LevelSettingsDialog(QDialog):
 
             # 손실률 (%)
             price_ratio = level.get("price_ratio", -15.0)
-            price_item = QTableWidgetItem(str(int(price_ratio)))
+            price_item = QTableWidgetItem(f"{price_ratio:.1f}")
             price_item.setTextAlignment(Qt.AlignCenter)
             self.loss_table.setItem(i, 1, price_item)
 
