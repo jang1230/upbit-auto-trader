@@ -23,6 +23,7 @@ from core.position_manager import PositionManager
 from core.trade_history_manager import TradeHistoryManager
 from core.daily_loss_tracker import DailyLossTracker
 from core.strategies.v4_auto_buy_strategy import V4AutoBuyStrategy
+from core.strategies.expert_strategy import ExpertStrategy
 from core.upbit_api import UpbitAPI, SymbolNotFoundError
 from core.websocket_manager import WebSocketManager
 from core.balance_polling_manager import BalancePollingManager
@@ -138,7 +139,7 @@ class V4TradingEngine:
         self.loss_limit_reached_time = None  # 도달 시각
 
         # 그룹별 전략 캐시
-        self.strategies: Dict[str, Dict[str, V4AutoBuyStrategy]] = {}  # {group_id: {symbol: strategy}}
+        self.strategies: Dict[str, Dict[str, Any]] = {}  # {group_id: {symbol: strategy}} (V4AutoBuyStrategy or ExpertStrategy)
 
         # 캔들 데이터 캐시
         self.candles_cache: Dict[str, Dict[str, Any]] = {}  # {symbol: {candle_unit: candles}}
@@ -342,22 +343,49 @@ class V4TradingEngine:
                 continue
 
             auto_config = buy_settings.get("auto_config", {})
+            strategy_type = auto_config.get("strategy", "v4_auto_buy")  # 기본값: v4_auto_buy (하위 호환성)
 
             # 그룹의 각 코인에 대한 전략 생성
             for symbol in group.get("coins", []):
                 try:
-                    strategy = V4AutoBuyStrategy(
-                        symbol=symbol,
-                        investment_style=auto_config.get("investment_style", "balanced"),
-                        candle_unit=auto_config.get("candle_unit", "60"),
-                        indicators_config=auto_config.get("indicators", {})
-                    )
+                    if strategy_type == "expert":
+                        # ExpertStrategy 사용
+                        expert_profile = auto_config.get("expert_profile", "balanced_expert")
+                        candle_unit = auto_config.get("candle_unit", "10")
+
+                        strategy = ExpertStrategy(
+                            symbol=symbol,
+                            expert_profile=expert_profile,
+                            candle_unit=candle_unit
+                        )
+
+                        logger.info(
+                            f"  - {group['name']}: {symbol} ExpertStrategy 생성 완료 "
+                            f"(Profile: {expert_profile}, Candle: {candle_unit}min)"
+                        )
+
+                    else:
+                        # V4AutoBuyStrategy 사용 (기본값)
+                        investment_style = auto_config.get("investment_style", "balanced")
+                        candle_unit = auto_config.get("candle_unit", "60")
+                        indicators_config = auto_config.get("indicators", {})
+
+                        strategy = V4AutoBuyStrategy(
+                            symbol=symbol,
+                            investment_style=investment_style,
+                            candle_unit=candle_unit,
+                            indicators_config=indicators_config
+                        )
+
+                        logger.info(
+                            f"  - {group['name']}: {symbol} V4AutoBuyStrategy 생성 완료 "
+                            f"(Style: {investment_style}, Candle: {candle_unit}min)"
+                        )
 
                     self.strategies[group_id][symbol] = strategy
-                    logger.info(f"  - {group['name']}: {symbol} 전략 생성 완료")
 
                 except Exception as e:
-                    logger.error(f"❌ {symbol} 전략 생성 실패: {e}")
+                    logger.error(f"❌ {symbol} 전략 생성 실패: {e}", exc_info=True)
 
         logger.info(f"✅ 총 {sum(len(s) for s in self.strategies.values())}개 전략 초기화 완료")
 

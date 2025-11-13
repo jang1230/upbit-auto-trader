@@ -162,23 +162,45 @@
                 "auto_config": {
                   "type": "object",
                   "description": "Auto-buy configuration (required if mode=auto)",
-                  "required": ["enabled", "investment_style", "candle_unit", "indicators", "buy_amount_krw"],
+                  "required": ["enabled", "strategy", "candle_unit", "buy_amount_krw"],
                   "properties": {
                     "enabled": {
                       "type": "boolean"
                     },
+                    "strategy": {
+                      "type": "string",
+                      "enum": ["v4_auto_buy", "expert"],
+                      "description": "Strategy type: v4_auto_buy (V4AutoBuyStrategy) or expert (ExpertStrategy)"
+                    },
                     "investment_style": {
                       "type": "string",
                       "enum": ["conservative", "balanced", "aggressive", "custom"],
-                      "description": "Investment style preset"
+                      "description": "Investment style preset (for v4_auto_buy strategy)"
+                    },
+                    "expert_profile": {
+                      "type": "string",
+                      "enum": [
+                        "rsi_specialist",
+                        "momentum_expert",
+                        "volatility_expert",
+                        "volume_expert",
+                        "balanced_expert",
+                        "conservative_expert",
+                        "aggressive_expert",
+                        "trend_follower",
+                        "reversal_hunter",
+                        "smart_money"
+                      ],
+                      "description": "Expert profile (for expert strategy)"
                     },
                     "candle_unit": {
                       "type": "string",
-                      "enum": ["1", "3", "5", "15", "30", "60", "240"],
+                      "enum": ["1", "3", "5", "10", "15", "30", "60", "240"],
                       "description": "Candle timeframe in minutes"
                     },
                     "indicators": {
                       "type": "object",
+                      "description": "Indicator settings (for v4_auto_buy strategy)",
                       "required": ["rsi", "macd", "volume"],
                       "properties": {
                         "rsi": {

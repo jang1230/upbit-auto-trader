@@ -30,14 +30,15 @@
     "dry_run": true
   },
   "groups": {
-    "example_group": {
-      "name": "예제 그룹 (편집하여 사용)",
+    "v4_example_group": {
+      "name": "V4 전략 예제 (편집하여 사용)",
       "observation_only": false,
       "coins": ["KRW-BTC", "KRW-ETH"],
       "buy_settings": {
         "mode": "auto",
         "auto_config": {
           "enabled": true,
+          "strategy": "v4_auto_buy",
           "investment_style": "balanced",
           "candle_unit": "60",
           "indicators": {
@@ -97,6 +98,56 @@
         "levels": [
           {
             "price_ratio": -15.0,
+            "quantity_ratio": 100
+          }
+        ]
+      }
+    },
+    "expert_example_group": {
+      "name": "Expert 전략 예제 (10개 전문가 시스템)",
+      "observation_only": false,
+      "coins": ["KRW-XRP", "KRW-ADA"],
+      "buy_settings": {
+        "mode": "auto",
+        "auto_config": {
+          "enabled": true,
+          "strategy": "expert",
+          "expert_profile": "balanced_expert",
+          "candle_unit": "10",
+          "buy_amount_krw": 30000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -5.0,
+            "quantity_ratio": 100
+          },
+          {
+            "price_ratio": -10.0,
+            "quantity_ratio": 150
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": 3.0,
+            "quantity_ratio": 50
+          },
+          {
+            "price_ratio": 7.0,
+            "quantity_ratio": 50
+          }
+        ]
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -12.0,
             "quantity_ratio": 100
           }
         ]

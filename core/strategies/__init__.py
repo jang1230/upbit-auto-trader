@@ -12,6 +12,7 @@ Available strategies:
 - ProximityBollingerBandsStrategy: DCA-optimized proximity BB strategy
 - ScalpingStrategy: 단타 트레이딩 전략 (MACD + 거래량, 하루 20~30회) ⭐ RECOMMENDED
 - V4AutoBuyStrategy: V4 자동매수 전략 (Preset 기반, RSI+MACD+Volume) ⭐ V4 ONLY
+- ExpertStrategy: 10개 전문가 프로필 전략 (5개 지표 가중치 기반) ⭐ V4 ONLY
 
 Usage:
     from core.strategies import RSI_Strategy, MACD_Strategy, BollingerBands_Strategy
@@ -53,6 +54,7 @@ from core.strategies.filtered_bb_strategy import FilteredBollingerBandsStrategy
 from core.strategies.proximity_bb_strategy import ProximityBollingerBandsStrategy
 from core.strategies.scalping_strategy import ScalpingStrategy
 from core.strategies.v4_auto_buy_strategy import V4AutoBuyStrategy
+from core.strategies.expert_strategy import ExpertStrategy
 
 __all__ = [
     'BaseStrategy',
@@ -65,4 +67,5 @@ __all__ = [
     'ProximityBollingerBandsStrategy',
     'ScalpingStrategy',
     'V4AutoBuyStrategy',
+    'ExpertStrategy',
 ]
