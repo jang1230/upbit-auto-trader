@@ -244,6 +244,164 @@ NAME = 'YourProgramName'
 - [ ] 다른 PC에서 실행 테스트
 - [ ] Windows Defender 오탐지 확인
 
+---
+
+## 📦 Pre-Build Checklist (V4)
+
+**V4 시스템**을 빌드하기 전, 다음 항목들을 반드시 확인하세요:
+
+### 1. V4 Configuration Files Included
+
+V4 설정 파일들이 프로젝트에 포함되어 있는지 확인:
+
+```bash
+# Configuration template
+ls -la config/trading_config_template.json
+
+# JSON Schema validation file
+ls -la config/schemas/trading_config_schema.json
+```
+
+**Expected Output**:
+```
+-rw-r--r-- 1 user user 1234 Jan 26 config/trading_config_template.json
+-rw-r--r-- 1 user user 5678 Jan 26 config/schemas/trading_config_schema.json
+```
+
+### 2. Data Folder Structure
+
+V4 런타임 데이터 폴더 구조 확인:
+
+```bash
+ls -la data/
+```
+
+**Expected Structure**:
+```
+data/
+├── .gitkeep  (placeholder, 빌드 시 포함)
+└── (runtime files will be auto-created on first run)
+```
+
+**Note**:
+- `positions_live.json`, `positions_dryrun.json`, `trade_history.json`는 첫 실행 시 자동 생성됩니다
+- 빌드에 포함할 필요 없음
+
+### 3. V4 Dependencies Installed
+
+V4 필수 패키지들이 설치되었는지 확인:
+
+```bash
+pip list | grep -E "PySide6|requests|websockets|jsonschema"
+```
+
+**Expected Output**:
+```
+jsonschema         4.x.x
+PySide6            6.6.x
+requests           2.31.x
+websockets         12.x
+```
+
+### 4. Test V4 Features Before Build
+
+빌드하기 전, V4 기능들을 테스트하여 정상 작동 확인:
+
+```bash
+# Launch GUI
+python main.py
+```
+
+**Test Checklist**:
+- [ ] Create a group via GUI
+- [ ] Add coins to the group
+- [ ] Configure auto-buy preset (Conservative/Balanced/Aggressive)
+- [ ] Configure DCA levels (e.g., -3%, -5%, -7%)
+- [ ] Configure Profit levels (e.g., +5%, +10%)
+- [ ] Configure Loss levels (e.g., -15%)
+- [ ] Test dry-run mode (at least 5 minutes)
+- [ ] Verify `config/trading_config.json` is created
+- [ ] Verify position files are created
+
+### 5. Verify build_exe.spec
+
+`build_exe.spec` 파일을 열어 V4 파일들이 포함되어 있는지 확인:
+
+```bash
+cat build_exe.spec | grep -A 10 "datas="
+```
+
+**Expected in datas list**:
+```python
+datas=[
+    ('config/trading_config_template.json', 'config'),
+    ('config/schemas/trading_config_schema.json', 'config/schemas'),
+    ('data', 'data'),  # Include data folder with .gitkeep
+    ('README.md', '.'),
+    ('requirements.txt', '.'),
+    # ... other files
+]
+```
+
+**Critical V4 Files**:
+- ✅ `config/trading_config_template.json` - V4 configuration template
+- ✅ `config/schemas/trading_config_schema.json` - JSON Schema validation
+- ✅ `data/` folder structure - Runtime data location
+
+**V4 Core Modules (automatically included)**:
+- `core/config_manager.py`
+- `core/position_manager.py`
+- `core/trade_history_manager.py`
+- `core/group_manager.py`
+- `core/daily_loss_tracker.py`
+- `core/strategies/v4_auto_buy_strategy.py`
+- `core/v4_trading_engine.py`
+
+### 6. Clean Previous Builds
+
+이전 빌드 결과물을 삭제하여 깨끗한 빌드 환경 조성:
+
+```bash
+# Remove build artifacts
+rm -rf build/ dist/
+
+# Clear PyInstaller cache
+rm -rf __pycache__/ *.spec.bak
+```
+
+### 7. V4 Build Command
+
+모든 체크리스트 완료 후 빌드 실행:
+
+```bash
+# Directory mode (recommended for V4)
+pyinstaller build_exe.spec
+
+# Verify V4 files in output
+ls -la dist/UpbitDCATrader/config/
+ls -la dist/UpbitDCATrader/data/
+```
+
+**Post-Build Verification**:
+```bash
+cd dist/UpbitDCATrader/
+
+# Check V4 config files exist
+ls config/trading_config_template.json
+ls config/schemas/trading_config_schema.json
+
+# Run executable
+./UpbitDCATrader.exe
+
+# On first run, should auto-create:
+# - config/trading_config.json
+# - data/positions_live.json
+# - data/positions_dryrun.json
+# - data/trade_history.json
+```
+
+---
+
 ## 🚀 고급 빌드 옵션
 
 ### UPX 압축
