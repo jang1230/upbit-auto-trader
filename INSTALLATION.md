@@ -280,6 +280,77 @@ python main.py
 
 **If errors occur**: See [Troubleshooting](#troubleshooting) section
 
+### 4. Verify V4 Installation
+
+After successful GUI launch, verify V4 system is ready:
+
+#### Check V4 Configuration Files
+
+```bash
+# Check if V4 configuration template exists
+ls config/trading_config_template.json
+
+# Check if schema validation file exists
+ls config/schemas/trading_config_schema.json
+```
+
+**Expected**: Both files should exist. If not, they will be auto-created on first run.
+
+#### First Run (V4)
+
+When you launch the GUI for the first time:
+
+```bash
+python main.py
+```
+
+**V4 First-Run Behavior**:
+
+1. **Auto-creates configuration**:
+   - `config/trading_config.json` (from template)
+   - Initial version: "4.0"
+   - Default mode: "dryrun" (safe for testing)
+
+2. **Auto-creates position files**:
+   - `data/positions_live.json` (empty)
+   - `data/positions_dryrun.json` (empty)
+
+3. **Auto-creates trade history**:
+   - `data/trade_history.json` (empty)
+
+4. **GUI shows**:
+   - Main window with empty group list
+   - "No groups configured" message
+   - "그룹 관리" (Group Management) button ready
+
+**Verify V4 Files Created**:
+
+```bash
+# Check configuration
+cat config/trading_config.json | head -n 10
+
+# Expected output:
+# {
+#   "version": "4.0",
+#   "mode": "dryrun",
+#   "groups": {},
+#   ...
+# }
+
+# Check position files exist (should be empty initially)
+ls -lh data/positions_live.json data/positions_dryrun.json
+
+# Check trade history exists
+ls -lh data/trade_history.json
+```
+
+**V4 Installation Complete** ✅
+
+**Next Steps**:
+1. **Configure API keys**: See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) "API Keys Setup"
+2. **Create first group**: GUI → "그룹 관리" button → "그룹 추가"
+3. **Telegram setup** (recommended): See [docs/TELEGRAM_설정_가이드.md](docs/TELEGRAM_설정_가이드.md)
+
 ---
 
 ## Troubleshooting
@@ -393,10 +464,13 @@ pip install -r requirements.txt --force-reinstall
 
 After successful installation:
 
-1. **Configure Settings**: See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md)
-2. **Set up Telegram**: See [docs/TELEGRAM_설정_가이드.md](docs/TELEGRAM_설정_가이드.md)
-3. **Configure Strategy**: See README.md "사용 방법" section
-4. **Start Paper Trading**: Test with Dry Run mode first!
+1. **Configure API Keys**: See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) - Set up Upbit API access
+2. **Create Your First Group**: Launch GUI (`python main.py`) → Click "그룹 관리" → "그룹 추가"
+   - Add coins (e.g., KRW-BTC, KRW-ETH)
+   - Choose buy mode: Auto (preset-based) or Manual
+   - Configure DCA/Profit/Loss levels
+3. **Set up Telegram** (recommended): See [docs/TELEGRAM_설정_가이드.md](docs/TELEGRAM_설정_가이드.md)
+4. **Start Paper Trading**: Test in Dry-run mode for at least 1 week before going live!
 
 ---
 
