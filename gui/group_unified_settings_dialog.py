@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
     QPushButton, QWidget, QLabel, QMessageBox
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 import logging
 
@@ -30,6 +30,8 @@ class GroupUnifiedSettingsDialog(QDialog):
 
     저장 버튼 1번으로 모든 설정 반영
     """
+
+    settings_saved = Signal()
 
     def __init__(self, group_id: str, parent=None):
         """
@@ -257,6 +259,9 @@ class GroupUnifiedSettingsDialog(QDialog):
                 f"💰 익절: {len(profit_levels)}개 레벨\n"
                 f"🛑 손절: {len(loss_levels)}개 레벨"
             )
+
+            # 설정 저장 시그널 발생
+            self.settings_saved.emit()
 
             self.accept()
 

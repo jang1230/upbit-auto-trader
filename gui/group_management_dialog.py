@@ -722,14 +722,10 @@ class GroupManagementDialog(QDialog):
             return
 
         try:
-            from gui.group_settings_dialog import GroupSettingsDialog
+            from gui.group_unified_settings_dialog import GroupUnifiedSettingsDialog
 
-            group_name = self.group_name_edit.text()
-
-            dialog = GroupSettingsDialog(
-                self.config_manager,
-                self.selected_group_id,
-                group_name,
+            dialog = GroupUnifiedSettingsDialog(
+                group_id=self.selected_group_id,
                 parent=self
             )
 
