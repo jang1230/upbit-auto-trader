@@ -4,16 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Upbit DCA Trader** is an automated cryptocurrency trading bot for the Upbit exchange featuring:
-- Multiple trading strategies (Bollinger Bands, RSI, MACD, Hybrid strategies)
-- DCA (Dollar Cost Averaging) with risk management
-- Real-time trading via WebSocket + REST API
-- Telegram notifications
-- Comprehensive backtesting framework
-- GUI for configuration and monitoring
+**Upbit DCA Trader V4** - Group-based automated cryptocurrency trading bot
 
 **Language**: Python 3.8+
 **Primary Use**: Korean cryptocurrency market (KRW trading pairs)
+**Architecture**: V4 (Group-based multi-strategy system)
+
+**V4 Key Features**:
+- **Group-based configuration** - Unlimited independent trading groups
+- **Separate Live/Dry-run** position files
+- **Preset-based auto-buy** strategies (Conservative/Balanced/Aggressive)
+- **Daily loss limit** with 09:00 auto-reset
+- **Multi-level DCA/Profit/Loss** - Independent settings per group
+- **Real-time trading** - WebSocket + REST API
+- **Telegram notifications**
+- **PySide6 GUI** for configuration and monitoring
+
+**V4 Changes from V3**:
+- Trading modes: 2 modes (V3) → Unlimited groups (V4)
+- Configuration: 2 files (V3) → 1 unified file (V4)
+- Coin management: Global (V3) → Group-level (V4)
+- Position tracking: 1 file (V3) → 2 files live/dryrun (V4)
 
 ---
 
@@ -22,8 +33,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Running the Application
 
 ```bash
-# Launch GUI (main application)
+# Launch V4 GUI (main application)
 python main.py
+
+# Check V4 configuration
+cat config/trading_config.json
+
+# Check V4 positions
+cat data/positions_live.json      # Live mode
+cat data/positions_dryrun.json    # Dry-run mode
+
+# Check trade history
+cat data/trade_history.json
 
 # Run backtesting
 python backtest/run_backtest.py
@@ -217,11 +238,13 @@ print(f"Win Rate: {result.win_rate}%")
 
 ---
 
-## V4 Architecture (In Development)
+## V4 Architecture
 
 ### Overview
 
 V4 introduces a group-based trading system, replacing V3's 2-mode limitation (semi-auto/full-auto) with unlimited independent trading groups.
+
+**Status**: ✅ Phase 1-2 Complete (100%)
 
 ### Key Architectural Changes
 
@@ -271,7 +294,7 @@ V4 introduces a group-based trading system, replacing V3's 2-mode limitation (se
      stats = history_mgr.calculate_statistics(group_id)
      ```
 
-**Phase 2: Backend Core Components (80% Complete)**
+**Phase 2: Backend Core Components (100% Complete)**
 
 4. **GroupManager** (`core/group_manager.py`, 578 lines)
    - Group lifecycle: `create_group()`, `delete_group()`, `update_group_settings()`
@@ -319,13 +342,20 @@ V4 introduces a group-based trading system, replacing V3's 2-mode limitation (se
      indicators = strategy.get_indicator_values(candles)
      ```
 
-**Phase 2: Pending**
-
-7. **V4TradingEngine** (Not yet implemented)
-   - Will integrate all V4 components
+7. **V4TradingEngine** (`core/v4_trading_engine.py`, 930 lines)
+   - Integrates all V4 components
    - Group-level trading loops
-   - Real-time WebSocket integration
+   - Position monitoring (60-second polling)
+   - Auto-buy strategy execution
+   - DCA/Profit/Loss trigger logic
+   - Daily loss tracker integration
    - Scheduled tasks (daily reset, snapshot creation)
+   - Interface:
+     ```python
+     engine = V4TradingEngine(config, upbit_api, telegram_bot)
+     engine.start()  # Start trading
+     engine.stop()   # Stop trading
+     ```
 
 ### V4 Data Flow
 
@@ -778,9 +808,9 @@ Created 5 new files for V4 data management:
    - Purpose: Template for new V4 configurations
    - Contains: Example group with all settings
 
-**Phase 2: Backend Core (80% Complete)**
+**Phase 2: Backend Core (100% Complete)** ✅
 
-Created 3 new files and extended 2 existing files:
+Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 
 6. **core/group_manager.py** (578 lines)
    - Purpose: Group lifecycle and coin management
