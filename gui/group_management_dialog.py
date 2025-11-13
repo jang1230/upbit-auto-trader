@@ -551,12 +551,9 @@ class GroupManagementDialog(QDialog):
         if checked_count == 0:
             display_text = "선택된 코인 없음"
         else:
-            # 최대 3개까지만 표시
-            coin_symbols = [coin.replace('KRW-', '') for coin in selected_coins[:3]]
+            # 모든 코인 표시
+            coin_symbols = [coin.replace('KRW-', '') for coin in selected_coins]
             coin_str = ", ".join(coin_symbols)
-
-            if checked_count > 3:
-                coin_str += f", ... 외 {checked_count - 3}개"
 
             display_text = f"{checked_count}개 선택됨: {coin_str}"
 
