@@ -71,6 +71,12 @@ class ConfigManager:
         except json.JSONDecodeError as e:
             raise ConfigValidationError(f"JSON 파싱 오류: {e}")
 
+        # 'strategy' 필드 자동 마이그레이션 (V4 내부 업데이트)
+        migrated = self._migrate_strategy_field(self.config)
+        if migrated:
+            print("🔄 설정 업데이트: 'strategy' 필드 추가됨")
+            self.save_config(self.config)
+
         # 스키마 검증
         self.validate_config(self.config)
 
@@ -312,6 +318,7 @@ class ConfigManager:
                         "mode": "auto",
                         "auto_config": {
                             "enabled": True,
+                            "strategy": "v4_auto_buy",  # 기본 전략
                             "investment_style": "balanced",  # 기본값
                             "candle_unit": "60",
                             "indicators": {
@@ -398,6 +405,45 @@ class ConfigManager:
                 backup_path = os.path.join(self.V3_BACKUP_DIR, backup_name)
                 shutil.copy2(v3_file, backup_path)
                 print(f"  📦 백업 완료: {v3_file} → {backup_path}")
+
+    def _migrate_strategy_field(self, config: Dict[str, Any]) -> bool:
+        """
+        'strategy' 필드 자동 마이그레이션 (V4 내부 업데이트)
+
+        기존 V4 config에 'strategy' 필드가 없는 경우 자동으로 추가합니다.
+
+        Args:
+            config: 설정 딕셔너리
+
+        Returns:
+            bool: 마이그레이션 수행 여부
+        """
+        migrated_groups = []
+
+        for group_id, group in config.get('groups', {}).items():
+            # buy_settings가 없으면 skip
+            if 'buy_settings' not in group:
+                continue
+
+            # auto_config가 없으면 skip (manual 모드)
+            if 'auto_config' not in group['buy_settings']:
+                continue
+
+            auto_config = group['buy_settings']['auto_config']
+
+            # 'strategy' 필드가 없거나 잘못된 값인 경우
+            if 'strategy' not in auto_config:
+                auto_config['strategy'] = 'v4_auto_buy'
+                migrated_groups.append(group_id)
+                print(f"  ✅ 그룹 '{group_id}': strategy → v4_auto_buy")
+            elif auto_config['strategy'] not in ['v4_auto_buy', 'expert']:
+                # 잘못된 값 수정
+                old_value = auto_config['strategy']
+                auto_config['strategy'] = 'v4_auto_buy'
+                migrated_groups.append(group_id)
+                print(f"  ⚠️ 그룹 '{group_id}': 잘못된 strategy '{old_value}' → v4_auto_buy")
+
+        return len(migrated_groups) > 0
 
     def get_group_by_id(self, group_id: str) -> Optional[Dict[str, Any]]:
         """그룹 ID로 그룹 조회"""
