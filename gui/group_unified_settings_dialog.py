@@ -14,6 +14,7 @@ import logging
 
 from core.config_manager import ConfigManager
 from gui.auto_buy_settings_dialog_v2 import AutoBuySettingsDialogV2
+from gui.level_settings_dialog import LevelSettingsDialog
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,9 @@ class GroupUnifiedSettingsDialog(QDialog):
         self.tab1_widget = self._create_tab1_autobuy()
         self.tab_widget.addTab(self.tab1_widget, "📊 자동매수 전략")
 
-        # 탭2: DCA 레벨
-        self.tab2_widget = self._create_tab2_dca()
-        self.tab_widget.addTab(self.tab2_widget, "📈 DCA 레벨")
-
-        # 탭3: 익절/손절
-        self.tab3_widget = self._create_tab3_profit_loss()
-        self.tab_widget.addTab(self.tab3_widget, "💰 익절/손절")
+        # 탭2: DCA/익절/손절 (LevelSettingsDialog 임베딩)
+        self.tab2_widget = self._create_tab2_levels()
+        self.tab_widget.addTab(self.tab2_widget, "📈 DCA / 익절 / 손절")
 
         layout.addWidget(self.tab_widget)
 
@@ -131,47 +128,35 @@ class GroupUnifiedSettingsDialog(QDialog):
 
         return autobuy_dialog
 
-    def _create_tab2_dca(self) -> QWidget:
-        """탭2: DCA 레벨 (임시 빈 위젯)"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+    def _create_tab2_levels(self) -> QWidget:
+        """탭2: DCA/익절/손절 레벨 (LevelSettingsDialog 임베딩)"""
+        # LevelSettingsDialog를 위젯으로 사용
+        level_dialog = LevelSettingsDialog(
+            config_manager=self.config_manager,
+            group_id=self.group_id,
+            group_name=self.group_config.get('name', self.group_id),
+            parent=self
+        )
 
-        label = QLabel("📈 DCA 레벨 설정")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
-        label.setAlignment(Qt.AlignCenter)
+        # 다이얼로그를 위젯처럼 사용하기 위해 윈도우 플래그 제거
+        level_dialog.setWindowFlags(Qt.Widget)
 
-        placeholder = QLabel("(Step 3에서 구현 예정)")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: gray;")
+        # 내부 버튼 레이아웃 숨기기
+        main_layout = level_dialog.layout()
+        if main_layout and main_layout.count() > 0:
+            # 마지막 아이템이 버튼 레이아웃
+            last_item = main_layout.itemAt(main_layout.count() - 1)
+            if last_item and last_item.layout():
+                button_layout = last_item.layout()
+                for i in range(button_layout.count()):
+                    widget = button_layout.itemAt(i).widget()
+                    if widget:
+                        widget.setVisible(False)
 
-        layout.addStretch()
-        layout.addWidget(label)
-        layout.addSpacing(20)
-        layout.addWidget(placeholder)
-        layout.addStretch()
+        # 참조 저장 (나중에 get_config() 호출용)
+        self.level_widget = level_dialog
 
-        return widget
-
-    def _create_tab3_profit_loss(self) -> QWidget:
-        """탭3: 익절/손절 (임시 빈 위젯)"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        label = QLabel("💰 익절/손절 설정")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
-        label.setAlignment(Qt.AlignCenter)
-
-        placeholder = QLabel("(Step 4에서 구현 예정)")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: gray;")
-
-        layout.addStretch()
-        layout.addWidget(label)
-        layout.addSpacing(20)
-        layout.addWidget(placeholder)
-        layout.addStretch()
-
-        return widget
+        return level_dialog
 
     def _create_button_layout(self) -> QHBoxLayout:
         """하단 버튼 레이아웃"""
@@ -214,11 +199,13 @@ class GroupUnifiedSettingsDialog(QDialog):
             autobuy_config = self.autobuy_widget.get_config()
             logger.info(f"  📊 자동매수 설정: {autobuy_config.get('strategy')}")
 
-            # TODO: Step 3에서 구현
-            # - 탭2: DCA 설정 수집
-
-            # TODO: Step 4에서 구현
-            # - 탭3: 익절/손절 설정 수집
+            # 탭2: DCA/익절/손절 설정 수집
+            dca_levels = self.level_widget._get_dca_levels()
+            profit_levels = self.level_widget._get_profit_levels()
+            loss_levels = self.level_widget._get_loss_levels()
+            logger.info(f"  📈 DCA 레벨: {len(dca_levels)}개")
+            logger.info(f"  💰 익절 레벨: {len(profit_levels)}개")
+            logger.info(f"  🛑 손절 레벨: {len(loss_levels)}개")
 
             # TODO: Step 5에서 구현
             # - ConfigManager.update_group() 호출
@@ -228,7 +215,8 @@ class GroupUnifiedSettingsDialog(QDialog):
                 "저장 완료",
                 f"그룹 '{self.group_config.get('name')}' 설정이 저장되었습니다.\n"
                 f"자동매수: {autobuy_config.get('strategy')}\n"
-                f"(Step 3-5에서 전체 저장 로직 구현 예정)"
+                f"DCA: {len(dca_levels)}개, 익절: {len(profit_levels)}개, 손절: {len(loss_levels)}개\n"
+                f"(Step 5에서 실제 파일 저장 구현 예정)"
             )
 
             self.accept()
