@@ -6,7 +6,8 @@ V4 전략과 Expert 전략을 라디오 버튼으로 선택
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QPushButton, QRadioButton, QStackedWidget, QLabel, QMessageBox
+    QPushButton, QRadioButton, QStackedWidget, QLabel, QMessageBox,
+    QScrollArea
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -38,7 +39,8 @@ class AutoBuySettingsDialogV2(QDialog):
 
         self.setWindowTitle("⚙️ 자동매수 전략 설정")
         self.setMinimumWidth(750)
-        self.setMinimumHeight(700)
+        self.setMinimumHeight(600)
+        self.setMaximumHeight(650)
 
         self._init_ui()
         self._load_config()
@@ -131,7 +133,7 @@ class AutoBuySettingsDialogV2(QDialog):
         self.v4_radio.toggled.connect(self._on_strategy_changed)
         self.expert_radio.toggled.connect(self._on_strategy_changed)
 
-        # === 2. 설정 폼 영역 (스택 위젯) ===
+        # === 2. 설정 폼 영역 (스택 위젯 + 스크롤) ===
         self.stack_widget = QStackedWidget()
 
         # V4 위젯 (index 0)
@@ -142,7 +144,15 @@ class AutoBuySettingsDialogV2(QDialog):
         self.expert_widget = self._create_expert_widget()
         self.stack_widget.addWidget(self.expert_widget)
 
-        main_layout.addWidget(self.stack_widget, 1)  # stretch factor = 1
+        # 스크롤 영역으로 감싸기
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(self.stack_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)  # 테두리 제거
+
+        main_layout.addWidget(scroll_area, 1)  # stretch factor = 1
 
         # === 3. 버튼 영역 ===
         button_layout = self._create_button_layout()
