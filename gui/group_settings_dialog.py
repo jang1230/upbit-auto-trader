@@ -343,12 +343,19 @@ class GroupSettingsDialog(QDialog):
                 buy_amount = self.auto_config.get("buy_amount_krw", 50000)
                 self.buy_amount_input.setValue(buy_amount)
 
-                logger.info(f"✅ 자동매수 설정 업데이트됨: {self.auto_config.get('investment_style')}")
+                # 전략에 따라 다른 정보 표시
+                strategy = self.auto_config.get("strategy", "v4_auto_buy")
+                if strategy == "expert":
+                    strategy_info = f"Expert - {self.auto_config.get('expert_profile')}"
+                else:
+                    strategy_info = f"V4 - {self.auto_config.get('investment_style')}"
+
+                logger.info(f"✅ 자동매수 설정 업데이트됨: {strategy_info}")
                 QMessageBox.information(
                     self,
                     "설정 완료",
                     f"자동매수 설정이 업데이트되었습니다.\n"
-                    f"투자 스타일: {self.auto_config.get('investment_style')}"
+                    f"전략: {strategy_info}"
                 )
 
         except Exception as e:
