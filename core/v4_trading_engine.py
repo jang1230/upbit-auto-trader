@@ -1378,9 +1378,11 @@ class V4TradingEngine:
 
                 # pending_order 정리 (trade에서 이미 제거했으면 없음)
                 position = self.position_manager.get_position(symbol)
-                if position and position.get('pending_order', {}).get('order_id') == order_uuid:
-                    self.position_manager.update_position(symbol, {'pending_order': None})
-                    logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
+                if position:
+                    pending_order = position.get('pending_order')
+                    if pending_order and pending_order.get('order_id') == order_uuid:
+                        self.position_manager.update_position(symbol, {'pending_order': None})
+                        logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
 
                 return
 
