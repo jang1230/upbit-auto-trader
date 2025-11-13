@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from gui.auto_buy_settings_dialog import AutoBuySettingsDialog
+from gui.auto_buy_settings_dialog_v2 import AutoBuySettingsDialogV2
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +334,7 @@ class GroupSettingsDialog(QDialog):
                 }
 
             # 다이얼로그 열기
-            dialog = AutoBuySettingsDialog(config=self.auto_config.copy(), parent=self)
+            dialog = AutoBuySettingsDialogV2(config=self.auto_config.copy(), parent=self)
             if dialog.exec() == QDialog.Accepted:
                 # 저장된 설정 적용
                 self.auto_config = dialog.get_config()
