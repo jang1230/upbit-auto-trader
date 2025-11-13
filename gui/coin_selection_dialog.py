@@ -309,9 +309,7 @@ class CoinSelectionDialog(QDialog):
             return
 
         # 확인 메시지
-        coins_str = ", ".join([symbol.replace('KRW-', '') for symbol in self.selected_coins[:10]])
-        if len(self.selected_coins) > 10:
-            coins_str += f", ... 외 {len(self.selected_coins) - 10}개"
+        coins_str = ", ".join([symbol.replace('KRW-', '') for symbol in self.selected_coins])
 
         reply = QMessageBox.question(
             self,
