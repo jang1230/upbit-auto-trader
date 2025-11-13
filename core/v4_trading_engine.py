@@ -1310,7 +1310,8 @@ class V4TradingEngine:
                             symbol=symbol,
                             dca_price=dca_price,
                             dca_amount=dca_amount,
-                            dca_value_krw=dca_value_krw
+                            dca_krw=dca_value_krw,
+                            level=level_index
                         )
 
                         logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 부분 체결 완료 → add_dca() 호출")
@@ -1395,7 +1396,8 @@ class V4TradingEngine:
                     symbol=symbol,
                     dca_price=dca_price,
                     dca_amount=dca_amount,
-                    dca_value_krw=dca_value_krw
+                    dca_krw=dca_value_krw,
+                    level=level_index
                 )
 
                 logger.info(f"   📝 {symbol} DCA 레벨 {level_index} 체결 완료 → add_dca() 호출 완료")
