@@ -1,835 +1,476 @@
-# Upbit DCA Trader
+# Upbit DCA Trader V4
 
 > **암호화폐 자동 매매 트레이딩 봇**
-> 단타/중장기 전략 + DCA 리스크 관리 + 실시간 알림
+> 그룹 기반 멀티 전략 + DCA 리스크 관리 + 실시간 알림
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-V4%20Phase%201--2%20Complete%20(80%25)-orange.svg)](docs/DESIGN_V4_COMPLETE.md)
-[![V3 Status](https://img.shields.io/badge/V3-Phase%204%20Complete-success.svg)](docs/PHASE_4_완료_보고서.md)
+[![V4 Status](https://img.shields.io/badge/V4-Phase%202%20Complete%20(100%25)-success.svg)](docs/DESIGN_V4_COMPLETE.md)
 
 ---
 
-## 🚀 V4 Upgrade in Progress
+## 🎯 핵심 특징
 
-**현재 작업 중**: V4 무제한 그룹 기반 트레이딩 시스템
+### ✨ V4 그룹 기반 시스템
 
-### V4 새로운 기능 (개발 중)
-- ✅ **Phase 1 완료 (100%)**: 데이터 구조 및 스키마
-  - 통합 설정 관리 (`ConfigManager`)
-  - 포지션 관리 시스템 (`PositionManager`)
-  - 거래 이력 추적 (`TradeHistoryManager`)
+- **무제한 그룹 생성** - 그룹별로 다른 전략/설정 적용
+- **3가지 매수 방식**
+  - 🤖 **자동매수**: Conservative/Balanced/Aggressive 프리셋
+  - 👤 **수동매수**: 외부 거래 감지 → 자동 포지션 생성
+  - 👁️ **관찰 모드**: 포지션 추적만, 거래 안 함
 
-- 🔄 **Phase 2 진행 중 (80%)**: 백엔드 핵심 컴포넌트
-  - ✅ 그룹 관리자 (`GroupManager`)
-  - ✅ 일일 손실 추적기 (`DailyLossTracker`)
-  - ✅ V4 자동매수 전략 (`V4AutoBuyStrategy`)
-  - ✅ Upbit 실시간 동기화
-  - ⏳ V4 트레이딩 엔진 (구현 예정)
+- **그룹별 독립 설정**
+  - 📊 DCA 레벨 (하락 시 분할 매수)
+  - 📈 익절 레벨 (수익 실현 자동화)
+  - 📉 손절 레벨 (손실 제한)
 
-- ⏳ **Phase 3 대기 중**: GUI 리팩토링
-- ⏳ **Phase 4 대기 중**: 통합 테스트
-- ⏳ **Phase 5 대기 중**: V3→V4 마이그레이션
+- **일일 손실 제한** (09:00 자동 리셋)
+- **실시간 모니터링** - PySide6 GUI + Telegram 알림
+- **Live/Dry-run 분리** - 테스트와 실거래 완전 분리
 
-### V4 vs V3 주요 차이점
+---
 
-| 기능 | V3 | V4 |
-|------|----|----|
-| 트레이딩 모드 | 2개 (반자동/완전자동) | 무제한 그룹 |
-| 코인 관리 | 전역 설정 | 그룹별 독립 관리 |
-| 매수 전략 | 단일 전략 | 그룹별 프리셋 (Conservative/Balanced/Aggressive) |
-| DCA 설정 | 전역 설정 | 그룹별 독립 설정 |
-| 익절/손절 | 단일 레벨 | 다단계 레벨 지원 |
-| 일일 손실 한도 | 없음 | 09:00 기준 스냅샷 추적 |
+## ⚡ 빠른 시작
 
-📖 **V4 상세 문서**: [DESIGN_V4_COMPLETE.md](docs/DESIGN_V4_COMPLETE.md) (172KB, 18개 섹션)
+### 1. 설치
+
+```bash
+git clone https://github.com/jang1230/upbit-auto-trader.git
+cd upbit-auto-trader
+pip install -r requirements.txt
+```
+
+### 2. API 키 설정
+
+- Upbit API 키 발급 ([https://upbit.com/mypage/open_api_management](https://upbit.com/mypage/open_api_management))
+- GUI 실행 후 설정에서 API 키 입력
+
+### 3. 첫 그룹 생성
+
+1. **GUI 실행**: `python main.py`
+2. **그룹 관리 버튼** 클릭 (상단)
+3. **그룹 추가** → 이름 입력 (예: "비트코인 단타")
+4. **코인 선택** (예: KRW-BTC, KRW-ETH)
+5. **매수 방식 설정**:
+   - 자동매수 → **Balanced** 프리셋 선택
+   - 매수 금액: 50,000원
+6. **DCA/익절/손절 설정**:
+   - DCA: -3%, -5%, -7% (각 100%)
+   - 익절: +5% (50%), +10% (50%)
+   - 손절: -15% (100%)
+
+### 4. 시작
+
+- **Dry-run 모드**로 먼저 테스트 (최소 1주일)
+- 정상 동작 확인 후 **Live 모드** 전환
 
 ---
 
 ## 📋 목차
 
 - [소개](#소개)
-- [주요 기능](#주요-기능)
+- [V4 새로운 기능](#v4-새로운-기능)
 - [시스템 구조](#시스템-구조)
 - [설치 및 설정](#설치-및-설정)
 - [사용 방법](#사용-방법)
-- [프로젝트 히스토리](#프로젝트-히스토리)
 - [문서](#문서)
-- [로드맵](#로드맵)
+- [FAQ](#faq)
 - [주의사항](#주의사항)
 
 ---
 
 ## 소개
 
-**Upbit DCA Trader**는 업비트(Upbit) 거래소에서 암호화폐를 자동으로 매매하는 트레이딩 봇입니다.
+**Upbit DCA Trader V4**는 업비트(Upbit) 거래소에서 암호화폐를 자동으로 매매하는 트레이딩 봇입니다.
 
-### 핵심 특징
+### V4의 핵심 개선사항
 
-✅ **두 가지 트레이딩 전략**
-- 🚀 **ScalpingStrategy** (단타 전략, 현재 운영 중)
-  - 시가총액 상위 10개 코인 자동 모니터링
-  - MACD 골든크로스 + 거래량 급증 감지
-  - 하루 20~30회 매수 타점 (10개 코인 전체)
-  - 15분봉 기준 빠른 진입/청산
+V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한 그룹** 기반으로 전면 재설계되었습니다.
 
-- 📊 **FilteredBBStrategy** (필터링된 볼린저 밴드, 백테스팅 중)
-  - 중장기 투자용 전략 (향후 사용 예정)
-  - 코인별 최적 파라미터 (BTC/ETH/XRP)
-  - 1년 백테스트 +29.13% 수익률
-  - 안정적인 수익 추구
+| 기능 | V3 | V4 |
+|------|----|----|
+| 트레이딩 모드 | 2개 (반자동/완전자동) | **무제한 그룹** |
+| 코인 관리 | 전역 설정 | **그룹별 독립 관리** |
+| 매수 전략 | 단일 전략 | **그룹별 프리셋** (Conservative/Balanced/Aggressive) |
+| DCA 설정 | 전역 설정 | **그룹별 독립 설정** |
+| 익절/손절 | 단일 레벨 | **다단계 레벨 지원** |
+| 일일 손실 한도 | 없음 | **09:00 기준 스냅샷 추적** |
+| 포지션 파일 | 1개 | **2개 (live/dryrun 분리)** |
 
-✅ **리스크 관리**
-- DCA (Dollar Cost Averaging) 시스템
-- 익절: +10% (사용자 설정 가능)
-- 손절: -10% (사용자 설정 가능)
-- 일일 손실 한도: -10%
-
-✅ **실시간 알림**
-- 텔레그램 봇 연동
-- 매수/매도 신호 알림
-- 주문 체결 알림
-- 리스크 이벤트 알림
-
-✅ **안전한 테스트**
-- Dry Run 모드 (페이퍼 트레이딩)
-- 실거래 전 충분한 검증 기간
-- 단계별 리스크 관리
+📖 **V4 상세 문서**: [DESIGN_V4_COMPLETE.md](docs/DESIGN_V4_COMPLETE.md) (172KB, 18개 섹션)
 
 ---
 
-## 주요 기능
+## V4 새로운 기능
 
-### 1. 실시간 트레이딩
-- ⚡ WebSocket 실시간 시세 업데이트 (1초마다)
-- 💰 자동 잔고 갱신 (주문 체결 시)
-- 🤖 반자동 모드: 수동 매수 + 자동 DCA/익절/손절 관리
-- 🎯 완전 자동 모드: 자동 매수 신호 감지 + 포지션 관리
-- 자동 매수/매도 주문 실행
-- 리스크 관리 자동 청산
+### 1. 그룹 기반 트레이딩
 
-### 2. 전략 시스템
+**이제 원하는 만큼 그룹을 만들 수 있습니다!**
 
-#### 🚀 ScalpingStrategy (단타 전략, 현재 운영 중)
-
-**매수 타이밍** (자동 감지):
-- **MACD 골든크로스**: MACD선이 Signal선을 상향 돌파
-- **거래량 급증**: 평균 거래량 대비 2.0배 이상
-- **두 조건 모두 만족 시 자동 매수**
-
-**모니터링 코인** (시가총액 상위 10개):
 ```
-1. KRW-BTC   (비트코인)
-2. KRW-ETH   (이더리움)
-3. KRW-USDT  (테더)
-4. KRW-SOL   (솔라나)
-5. KRW-LINK  (체인링크)
-6. KRW-USDC  (유에스디코인)
-7. KRW-DOGE  (도지코인)
-8. KRW-ADA   (에이다)
-9. KRW-TRX   (트론)
-10. KRW-XRP  (엑스알피)
+그룹 1: "비트코인 단타"
+  - 코인: BTC, ETH
+  - 매수: Aggressive (15분봉)
+  - DCA: -2%, -4%, -6%
+  - 익절: +3%, +7%
+
+그룹 2: "알트코인 중장기"
+  - 코인: XRP, ADA, DOT
+  - 매수: Conservative (4시간봉)
+  - DCA: -5%, -10%, -15%
+  - 익절: +10%, +20%
+
+그룹 3: "관찰 전용"
+  - 코인: DOGE, SHIB
+  - 매수: 관찰 모드 (거래 안 함)
 ```
 
-**전략 특징**:
-- **타임프레임**: 15분봉
-- **매수 빈도**: 하루 20~30회 (10개 코인 전체)
-- **코인당 평균**: 하루 2~3회 매수
-- **모든 코인 동일 파라미터**: MACD(12,26,9), 거래량 2배
+### 2. 자동매수 프리셋
 
-**매도 타이밍** (DCA 자동 관리):
-⚠️ **중요**: 전략의 매도 신호는 사용하지 않습니다!
-- 매도는 **SemiAutoManager**의 DCA 익절/손절로 처리
-- 기본값: 익절 +10%, 손절 -10% (설정 가능)
-- 다단계 DCA 추가 매수 지원
+#### 🐢 Conservative (보수적)
+- **캔들**: 4시간봉
+- **RSI**: < 25 (강한 과매도)
+- **Volume**: > 2.5x 평균
+- **특징**: 안정적 진입, 장기 투자
 
----
+#### ⚖️ Balanced (균형) - 권장
+- **캔들**: 1시간봉
+- **RSI**: < 30 (과매도)
+- **Volume**: > 2.0x 평균
+- **특징**: 균형잡힌 트레이딩
 
-#### 📊 FilteredBBStrategy (필터링된 볼린저 밴드, 백테스팅 중)
+#### 🚀 Aggressive (공격적)
+- **캔들**: 15분봉
+- **RSI**: < 35 (약한 과매도)
+- **Volume**: > 1.5x 평균
+- **특징**: 빠른 진입, 단타용
 
-**⏳ 상태**: 현재 백테스팅 및 최적화 진행 중
-**🎯 목적**: 중장기 투자용 전략 (향후 사용 예정)
+### 3. 다단계 DCA/익절/손절
 
-**매수 타이밍**:
-- 가격 < 볼린저 밴드 하단 (과매도 구간)
-- 가격 < MA240 (하락 추세 확인)
-- ATR >= 최소 변동성 기준
-- 마지막 거래 후 최소 대기 시간 경과
+**각 그룹마다 독립적인 레벨 설정 가능**:
 
-**대상 코인** (코인별 최적 파라미터):
-- BTC: std=2.0, 대기=6시간, atr=0.3
-- ETH: std=2.5, 대기=10시간, atr=0.4
-- XRP: std=2.0, 대기=6시간, atr=0.3
-
-**1년 백테스트 결과** (2024.01~2024.12):
+```json
+{
+  "dca_levels": [
+    {"price_ratio": -3.0, "quantity_ratio": 100},
+    {"price_ratio": -5.0, "quantity_ratio": 100},
+    {"price_ratio": -7.0, "quantity_ratio": 100}
+  ],
+  "profit_levels": [
+    {"price_ratio": 5.0, "quantity_ratio": 50},
+    {"price_ratio": 10.0, "quantity_ratio": 50}
+  ],
+  "loss_levels": [
+    {"price_ratio": -15.0, "quantity_ratio": 100}
+  ]
+}
 ```
-BTC: +8.05%  (24회 거래, 승률 58.3%)
-ETH: +64.92% (26회 거래, 승률 38.5%) 🔥
-XRP: +14.42% (84회 거래, 승률 52.4%)
 
-포트폴리오 전체 (600만원 투자):
-최종 자산: 7,747,838원
-수익률: +29.13% ✅
-```
+### 4. 일일 손실 제한
 
-**특징**:
-- 안정적인 중장기 수익 추구
-- 거래 빈도 낮음 (코인당 월 2~7회)
-- 높은 승률 (평균 50% 이상)
-
-### 3. 리스크 관리
-- **스톱로스**: -5% 자동 청산
-- **타겟 프라이스**: +10% 자동 청산
-- **일일 손실 한도**: -10% 트레이딩 중단
-- **트레일링 스톱**: 선택적 활성화
-
-### 4. 텔레그램 알림
-- 📊 매수/매도 신호 알림
-- ✅ 주문 체결 결과 알림
-- 🚨 리스크 관리 이벤트 알림
-- 📈 일일 성과 요약
-- 🤖 명령어: `/status`, `/balance`, `/stop`, `/start`, `/help`
-
-### 5. 페이퍼 트레이딩
-- Dry Run 모드 (실제 주문 없음)
-- 실시간 시장 데이터 사용
-- 완벽한 시뮬레이션 환경
+- **매일 09:00 자동 리셋**
+- **손실률 도달 시**:
+  - `alert`: 텔레그램 알림만
+  - `liquidate`: 전량 청산
+- **계산 방식**:
+  - `daily_only`: 09:00 기준 손실률 (권장)
+  - `total_account`: 초기 자본 대비 손실률
 
 ---
 
 ## 시스템 구조
 
+### V4 아키텍처
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│                 Upbit DCA Trader                         │
-├─────────────────────────────────────────────────────────┤
-│                                                           │
-│  WebSocket → Buffer → Strategy → Risk → Order → Telegram│
-│     ↓          ↓         ↓         ↓       ↓        ↓   │
-│  실시간      캔들     BB전략    리스크   주문실행  알림   │
-│  시세수신    버퍼    신호생성   체크    (REST API)       │
-│                                                           │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────┐
+│   MainWindow    │ ← 사용자 GUI
+└────────┬────────┘
+         │
+┌────────▼────────────────────────────┐
+│   V4TradingEngine                   │
+│  - GroupManager                     │
+│  - ConfigManager (trading_config)   │
+│  - PositionManager (live/dryrun)    │
+│  - TradeHistoryManager              │
+│  - DailyLossTracker                 │
+└────────┬────────────────────────────┘
+         │
+┌────────▼───────┐  ┌─────────────┐  ┌──────────────┐
+│ V4AutoBuy      │  │ WebSocket   │  │ Upbit API    │
+│ Strategy       │  │ (Real-time) │  │ (REST)       │
+└────────────────┘  └─────────────┘  └──────────────┘
 ```
 
-### 핵심 컴포넌트
+### 핵심 컴포넌트 (V4)
 
-1. **WebSocket** (`core/upbit_websocket.py`)
-   - 업비트 실시간 시세 수신
-   - 1분봉 캔들 데이터 폴링
-   - 자동 재연결 (지수 백오프)
+**1. V4TradingEngine** (`core/v4_trading_engine.py`, 930 lines)
+- Main orchestrator for V4 system
+- Group-level trading loops
+- Position monitoring (60-second polling)
+- Auto-buy strategy execution
+- DCA/Profit/Loss trigger logic
+- Daily loss tracker integration
 
-2. **Data Buffer** (`core/data_buffer.py`)
-   - 캔들 데이터 버퍼링 (최대 200개)
-   - DataFrame 기반 관리
-   - 전략 실행 준비 상태 체크
+**2. GroupManager** (`core/group_manager.py`, 578 lines)
+- Group lifecycle: create, delete, update
+- Coin management: add, remove, move between groups
+- Cross-group validation (prevent coin duplication)
 
-3. **Strategy** (`core/strategies.py`)
-   - 볼린저 밴드 전략 구현
-   - 매수/매도 신호 생성
-   - Phase 2.5 검증 완료
+**3. ConfigManager** (`core/config_manager.py`, 512 lines)
+- Unified configuration management (`trading_config.json`)
+- JSON Schema validation
+- V3→V4 automatic migration
 
-4. **Risk Manager** (`core/risk_manager.py`)
-   - 스톱로스, 타겟 프라이스
-   - 일일 손실 한도
-   - 트레일링 스톱 (선택)
+**4. PositionManager** (`core/position_manager.py`, 656 lines)
+- Separate files: `positions_live.json`, `positions_dryrun.json`
+- CRUD operations: create, update, close positions
+- DCA management: `add_dca()`, track `dca_count`
+- Upbit synchronization: `sync_with_upbit()`
 
-5. **Order Manager** (`core/order_manager.py`)
-   - 업비트 REST API 주문 실행
-   - 주문 검증 및 재시도 로직
-   - Dry Run 모드 지원
+**5. TradeHistoryManager** (`core/trade_history_manager.py`, 479 lines)
+- Records all trades to `data/trade_history.json`
+- Group-level statistics calculation
 
-6. **Telegram Bot** (`core/telegram_bot.py`)
-   - 실시간 알림 전송
-   - 명령어 처리
-   - 일일 성과 요약
+**6. DailyLossTracker** (`core/daily_loss_tracker.py`, 329 lines)
+- Daily loss limit enforcement
+- 09:00 auto-reset with snapshot
+- Callback architecture (alert/liquidate)
 
-7. **Trading Engine** (`core/trading_engine.py`)
-   - 모든 컴포넌트 통합
-   - 메인 트레이딩 루프
-   - 상태 관리 및 통계 추적
-
-### V4 신규 컴포넌트 (Phase 1-2)
-
-**Phase 1: 데이터 구조**
-
-1. **ConfigManager** (`core/config_manager.py`, 512 lines)
-   - V4 통합 설정 관리
-   - Dictionary 기반 그룹 구조
-   - JSON Schema 검증
-   - V3→V4 자동 마이그레이션
-   - Methods: `load_config()`, `save_config()`, `validate_config()`, `migrate_from_v3()`
-
-2. **PositionManager** (`core/position_manager.py`, 656 lines)
-   - Live/Dry-run 분리 관리
-   - 포지션 CRUD 연산
-   - DCA 추가 매수 관리
-   - Upbit 실시간 동기화 (`sync_with_upbit()`)
-   - Methods: `create_position()`, `update_position()`, `add_dca()`, `close_position()`
-
-3. **TradeHistoryManager** (`core/trade_history_manager.py`, 479 lines)
-   - 거래 기록 관리
-   - 그룹별 통계 계산
-   - JSON 파일 영속화
-   - Methods: `add_trade()`, `get_trades_by_group()`, `calculate_statistics()`
-
-4. **Configuration Schema** (`config/schemas/trading_config_schema.json`)
-   - V4 설정 JSON Schema
-   - 필수 필드 및 타입 정의
-   - 제약 조건 명시
-
-5. **Configuration Template** (`config/trading_config_template.json`)
-   - V4 기본 설정 템플릿
-   - 예제 그룹 구성
-
-**Phase 2: 백엔드 핵심**
-
-6. **GroupManager** (`core/group_manager.py`, 578 lines)
-   - 그룹 생명주기 관리
-   - 코인 중복 검증
-   - 설정 업데이트 및 동기화
-   - Methods: `create_group()`, `delete_group()`, `update_group_settings()`, `add_coin_to_group()`, `move_coin()`
-
-7. **DailyLossTracker** (`core/daily_loss_tracker.py`, 329 lines)
-   - 09:00 기준 일일 스냅샷
-   - 실시간 손실률 계산
-   - 한도 도달 시 알림/청산
-   - Callback 기반 아키텍처
-   - Methods: `check_and_reset()`, `calculate_daily_loss()`, `is_limit_reached()`
-
-8. **V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
-   - 프리셋 기반 자동매수 (Conservative/Balanced/Aggressive)
-   - RSI + MACD + Volume 지표 조합
-   - 타임프레임별 최적화 (4H/1H/15min)
-   - Methods: `should_buy()`, `get_indicator_values()`
-
-**진행 예정**:
-- ⏳ **V4TradingEngine**: 모든 V4 컴포넌트 통합 (Phase 2 완료 예정)
+**7. V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
+- Preset-based auto-buy: Conservative (4H), Balanced (1H), Aggressive (15min)
+- Technical indicators: RSI, MACD, Volume
+- Group-level strategy assignment
 
 ---
 
 ## 설치 및 설정
 
-### 1. 사전 요구사항
+### 사전 요구사항
 
 - **Python**: 3.8 이상
 - **운영체제**: Windows, Mac, Linux
 - **텔레그램**: 알림 수신용 (선택)
-- **업비트 API**: 실거래 시 필요 (페이퍼 트레이딩은 불필요)
+- **업비트 API**: 실거래 시 필요
 
-### 2. 프로젝트 클론
+### 설치
 
 ```bash
+# 1. 프로젝트 클론
 git clone https://github.com/jang1230/upbit-auto-trader.git
-cd upbit-auto-trader/upbit_dca_trader
-```
+cd upbit-auto-trader
 
-### 3. 의존성 설치
-
-```bash
+# 2. 의존성 설치
 pip install -r requirements.txt
-```
 
-**주요 패키지**:
-- `pyupbit`: 업비트 API 클라이언트
-- `websockets`: WebSocket 통신
-- `python-telegram-bot`: 텔레그램 봇
-- `pandas`, `numpy`: 데이터 분석
-- `ta`: 기술적 분석
-
-### 4. GUI 실행 및 설정
-
-#### 4.1. GUI 프로그램 실행
-
-```bash
+# 3. GUI 실행
 python main.py
 ```
 
-**GUI 메인 화면**:
-- 📊 실시간 시세 모니터링
-- 🎯 트레이딩 시작/중지
-- ⚙️ 설정 메뉴
+**첫 실행 시 V4가 자동 생성하는 파일**:
+- `config/trading_config.json` (통합 설정 파일)
+- `data/positions_live.json` (Live 포지션)
+- `data/positions_dryrun.json` (Dry-run 포지션)
+- `data/trade_history.json` (거래 기록)
+- `data/virtual_balances.json` (Dry-run 잔고)
 
-#### 4.2. 자동 매수 전략 설정 (현재: ScalpingStrategy)
+### 첫 그룹 생성 (GUI)
 
-**현재 운영 중인 전략**: 🚀 **ScalpingStrategy** (단타 전략)
+#### Step 1: 그룹 관리 열기
+- GUI 상단 **"📁 그룹 관리"** 버튼 클릭
 
-**자동 설정 사항**:
-- **모니터링 코인**: 시가총액 상위 10개 (자동 선택)
-- **매수 조건**: MACD 골든크로스 + 거래량 2배 급증
-- **타임프레임**: 15분봉
-- **매수 빈도**: 하루 20~30회 (10개 코인 전체)
+#### Step 2: 그룹 추가
+- **"그룹 추가"** 클릭
+- 그룹 이름 입력 (예: "비트코인 단타")
 
-**사용자가 설정할 수 있는 항목**:
-```
-⚙️ 설정 → 🤖 자동 매수 설정
-- 매수 금액: 10,000원 ~ (기본값)
-- 스캔 주기: 60초 (기본값)
-- 리스크 관리: 최대 포지션 수, 일일 거래 횟수 등
-```
+#### Step 3: 코인 선택
+- **"코인 선택"** 클릭
+- 원하는 코인 체크 (예: KRW-BTC, KRW-ETH)
+- 저장
 
-**전략 특징**:
-- ✅ 검증된 매수 타점 (MACD + 거래량)
-- ✅ 자동 코인 선택 (시가총액 상위 10개)
-- ✅ 모든 코인 동일 파라미터 (유지보수 간편)
+#### Step 4: 그룹 설정
 
----
+**매수 설정**:
+1. **"⚙️ 그룹 설정"** 클릭
+2. 매수 모드: **"자동매수"** 선택
+3. **"⚙️ 자동매수 설정..."** 클릭
+4. 프리셋 선택: **Balanced** (권장)
+5. 매수 금액: 50,000원
+6. 저장
 
-#### 4.3. 모니터링 코인 (자동 선택)
+**DCA/익절/손절 설정**:
+1. **"⚙️ 레벨 상세 설정"** 클릭
+2. **DCA 탭**:
+   - Level 1: -3% / 100%
+   - Level 2: -5% / 100%
+   - Level 3: -7% / 100%
+3. **익절 탭**:
+   - Level 1: +5% / 50% (절반 익절)
+   - Level 2: +10% / 50% (나머지 익절)
+4. **손절 탭**:
+   - Level 1: -15% / 100% (전량 손절)
+5. 저장
 
-**시가총액 상위 10개** (하드코딩, 정기 업데이트):
-```
-1. KRW-BTC   (비트코인)
-2. KRW-ETH   (이더리움)
-3. KRW-USDT  (테더)
-4. KRW-SOL   (솔라나)
-5. KRW-LINK  (체인링크)
-6. KRW-USDC  (유에스디코인)
-7. KRW-DOGE  (도지코인)
-8. KRW-ADA   (에이다)
-9. KRW-TRX   (트론)
-10. KRW-XRP  (엑스알피)
-```
+#### Step 5: API 키 설정 (실거래 시)
 
-**참고**:
-- 코인 리스트는 코드에 하드코딩되어 있으며, 필요 시 수동 업데이트
-- 향후 GUI에서 커스텀 코인 리스트 선택 기능 추가 예정
+**Upbit API 키**:
+1. Upbit 웹사이트 → Open API 관리
+2. 새 API 키 발급 (권한: 자산 조회, 주문 조회, 주문 등록/취소)
+3. GUI → **⚙️ 설정** → **🔑 API 키** 탭
+4. Access Key, Secret Key 입력 → 저장
 
-#### 4.4. 고급 DCA 설정
+**텔레그램 봇** (알림용):
+1. @BotFather에게 `/newbot` 명령
+2. 봇 토큰 복사
+3. GUI → **⚙️ 설정** → **📱 텔레그램** 탭
+4. 봇 토큰, Chat ID 입력 → 저장
 
-**⚙️ 설정 → 💰 고급 DCA** 탭:
-
-**익절/손절 설정** (권장 기본값):
-```
-익절: +10%  ← "어깨에서 팔기"
-손절: -10%  ← 손실 제한
-```
-
-**추가 매수 레벨** (선택):
-```
-레벨 1: -3% 하락 시 추가 매수
-레벨 2: -6% 하락 시 추가 매수
-레벨 3: -9% 하락 시 추가 매수
-```
-
-각 레벨별 매수 금액 설정 가능
-
-#### 4.5. 텔레그램 봇 설정 (필수)
-
-📖 **상세 가이드**: [텔레그램 설정 가이드](docs/TELEGRAM_설정_가이드.md)
-
-**간단 요약**:
-1. 텔레그램 앱 설치
-2. @BotFather에게 `/newbot` 명령으로 봇 생성
-3. 봇 토큰 복사
-4. 봇과 대화 시작 (아무 메시지 전송)
-5. 브라우저에서 Chat ID 확인:
-   ```
-   https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates
-   ```
-6. **GUI에서 설정**:
-   - **⚙️ 설정 → 📱 텔레그램** 탭
-   - 봇 토큰과 Chat ID 입력
-   - 저장
-
-#### 4.6. 업비트 API 설정 (실거래 시)
-
-페이퍼 트레이딩은 필요 없습니다. 실거래 시에만:
-
-1. 업비트 Open API 키 발급: https://upbit.com/mypage/open_api_management
-2. **GUI에서 설정**:
-   - **⚙️ 설정 → 🔑 API 키** 탭
-   - Access Key와 Secret Key 입력
-   - 저장
+📖 **상세 가이드**: [ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md)
 
 ---
 
 ## 사용 방법
 
-### 1단계: 초기 설정
+### 1단계: Dry-run 테스트 (필수)
 
-#### 1.1. GUI 프로그램 실행
-```bash
-python main.py
-```
+**최소 1주일 이상 Dry-run 모드로 테스트하세요!**
 
-#### 1.2. 필수 설정 (GUI에서)
+1. `config/trading_config.json` 열기
+2. `"mode": "dryrun"` 설정
+3. GUI에서 **"🚀 트레이딩 시작"** 클릭
+4. 1주일 모니터링:
+   - GUI에서 포지션 확인
+   - 텔레그램 알림 확인
+   - `data/trade_history.json` 성과 확인
 
-**⚙️ 설정** 버튼 클릭 후:
+**Dry-run 검증 기준**:
+- ✅ 수익률 > 0%
+- ✅ 승률 ≥ 55%
+- ✅ 오류 없이 안정적 운영
+- ✅ 모든 시나리오 테스트 (자동매수, DCA, 익절, 손절)
 
-1. **📱 텔레그램 설정** (필수):
-   - 봇 토큰 입력
-   - Chat ID 입력
-   - 저장 후 테스트 메시지 확인
+### 2단계: Live 모드 전환 (검증 후)
 
-2. **🤖 자동 매수 설정** (선택):
-   - 현재 ScalpingStrategy가 기본 전략
-   - 매수 금액, 스캔 주기 설정
-   - 리스크 관리 옵션 설정
+**⚠️ Dry-run 테스트 완료 후에만 진행하세요!**
 
-3. **📊 모니터링 코인** (자동):
-   - 시가총액 상위 10개 자동 모니터링
-   - 별도 설정 불필요
+1. `config/trading_config.json` 열기
+2. `"mode": "live"` 변경
+3. 프로그램 재시작
+4. **소액**으로 시작 (예: 50,000원)
+5. 첫 24시간 집중 모니터링
 
-4. **💰 고급 DCA 설정** (선택):
-   - 익절/손절 비율 설정 (기본값 사용 권장)
-   - 추가 매수 레벨 설정 (선택)
-   - 저장
-
-#### 1.3. 설정 확인
-
-모든 설정 완료 후 텔레그램으로 테스트 알림이 오는지 확인!
-
----
-
-### 2단계: 페이퍼 트레이딩 (최소 1주일 권장)
-
-**GUI에서 Dry Run 모드**로 실제 시장 데이터를 사용해 전략을 검증합니다.
-
-#### 2.1. Dry Run 모드 활성화
-1. GUI에서 **🧪 Dry Run** 체크박스 체크
-2. **🚀 트레이딩 시작** 버튼 클릭
-
-#### 2.2. 실행 화면 확인
-
-**GUI 메인 화면**:
-```
-┌─────────────────────────────────────────┐
-│  Upbit DCA Trader                       │
-├─────────────────────────────────────────┤
-│  🧪 Dry Run 모드: ON                    │
-│  🎯 전략: Filtered Bollinger Bands      │
-│  📊 코인: BTC, ETH, XRP                 │
-│                                          │
-│  💰 현재 자산: 1,000,000원              │
-│  📈 수익률: +0.00%                      │
-│  📊 총 거래: 0회                        │
-│                                          │
-│  🔄 상태: 대기 중...                    │
-│                                          │
-│  [🛑 트레이딩 중지]                     │
-└─────────────────────────────────────────┘
-```
-
-#### 2.3. 모니터링
-
-**텔레그램 알림**:
-- 📊 매수 신호 발생
-- ✅ 주문 체결 (Dry Run)
-- 📈 익절/손절 실행
-- 📊 일일 성과 요약
-
-**GUI 로그**:
-- 실시간 시세 업데이트
-- 신호 발생 이벤트
-- 주문 실행 결과
-- 전략 상태 정보
+### 3단계: 모니터링
 
 **텔레그램 명령어**:
 ```
-/status   - 현재 포지션 및 수익률
-/balance  - 잔고 조회
-/stop     - 트레이딩 중지
-/start    - 트레이딩 시작
-/help     - 도움말
+/status        - 현재 포지션 및 그룹 상태
+/group <id>    - 특정 그룹 상세 정보
+/positions     - 전체 포지션 조회
+/stop          - 트레이딩 중지
+/help          - 도움말
 ```
 
-#### 2.4. 중단 방법
-
-**GUI에서**:
-- **🛑 트레이딩 중지** 버튼 클릭
-
-**텔레그램에서**:
-- `/stop` 명령 전송
-
-#### 2.5. 성과 확인
-
-**GUI 메인 화면**:
-```
-💰 현재 자산: 1,050,000원
-📈 수익률: +5.00%
-📊 총 거래: 10회
-✅ 성공: 7회 (70.0%)
-```
-
-**텔레그램 일일 요약** (매일 자정):
-```
-📊 오늘의 거래 요약
-
-💰 자산 변화:
-  시작: 1,000,000원
-  현재: 1,050,000원
-  수익: +50,000원 (+5.00%)
-
-📈 거래 통계:
-  오늘 거래: 3회
-  승률: 66.7%
-  
-📊 포지션:
-  BTC: 보유 중 (+2.5%)
-  ETH: 없음
-  XRP: 없음
-```
-
-#### 2.6. 검증 기준
-- ✅ 1주일 이상 무중단 운영
-- ✅ 수익률 > 0%
-- ✅ MDD < 15%
-- ✅ 신호 발생 및 주문 정상 작동
-- ✅ 텔레그램 알림 정상 수신
-
----
-
-### 3단계: 실전 배포 (검증 완료 후)
-
-⚠️ **실전 배포 전 필수 체크리스트**:
-
-- [ ] 페이퍼 트레이딩 최소 1주일 완료
-- [ ] 목표 성과 달성 (수익률 > 0%, 안정적 운영)
-- [ ] 시스템 안정성 확인 (크래시 없음)
-- [ ] 업비트 API 키 발급 및 GUI 설정 완료
-- [ ] 초기 자본 결정 (손실 가능한 금액만)
-- [ ] 텔레그램 알림 활성화 확인
-
-#### 3.1. 업비트 API 키 설정
-
-1. **API 키 발급**:
-   - 업비트 웹사이트 로그인
-   - Open API 관리 페이지 이동
-   - 새 API 키 발급
-   - **권한 설정**: 자산 조회, 주문 조회, 주문 등록/취소
-
-2. **GUI에서 설정**:
-   - **⚙️ 설정 → 🔑 API 키** 탭
-   - Access Key 입력
-   - Secret Key 입력
-   - **저장**
-
-#### 3.2. Dry Run 모드 비활성화
-
-**GUI 메인 화면**:
-1. **🧪 Dry Run** 체크박스 **해제**
-2. ⚠️ 경고 메시지 확인:
-   ```
-   ⚠️ 실전 모드로 전환합니다!
-   실제 자금으로 거래가 실행됩니다.
-   계속하시겠습니까?
-   ```
-3. **확인** 클릭
-
-#### 3.3. 소액으로 시작
-
-**⚙️ 설정 → 💰 거래 설정**:
-```
-최소 주문 금액: 10,000원 ← 권장
-주문 타임아웃: 30초
-```
-
-#### 3.4. 실전 배포 실행
-
-**GUI 메인 화면**:
-1. 모든 설정 확인
-2. **🚀 트레이딩 시작** 버튼 클릭
-3. 텔레그램으로 시작 알림 확인
-
-**⚠️ 실전 주의사항**:
-- 처음에는 반드시 최소 금액(10,000원)으로 시작
-- 텔레그램 알림 필수 활성화
-- 24시간 모니터링 불가 시 일일 손실 한도 낮게 설정 (예: -5%)
-- 정기적으로 성과 평가 (주간, 월간)
-- 시장 변동성 고려하여 리스크 파라미터 조정
-
-**긴급 중단 방법**:
-1. `Ctrl + C` (권장) - 현재 포지션 유지, 안전 종료
-2. `/stop` 텔레그램 명령어 - 새 거래 중단
-3. 업비트 웹/앱에서 수동 청산
-
----
-
-## 프로젝트 히스토리
-
-### Phase 1: 기본 인프라 (완료)
-- ✅ 업비트 API 클라이언트 구현
-- ✅ 데이터 수집 시스템
-- ✅ 보안 시스템 (API 키 암호화)
-
-### Phase 2: 전략 개발 및 백테스팅 (완료)
-- ✅ 5가지 전략 구현
-  - 이동평균선 (MA)
-  - 볼린저 밴드 (BB)
-  - RSI
-  - MACD
-  - Stochastic
-- ✅ 백테스터 개발
-- ✅ 전략 최적화
-
-**Phase 2 결과**:
-```
-최고 전략: BB (20, 2.0)
-수익률: +27.95%
-승률: 100%
-MDD: 19.45%
-
-⚠️ 주의: 시뮬레이션 데이터(GBM) 사용
-```
-
-### Phase 2.5: 실제 데이터 검증 (완료)
-- ✅ 실제 업비트 데이터 다운로드 (365일)
-- ✅ 전략 재검증
-- ✅ 리스크 관리 시스템 구현
-
-**Phase 2.5 결과** (실제 데이터):
-```
-최고 전략: BB (20, 2.5) + Risk Management
-수익률: +8.22%
-승률: 66.7%
-MDD: 7.95%
-Sharpe: 0.50
-
-✅ 검증 완료: 실제 시장에서 안정적 성과
-```
-
-**주요 발견**:
-- BB (20, 2.0)이 시뮬레이션 데이터에 과적합됨
-- BB (20, 2.5)가 실제 시장에서 최고 성과
-- 리스크 관리로 MDD 11.73%p 감소
-
-### Phase 3: 실시간 트레이딩 시스템 (완료)
-- ✅ Phase 3.1: WebSocket 실시간 데이터 수신
-- ✅ Phase 3.2: REST API 자동 주문 시스템
-- ✅ Phase 3.3: Telegram 알림 시스템
-- ✅ Phase 3.4: Trading Engine 통합
-- ✅ Phase 3.5: Paper Trading 준비 완료
-- ✅ Phase 3.6: GUI 개발 및 통합
-- ⏳ Phase 3.7: Live Deployment (대기 중)
-
-**Phase 3 주요 성과**:
-- 7개 핵심 컴포넌트 구현 완료
-- GUI 기반 완전한 자동 매매 시스템 구축
-- Dry Run / 실거래 모드 모두 지원
-- 사용자 친화적 설정 인터페이스
-
-### Phase 3.8: 전략 최적화 (완료) 🔥
-- ✅ 필터링된 볼린저 밴드 전략 개발
-  - ATR 필터: 변동성 확인
-  - MA240 필터: 추세 확인
-  - Time 필터: 과매매 방지
-- ✅ 코인별 파라미터 최적화
-  - BTC: std=2.0, 대기=6h, atr=0.3
-  - ETH: std=2.5, 대기=10h, atr=0.4
-  - XRP: std=2.0, 대기=6h, atr=0.3
-- ✅ 1년 백테스팅 (2024.01~2024.12)
-  - 포트폴리오 수익률: **+29.13%** 🎉
-  - 개별 최고: ETH **+64.92%** 🔥
-- ✅ GUI 전략 선택 기능
-  - 4가지 전략 지원 (Filtered BB, BB, RSI, MACD)
-  - 코인별 자동 최적화
-  - 실시간 전략 전환
-
-**Phase 3.8 주요 성과**:
-- 검증된 고성능 전략 개발
-- 포트폴리오 기반 분산 투자
-- GUI 완전 통합
-
-### Phase 4: 실시간 시스템 고도화 (완료) ⚡
-- ✅ WebSocket 실시간 가격 업데이트
-  - 1초마다 자동 갱신
-  - 현재가/변동률 실시간 표시
-  - 자동 재연결 및 에러 처리
-- ✅ 자동 잔고 갱신 시스템
-  - 주문 체결 시 자동 잔고 업데이트
-  - Worker → MainWindow 콜백 연동
-  - 수동 새로고침 버튼 제거
-- ✅ 반자동 트레이딩 모드
-  - Upbit 앱에서 수동 매수
-  - 자동 포지션 감지
-  - DCA/익절/손절 자동 관리
-- ✅ 완전 자동 트레이딩 모드
-  - 자동 매수 신호 감지
-  - 자동 포지션 진입
-  - 통합 관리 시스템
-
-**Phase 4 주요 성과**:
-- 실시간 UX 대폭 개선
-- 반자동/완전자동 선택 가능
-- 안정적인 장시간 운영 지원
+**GUI**:
+- 실시간 포지션 테이블
+- 그룹별 수익률
+- 로그 출력
 
 ---
 
 ## 문서
 
-### 사용자 가이드
-- **[텔레그램 설정 가이드](docs/TELEGRAM_설정_가이드.md)** ⭐ 필수
-  - 초보자를 위한 단계별 설정 가이드
-  - 문제 해결 및 FAQ 포함
+### 필수 문서 ⭐
 
-### 프로젝트 문서
-- **[Phase 2.5 완료 보고서](PHASE_2.5_완료_보고서.md)**
-  - 실제 데이터 검증 결과
-  - 전략 성과 비교
-  - 리스크 관리 효과
+1. **[INSTALLATION.md](docs/INSTALLATION.md)** - 설치 가이드
+2. **[ENVIRONMENT_SETUP.md](docs/ENVIRONMENT_SETUP.md)** - V4 환경 설정
+3. **[LIVE_TRADING_CHECKLIST.md](docs/LIVE_TRADING_CHECKLIST.md)** - 실거래 체크리스트
+4. **[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - 문제 해결
 
-- **[Phase 3 설계](PHASE_3_설계.md)**
-  - 시스템 아키텍처
-  - 컴포넌트 설계
-  - 구현 계획
+### 참고 문서
 
-- **[Phase 3 완료 보고서](PHASE_3_완료_보고서.md)** ⭐ 권장
-  - 구현 완료 내역
-  - 통합 테스트 결과
-  - 페이퍼 트레이딩 가이드
-  - 실전 배포 체크리스트
+5. **[FAQ.md](docs/FAQ.md)** - 자주 묻는 질문
+6. **[TELEGRAM_설정_가이드.md](docs/TELEGRAM_설정_가이드.md)** - 텔레그램 설정
+7. **[DESIGN_V4_COMPLETE.md](docs/DESIGN_V4_COMPLETE.md)** - V4 상세 설계
+8. **[CLAUDE.md](CLAUDE.md)** - 개발자 가이드
 
-### 코드 문서
-모든 Python 파일에 상세한 Docstring 포함:
-```python
-def execute_buy(self, symbol: str, amount: float) -> Dict:
-    """
-    매수 주문 실행
-    
-    Args:
-        symbol: 마켓 코드 (예: 'KRW-BTC')
-        amount: 매수 금액 (KRW)
-        
-    Returns:
-        Dict: 주문 결과
-    """
-```
+### V3 관련 문서 (아카이브)
+
+V3 Phase 문서는 `docs/archive/` 폴더로 이동되었습니다.
 
 ---
 
-## 로드맵
+## FAQ
 
-### 현재 상태: Phase 3 완료 ✅
+### Q1. V3과 V4의 차이점은 무엇인가요?
 
-### 단기 목표 (1-2주)
-- [ ] Phase 3.5: Paper Trading (최소 1주일)
-- [ ] 성과 모니터링 및 분석
-- [ ] 시스템 안정성 검증
+**A**: V3은 2가지 모드만 지원했지만, V4는 무제한 그룹을 만들 수 있습니다.
 
-### 중기 목표 (1-2개월)
-- [ ] Phase 3.6: Live Deployment (실전 배포)
-- [ ] 소액 실전 트레이딩 시작
-- [ ] 점진적 자본 증액
+| 항목 | V3 | V4 |
+|------|----|----|
+| 모드 | 2가지 (반자동/완전자동) | 무제한 그룹 |
+| 설정 파일 | 2개 분리 | 1개 통합 |
+| 코인별 설정 | 불가능 (모두 동일) | 가능 (그룹별 독립) |
+| 포지션 파일 | 1개 | 2개 (live/dryrun 분리) |
+| 일일 손실 제한 | 없음 | 있음 (09:00 리셋) |
 
-### 장기 목표 (3개월+)
-- [ ] Phase 4: 다중 전략 포트폴리오
-  - 여러 전략 동시 운영
-  - 자본 분산 투자
-  
-- [ ] Phase 5: 고급 백테스팅 프레임워크
-  - 워크 포워드 분석
-  - 몬테카를로 시뮬레이션
-  - 성과 분석 대시보드
+### Q2. 그룹을 최대 몇 개까지 만들 수 있나요?
 
-- [ ] Phase 6: 머신러닝 통합
-  - 딥러닝 신호 생성
-  - 강화학습 최적화
-  - 앙상블 전략
+**A**: 제한이 없습니다. 시스템 성능이 허용하는 한 원하는 만큼 만들 수 있습니다.
 
-- [ ] Phase 7: 다중 코인 지원
-  - 이더리움, 리플 등
-  - 코인별 전략 최적화
+**권장 사용 예시**:
+- 전략별 분리 (단타, 중장기, 실험)
+- 코인 유형별 분리 (메이저코인, 알트코인)
+- 리스크 수준별 분리 (안전, 공격적)
+
+### Q3. 한 코인을 여러 그룹에 동시에 넣을 수 있나요?
+
+**A**: 아니요, 한 코인은 하나의 그룹에만 속할 수 있습니다.
+
+**이유**: 중복 매수/매도 방지, 포지션 관리 명확화
+
+### Q4. 자동매수 프리셋의 차이점은 무엇인가요?
+
+**A**: 캔들 주기와 지표 민감도가 다릅니다.
+
+| 프리셋 | 캔들 | RSI | Volume | 매수 빈도 |
+|--------|------|-----|--------|-----------|
+| Conservative | 4시간 | < 25 | > 2.5x | 낮음 (안정적) |
+| Balanced | 1시간 | < 30 | > 2.0x | 중간 (권장) |
+| Aggressive | 15분 | < 35 | > 1.5x | 높음 (빠른 진입) |
+
+### Q5. 수동 매수 모드에서도 DCA/익절/손절이 작동하나요?
+
+**A**: 네! 매수는 사용자가 Upbit 앱에서 직접 하고, 프로그램이 감지하여 자동으로 포지션 생성 후 DCA/익절/손절을 자동 실행합니다.
+
+### Q6. Live 모드와 Dry-run 모드를 동시에 실행할 수 있나요?
+
+**A**: 아니요, 동시 실행은 불가능합니다.
+
+**권장 방식**:
+1. Dry-run으로 1주일 테스트
+2. 만족스러우면 Live로 전환
+
+### Q7. 일일 손실 제한은 어떻게 계산되나요?
+
+**A**: 2가지 방식이 있습니다.
+
+1. **daily_only** (권장): 매일 09:00 시점의 총 자산 대비
+2. **total_account**: 초기 자본 대비 총 손실률
+
+### Q8. V3 설정을 V4로 자동 마이그레이션할 수 있나요?
+
+**A**: 네, V4 첫 실행 시 V3 설정 파일을 감지하면 자동으로 마이그레이션됩니다.
+
+- V3 파일을 `group_1`로 변환
+- 백업 파일 생성 (`*.v3_backup`)
+
+### Q9. 24시간 컴퓨터를 켜두어야 하나요?
+
+**A**: 예, AWS/GCP 같은 클라우드 서버 사용을 권장합니다.
+
+### Q10. 실전 배포 시 초기 자본은 얼마가 적당한가요?
+
+**A**: 처음에는 최소 50,000원부터 시작하세요. 몇 주간 안정적 운영 확인 후 점진적으로 증액하세요.
 
 ---
 
@@ -841,24 +482,19 @@ def execute_buy(self, symbol: str, amount: float) -> Dict:
 
 - 과거 성과가 미래 성과를 보장하지 않습니다
 - 암호화폐 시장은 변동성이 매우 큽니다
-- 손실 가능한 금액만 투자하세요
+- **손실 가능한 금액만 투자하세요**
 - 투자 결정은 본인의 책임입니다
 
 ### 🔒 보안 주의사항
 
 1. **API 키 보안**
    - `.env` 파일을 절대 공유하지 마세요
-   - GitHub에 업로드하지 마세요 (`.gitignore`에 포함됨)
+   - GitHub에 업로드하지 마세요
    - 정기적으로 API 키 변경
 
 2. **텔레그램 봇 토큰**
    - 봇 토큰을 타인과 공유하지 마세요
    - Chat ID를 공개하지 마세요
-
-3. **서버 보안**
-   - 봇 실행 서버를 안전하게 관리
-   - 방화벽 설정
-   - 정기적 보안 업데이트
 
 ### 🐛 버그 제보
 
@@ -880,61 +516,39 @@ def execute_buy(self, symbol: str, amount: float) -> Dict:
 
 ---
 
-## FAQ
+## 프로젝트 히스토리
 
-### Q1: 텔레그램 봇 없이도 사용 가능한가요?
-**A**: 가능합니다. 텔레그램 설정을 하지 않으면 알림만 없고 트레이딩은 정상 작동합니다. 하지만 모니터링을 위해 텔레그램 사용을 강력히 권장합니다.
+### V4 (2025-01, 현재)
+- ✅ **Phase 1 완료**: 데이터 구조 (ConfigManager, PositionManager, TradeHistoryManager)
+- ✅ **Phase 2 완료**: 백엔드 핵심 (GroupManager, DailyLossTracker, V4AutoBuyStrategy, V4TradingEngine)
+- ⏳ **Phase 3 진행 중**: GUI 리팩토링
+- ⏳ **Phase 4 대기 중**: 통합 테스트
+- ⏳ **Phase 5 대기 중**: V3→V4 마이그레이션 및 배포
 
-### Q2: 페이퍼 트레이딩은 얼마나 해야 하나요?
-**A**: 최소 1주일 이상 권장합니다. 다양한 시장 상황(상승, 하락, 횡보)을 모두 경험하고 시스템 안정성을 확인해야 합니다.
+### V3 (2024-12, 완료)
+- Phase 1-4 완료 (WebSocket, REST API, Telegram, GUI)
+- ScalpingStrategy 운영
+- 반자동/완전자동 2가지 모드
 
-### Q3: 실전 배포 시 초기 자본은 얼마가 적당한가요?
-**A**: 처음에는 최소 금액인 10,000원부터 시작하세요. 몇 주간 안정적으로 운영된 후 점진적으로 증액하는 것이 안전합니다.
+📖 **V3 히스토리**: [docs/archive/](docs/archive/) 폴더 참조
 
-### Q4: 24시간 컴퓨터를 켜두어야 하나요?
-**A**: 예, 트레이딩 봇이 실행 중이어야 신호를 받고 주문을 실행할 수 있습니다. AWS, GCP 같은 클라우드 서버 사용을 권장합니다.
+---
 
-### Q5: 전략을 변경할 수 있나요?
-**A**: 현재는 **ScalpingStrategy**가 운영 중입니다.
-- **완전 자동 모드**: ScalpingStrategy (MACD + 거래량)
-- **백테스팅 중**: FilteredBBStrategy (중장기 투자용, 향후 사용 예정)
-- 향후 GUI에서 전략 선택 기능 추가 예정
+## 로드맵
 
-### Q6: 다른 코인(이더리움, 리플 등)도 거래 가능한가요?
-**A**: **예, 이미 시가총액 상위 10개 코인을 자동으로 모니터링합니다!**
-- BTC, ETH, USDT, SOL, LINK, USDC, DOGE, ADA, TRX, XRP
-- 별도 설정 없이 자동으로 10개 코인 모두 감시
-- 매수 타점이 발견되면 자동으로 진입
+### 단기 (1-2주)
+- [ ] V4 Phase 3: GUI 완성 (그룹 관리 대화창)
+- [ ] V4 Phase 4: 통합 테스트
 
-### Q7: 손실이 발생하면 어떻게 하나요?
-**A**: 
-- 스톱로스(-5%)와 일일 손실 한도(-10%)가 자동으로 작동합니다
-- 텔레그램으로 즉시 알림을 받습니다
-- `/stop` 명령으로 즉시 트레이딩을 중단할 수 있습니다
-- 시장 상황에 따라 일시적 손실은 정상적입니다
+### 중기 (1-2개월)
+- [ ] V4 Phase 5: V3→V4 마이그레이션 가이드
+- [ ] Dry-run 테스트 (1주일)
+- [ ] 소액 Live 배포
 
-### Q8: 백테스팅 결과와 실제 성과가 다를 수 있나요?
-**A**: 예, 다를 수 있습니다. 이유는:
-- 슬리피지 (주문 체결 시 가격 변동)
-- 네트워크 지연
-- 시장 변동성
-- 거래 수수료
-- 그래서 페이퍼 트레이딩으로 충분히 검증하는 것이 중요합니다!
-
-### Q9: GUI에서 여러 코인을 동시에 거래할 수 있나요?
-**A**: **예, 자동으로 시가총액 상위 10개 코인을 모두 모니터링합니다!**
-- 별도 선택 없이 10개 코인 자동 감시
-- 각 코인별로 독립적인 포지션 관리
-- 포트폴리오 전체 성과는 텔레그램/GUI로 확인 가능
-- 하루 20~30회 매수 타점 (10개 코인 전체)
-
-### Q10: DCA 레벨은 어떻게 설정하나요?
-**A**: GUI에서 쉽게 설정 가능합니다.
-- **⚙️ 설정 → 💰 고급 DCA** 탭
-- 익절/손절 비율 설정 (기본: +10% / -10%)
-- 추가 매수 레벨 설정 (예: -3%, -6%, -9%)
-- 각 레벨별 매수 금액 조정 가능
-- 전략은 "매수 타이밍"만 결정, 실제 매도는 DCA 설정 사용
+### 장기 (3개월+)
+- [ ] 통계 대시보드 (그룹별 성과 비교)
+- [ ] 백테스팅 프레임워크 개선
+- [ ] 머신러닝 통합
 
 ---
 
@@ -948,7 +562,7 @@ Copyright (c) 2025 Upbit DCA Trader
 
 ## 면책 조항
 
-이 소프트웨어는 교육 및 연구 목적으로 제공됩니다. 
+이 소프트웨어는 교육 및 연구 목적으로 제공됩니다.
 
 - 투자 조언이 아닙니다
 - 수익을 보장하지 않습니다
