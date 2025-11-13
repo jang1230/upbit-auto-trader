@@ -13,6 +13,7 @@ from PySide6.QtGui import QFont
 import logging
 
 from core.config_manager import ConfigManager
+from gui.auto_buy_settings_dialog_v2 import AutoBuySettingsDialogV2
 
 logger = logging.getLogger(__name__)
 
@@ -102,25 +103,33 @@ class GroupUnifiedSettingsDialog(QDialog):
         self.setLayout(layout)
 
     def _create_tab1_autobuy(self) -> QWidget:
-        """탭1: 자동매수 전략 (임시 빈 위젯)"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        """탭1: 자동매수 전략 (AutoBuySettingsDialogV2 임베딩)"""
+        # 자동매수 설정 추출
+        buy_settings = self.group_config.get('buy_settings', {})
+        auto_config = buy_settings.get('auto_config', {})
 
-        label = QLabel("📊 자동매수 전략 설정")
-        label.setFont(QFont("맑은 고딕", 12, QFont.Bold))
-        label.setAlignment(Qt.AlignCenter)
+        # AutoBuySettingsDialogV2를 위젯으로 사용
+        autobuy_dialog = AutoBuySettingsDialogV2(config=auto_config.copy(), parent=self)
 
-        placeholder = QLabel("(Step 2에서 구현 예정)")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: gray;")
+        # 다이얼로그를 위젯처럼 사용하기 위해 윈도우 플래그 제거
+        autobuy_dialog.setWindowFlags(Qt.Widget)
 
-        layout.addStretch()
-        layout.addWidget(label)
-        layout.addSpacing(20)
-        layout.addWidget(placeholder)
-        layout.addStretch()
+        # 내부 버튼 레이아웃 숨기기 (상위 다이얼로그 버튼 사용)
+        main_layout = autobuy_dialog.layout()
+        if main_layout and main_layout.count() > 0:
+            last_item = main_layout.itemAt(main_layout.count() - 1)
+            if last_item and last_item.layout():
+                # 버튼 레이아웃 숨김
+                button_layout = last_item.layout()
+                for i in range(button_layout.count()):
+                    widget = button_layout.itemAt(i).widget()
+                    if widget:
+                        widget.setVisible(False)
 
-        return widget
+        # 참조 저장 (나중에 get_config() 호출용)
+        self.autobuy_widget = autobuy_dialog
+
+        return autobuy_dialog
 
     def _create_tab2_dca(self) -> QWidget:
         """탭2: DCA 레벨 (임시 빈 위젯)"""
@@ -201,17 +210,25 @@ class GroupUnifiedSettingsDialog(QDialog):
         try:
             logger.info(f"💾 그룹 {self.group_id} 통합 설정 저장 시작...")
 
-            # TODO: Step 5에서 구현
-            # - 탭1: 자동매수 설정 수집
+            # 탭1: 자동매수 설정 수집
+            autobuy_config = self.autobuy_widget.get_config()
+            logger.info(f"  📊 자동매수 설정: {autobuy_config.get('strategy')}")
+
+            # TODO: Step 3에서 구현
             # - 탭2: DCA 설정 수집
+
+            # TODO: Step 4에서 구현
             # - 탭3: 익절/손절 설정 수집
+
+            # TODO: Step 5에서 구현
             # - ConfigManager.update_group() 호출
 
             QMessageBox.information(
                 self,
                 "저장 완료",
                 f"그룹 '{self.group_config.get('name')}' 설정이 저장되었습니다.\n"
-                f"(Step 5에서 실제 저장 로직 구현 예정)"
+                f"자동매수: {autobuy_config.get('strategy')}\n"
+                f"(Step 3-5에서 전체 저장 로직 구현 예정)"
             )
 
             self.accept()
