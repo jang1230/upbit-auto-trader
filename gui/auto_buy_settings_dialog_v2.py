@@ -1,12 +1,12 @@
 """
-AutoBuySettingsDialogV2 - 자동매수 설정 다이얼로그 (V4 + Expert 탭 통합)
+AutoBuySettingsDialogV2 - 자동매수 설정 다이얼로그 (V4 + Expert 라디오 버튼 통합)
 
-V4 전략과 Expert 전략을 탭으로 선택할 수 있는 통합 다이얼로그
+V4 전략과 Expert 전략을 라디오 버튼으로 선택
 """
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout,
-    QPushButton, QTabWidget, QMessageBox
+    QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
+    QPushButton, QRadioButton, QStackedWidget, QLabel, QMessageBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -23,7 +23,7 @@ class AutoBuySettingsDialogV2(QDialog):
     """
     자동매수 설정 다이얼로그 V2
 
-    V4 전략과 Expert 전략을 탭으로 선택
+    V4 전략과 Expert 전략을 라디오 버튼으로 선택
     """
 
     def __init__(self, config: dict = None, parent=None):
@@ -73,48 +73,96 @@ class AutoBuySettingsDialogV2(QDialog):
         }
 
     def _init_ui(self):
-        """UI 초기화"""
-        layout = QVBoxLayout(self)
-        layout.setSpacing(15)
+        """UI 초기화 - 라디오 버튼 + 스택 위젯 구조"""
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(15)
 
-        # 탭 위젯 생성
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setFont(QFont("맑은 고딕", 10))
+        # === 1. 전략 선택 영역 (라디오 버튼) ===
+        strategy_group = QGroupBox("📊 자동매수 전략 선택")
+        strategy_group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        strategy_layout = QVBoxLayout()
 
-        # Tab 1: V4 전략 (기존 AutoBuySettingsDialog의 내용 활용)
-        self.v4_widget = self._create_v4_tab()
-        self.tab_widget.addTab(self.v4_widget, "📊 V4 전략 (3개 지표)")
+        # V4 라디오 버튼
+        self.v4_radio = QRadioButton("📊 V4 전략 (3개 지표 - RSI, MACD, Volume)")
+        self.v4_radio.setFont(QFont("맑은 고딕", 10))
+        self.v4_radio.setStyleSheet("""
+            QRadioButton {
+                padding: 8px;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        strategy_layout.addWidget(self.v4_radio)
 
-        # Tab 2: Expert 전략
-        expert_config = self.config if self.config.get("strategy") == "expert" else None
-        self.expert_widget = ExpertStrategyWidget(expert_config, self)
-        self.tab_widget.addTab(self.expert_widget, "🎯 Expert 전략 (5개 지표)")
+        # V4 설명
+        v4_desc = QLabel("   ↳ 프리셋 기반 전략 (Conservative / Balanced / Aggressive)")
+        v4_desc.setFont(QFont("맑은 고딕", 9))
+        v4_desc.setStyleSheet("color: #666; padding-left: 30px;")
+        strategy_layout.addWidget(v4_desc)
 
-        layout.addWidget(self.tab_widget)
+        strategy_layout.addSpacing(10)
 
-        # 버튼
+        # Expert 라디오 버튼
+        self.expert_radio = QRadioButton("🎯 Expert 전략 (5개 지표 - 종합 스코어링)")
+        self.expert_radio.setFont(QFont("맑은 고딕", 10))
+        self.expert_radio.setStyleSheet("""
+            QRadioButton {
+                padding: 8px;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        strategy_layout.addWidget(self.expert_radio)
+
+        # Expert 설명
+        expert_desc = QLabel("   ↳ 10개 전문가 프로필 + Custom 가중치 설정")
+        expert_desc.setFont(QFont("맑은 고딕", 9))
+        expert_desc.setStyleSheet("color: #666; padding-left: 30px;")
+        strategy_layout.addWidget(expert_desc)
+
+        strategy_group.setLayout(strategy_layout)
+        main_layout.addWidget(strategy_group)
+
+        # 라디오 버튼 이벤트 연결
+        self.v4_radio.toggled.connect(self._on_strategy_changed)
+        self.expert_radio.toggled.connect(self._on_strategy_changed)
+
+        # === 2. 설정 폼 영역 (스택 위젯) ===
+        self.stack_widget = QStackedWidget()
+
+        # V4 위젯 (index 0)
+        self.v4_widget = self._create_v4_widget()
+        self.stack_widget.addWidget(self.v4_widget)
+
+        # Expert 위젯 (index 1)
+        self.expert_widget = self._create_expert_widget()
+        self.stack_widget.addWidget(self.expert_widget)
+
+        main_layout.addWidget(self.stack_widget, 1)  # stretch factor = 1
+
+        # === 3. 버튼 영역 ===
         button_layout = self._create_button_layout()
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
 
-        self.setLayout(layout)
+        self.setLayout(main_layout)
 
-    def _create_v4_tab(self):
-        """V4 탭 생성 (기존 AutoBuySettingsDialog 재사용)"""
-        # 기존 AutoBuySettingsDialog를 위젯으로 사용
-        # 단, 부모 다이얼로그의 버튼을 사용하므로 내부 버튼은 숨김
+    def _create_v4_widget(self):
+        """V4 설정 위젯 생성"""
         v4_config = self.config if self.config.get("strategy") in [None, "v4_auto_buy"] else None
         v4_dialog = AutoBuySettingsDialog(v4_config, self)
 
-        # 다이얼로그를 위젯처럼 사용하기 위해 윈도우 플래그 제거
+        # 다이얼로그를 위젯처럼 사용
         v4_dialog.setWindowFlags(Qt.Widget)
 
-        # 내부 버튼 레이아웃 숨기기 (상위 다이얼로그 버튼 사용)
-        # 버튼은 마지막 레이아웃이므로 숨김 처리
+        # 내부 버튼 숨기기
         main_layout = v4_dialog.layout()
         if main_layout and main_layout.count() > 0:
             last_item = main_layout.itemAt(main_layout.count() - 1)
             if last_item and last_item.layout():
-                # 버튼 레이아웃 숨김
                 button_layout = last_item.layout()
                 for i in range(button_layout.count()):
                     widget = button_layout.itemAt(i).widget()
@@ -123,22 +171,37 @@ class AutoBuySettingsDialogV2(QDialog):
 
         return v4_dialog
 
+    def _create_expert_widget(self):
+        """Expert 설정 위젯 생성"""
+        expert_config = self.config if self.config.get("strategy") == "expert" else None
+        expert_widget = ExpertStrategyWidget(expert_config, self)
+        return expert_widget
+
+    def _on_strategy_changed(self):
+        """전략 선택 변경 시 호출"""
+        if self.v4_radio.isChecked():
+            self.stack_widget.setCurrentIndex(0)
+            logger.info("✅ V4 전략 선택됨")
+        else:
+            self.stack_widget.setCurrentIndex(1)
+            logger.info("✅ Expert 전략 선택됨")
+
     def _create_button_layout(self) -> QHBoxLayout:
-        """버튼 레이아웃 생성"""
+        """버튼 레이아웃 생성 (임베드 모드에서는 숨김 처리됨)"""
         layout = QHBoxLayout()
         layout.addStretch()
 
         # 취소 버튼
-        cancel_btn = QPushButton("취소")
+        cancel_btn = QPushButton("❌ 취소")
         cancel_btn.setFont(QFont("맑은 고딕", 10))
-        cancel_btn.setFixedWidth(100)
+        cancel_btn.setFixedWidth(120)
         cancel_btn.clicked.connect(self.reject)
         layout.addWidget(cancel_btn)
 
-        # 저장 버튼
-        save_btn = QPushButton("저장")
+        # 저장 버튼 (독립 실행 시에만 사용, 임베드 시 숨김)
+        save_btn = QPushButton("💾 저장")
         save_btn.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        save_btn.setFixedWidth(100)
+        save_btn.setFixedWidth(120)
         save_btn.setStyleSheet(
             "QPushButton {"
             "  background-color: #4CAF50;"
@@ -150,88 +213,112 @@ class AutoBuySettingsDialogV2(QDialog):
             "  background-color: #45a049;"
             "}"
         )
-        save_btn.clicked.connect(self._on_save_clicked)
+        save_btn.clicked.connect(self.accept)
         layout.addWidget(save_btn)
 
         return layout
 
-    def _on_save_clicked(self):
-        """저장 버튼 클릭 처리"""
+    def _load_config(self):
+        """설정 로드 및 라디오 버튼 선택"""
         try:
-            # 현재 선택된 탭에 따라 설정 저장
-            current_index = self.tab_widget.currentIndex()
+            strategy = self.config.get("strategy", "v4_auto_buy")
 
-            if current_index == 0:
-                # V4 탭: V4 전용 필드만 추출
+            if strategy == "expert":
+                # Expert 라디오 버튼 선택
+                self.expert_radio.setChecked(True)
+                self.stack_widget.setCurrentIndex(1)
+                logger.info("📊 Expert 전략 로드")
+            else:
+                # V4 라디오 버튼 선택 (기본값)
+                self.v4_radio.setChecked(True)
+                self.stack_widget.setCurrentIndex(0)
+                logger.info("📊 V4 전략 로드")
+
+        except Exception as e:
+            logger.error(f"❌ 설정 로드 실패: {e}")
+            # 기본값: V4 선택
+            self.v4_radio.setChecked(True)
+            self.stack_widget.setCurrentIndex(0)
+
+    def get_config(self) -> dict:
+        """
+        현재 선택된 전략의 설정을 실시간으로 반환
+
+        Returns:
+            현재 선택된 전략의 설정 딕셔너리
+        """
+        try:
+            if self.v4_radio.isChecked():
+                # V4 전략 선택됨
                 v4_config = self.v4_widget.get_config()
 
-                # V4 전용 필드만 명시적으로 구성 (Expert 필드 제거)
-                self.config = {
+                result = {
                     "enabled": v4_config.get("enabled", True),
                     "strategy": "v4_auto_buy",
                     "investment_style": v4_config.get("investment_style"),
                     "candle_unit": v4_config.get("candle_unit"),
                     "indicators": v4_config.get("indicators"),
-                    "buy_amount_krw": v4_config.get("buy_amount_krw")
+                    "buy_amount_krw": v4_config.get("buy_amount_krw", 50000)
                 }
 
-                logger.info(f"✅ V4 전략 설정 저장: {self.config.get('investment_style')}")
+                logger.info(f"📊 V4 설정 반환: {result.get('investment_style')}")
+                return result
 
             else:
-                # Expert 탭: Expert 전용 필드만 추출
+                # Expert 전략 선택됨
                 expert_config = self.expert_widget.get_config()
 
-                # Expert 전용 필드만 명시적으로 구성 (V4 필드 제거)
-                self.config = {
+                result = {
                     "enabled": True,
                     "strategy": "expert",
                     "expert_profile": expert_config.get("expert_profile"),
                     "candle_unit": expert_config.get("candle_unit"),
-                    "buy_amount_krw": self.config.get("buy_amount_krw", 50000)
+                    "buy_amount_krw": expert_config.get("buy_amount_krw", 50000)
                 }
 
-                # custom 프로필인 경우 가중치 정보 추가
+                # Custom 프로필인 경우 가중치 추가
                 if expert_config.get("expert_profile") == "custom":
-                    self.config["custom_weights"] = expert_config.get("custom_weights")
-                    self.config["custom_threshold"] = expert_config.get("custom_threshold")
+                    result["custom_weights"] = expert_config.get("custom_weights")
+                    result["custom_threshold"] = expert_config.get("custom_threshold")
 
-                profile = expert_config.get("expert_profile")
-                logger.info(f"✅ Expert 전략 설정 저장: {profile}")
-
-            self.accept()
+                logger.info(f"🎯 Expert 설정 반환: {result.get('expert_profile')}")
+                return result
 
         except Exception as e:
-            logger.error(f"❌ 설정 저장 실패: {e}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "저장 실패",
-                f"설정 저장 중 오류가 발생했습니다:\n{e}"
-            )
+            logger.error(f"❌ get_config() 실패: {e}", exc_info=True)
+            # 기본값 반환
+            return self._get_default_config()
 
-    def _load_config(self):
-        """설정 로드 및 탭 선택"""
-        try:
-            strategy = self.config.get("strategy", "v4_auto_buy")
 
-            if strategy == "expert":
-                # Expert 탭으로 전환
-                self.tab_widget.setCurrentIndex(1)
-                logger.info("Expert 전략 탭으로 전환")
-            else:
-                # V4 탭으로 전환 (기본값)
-                self.tab_widget.setCurrentIndex(0)
-                logger.info("V4 전략 탭으로 전환")
+if __name__ == "__main__":
+    """독립 실행 테스트"""
+    import sys
+    from PySide6.QtWidgets import QApplication
 
-        except Exception as e:
-            logger.error(f"설정 로드 중 오류: {e}")
-            # 기본값으로 V4 탭 선택
-            self.tab_widget.setCurrentIndex(0)
+    app = QApplication(sys.argv)
 
-    def get_config(self) -> dict:
-        """
-        현재 설정 반환
+    # 테스트용 config
+    test_config = {
+        "strategy": "v4_auto_buy",
+        "investment_style": "balanced",
+        "candle_unit": "60",
+        "indicators": {
+            "rsi": {"enabled": True, "period": 14, "oversold": 30, "overbought": 70},
+            "macd": {"enabled": True, "fast": 12, "slow": 26, "signal": 9},
+            "volume": {"enabled": True, "period": 20, "threshold": 2.0}
+        },
+        "buy_amount_krw": 50000
+    }
 
-        Returns:
-            현재 선택된 탭의 설정 딕셔너리
-        """
-        return self.config
+    dialog = AutoBuySettingsDialogV2(test_config)
+
+    if dialog.exec():
+        final_config = dialog.get_config()
+        print("\n=== 최종 설정 ===")
+        print(f"전략: {final_config.get('strategy')}")
+        if final_config.get('strategy') == 'expert':
+            print(f"프로필: {final_config.get('expert_profile')}")
+        else:
+            print(f"스타일: {final_config.get('investment_style')}")
+
+    sys.exit(app.exec())

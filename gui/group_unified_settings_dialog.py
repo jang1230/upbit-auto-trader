@@ -250,11 +250,18 @@ class GroupUnifiedSettingsDialog(QDialog):
 
             logger.info(f"✅ 그룹 {self.group_id} 통합 설정 저장 완료")
 
+            # 전략 정보 표시 개선
+            strategy = autobuy_config.get("strategy")
+            if strategy == "expert":
+                strategy_info = f"Expert 전략 - {autobuy_config.get('expert_profile', 'N/A')}"
+            else:
+                strategy_info = f"V4 전략 - {autobuy_config.get('investment_style', 'N/A')}"
+
             QMessageBox.information(
                 self,
                 "저장 완료",
                 f"그룹 '{self.group_config.get('name')}' 설정이 저장되었습니다.\n\n"
-                f"📊 자동매수: {autobuy_config.get('strategy')}\n"
+                f"📊 자동매수: {strategy_info}\n"
                 f"📈 DCA: {len(dca_levels)}개 레벨\n"
                 f"💰 익절: {len(profit_levels)}개 레벨\n"
                 f"🛑 손절: {len(loss_levels)}개 레벨"
