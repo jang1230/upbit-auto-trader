@@ -1273,23 +1273,81 @@ class V4TradingEngine:
 
             logger.info(f"📬 주문 체결 이벤트 수신: {symbol} {order_uuid[:8]}... state={state}")
 
-            # 완료되지 않은 주문은 무시
-            if state not in ['done', 'cancel', 'prevented']:
-                logger.debug(f"   ⏳ 주문 {order_uuid[:8]}... 아직 진행 중 (state={state})")
+            # 대기 중인 주문은 무시
+            if state == 'wait':
+                logger.debug(f"   ⏳ 주문 {order_uuid[:8]}... 아직 대기 중")
                 return
+
+            # 부분 체결 처리 (state='trade')
+            if state == 'trade':
+                logger.info(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f})")
+
+                # executed_volume > 0이면 DCA 처리
+                if executed_volume > 0:
+                    position = self.position_manager.get_position(symbol)
+                    if not position:
+                        logger.warning(f"   ⚠️ {symbol} 포지션 없음")
+                        return
+
+                    pending_order = position.get('pending_order')
+                    if not pending_order or pending_order.get('order_id') != order_uuid:
+                        logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
+                        return
+
+                    order_type = pending_order.get('type')
+                    level_index = pending_order.get('level', 0)
+
+                    # DCA 주문이면 add_dca() 호출
+                    if order_type == 'dca':
+                        dca_price = pending_order.get('dca_price', avg_price)
+                        dca_amount = executed_volume  # 실제 체결 수량
+                        dca_value_krw = pending_order.get('dca_value_krw', 0)
+                        group_id = pending_order.get('group_id', 'unknown')
+                        group_name = pending_order.get('group_name', 'Unknown')
+
+                        # 포지션 DCA 추가
+                        self.position_manager.add_dca(
+                            symbol=symbol,
+                            dca_price=dca_price,
+                            dca_amount=dca_amount,
+                            dca_value_krw=dca_value_krw
+                        )
+
+                        logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 부분 체결 완료 → add_dca() 호출")
+
+                        # 거래 기록 추가
+                        updated_position = self.position_manager.get_position(symbol)
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="buy",
+                            trade_type="dca",
+                            price=updated_position.get("avg_buy_price"),
+                            amount=updated_position.get("total_amount"),
+                            total_krw=dca_value_krw,
+                            dry_run=False,
+                            dca_level=level_index + 1
+                        )
+
+                        # pending_order 제거
+                        self.position_manager.update_position(symbol, {'pending_order': None})
+
+                return  # state='trade' 처리 완료
 
             # 취소/방지된 주문 처리
             if state in ['cancel', 'prevented']:
-                logger.warning(f"   ⚠️ 주문 {order_uuid[:8]}... 취소됨 (state={state})")
-                # pending_order 필드 정리
+                logger.warning(f"   ⚠️ 주문 {order_uuid[:8]}... 취소/방지됨 (state={state})")
+
+                # pending_order 정리 (trade에서 이미 제거했으면 없음)
                 position = self.position_manager.get_position(symbol)
                 if position and position.get('pending_order', {}).get('order_id') == order_uuid:
-                    self.position_manager.update_position(symbol, {
-                        'pending_order': None
-                    })
+                    self.position_manager.update_position(symbol, {'pending_order': None})
+                    logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
+
                 return
 
-            # 정상 체결된 주문 처리 (state == 'done')
+            # 전체 체결 완료 처리 (state == 'done')
             position = self.position_manager.get_position(symbol)
             if not position:
                 logger.warning(f"   ⚠️ {symbol} 포지션 없음 (주문 {order_uuid[:8]}...)")
