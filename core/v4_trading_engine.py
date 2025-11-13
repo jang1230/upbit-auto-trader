@@ -352,16 +352,24 @@ class V4TradingEngine:
                         # ExpertStrategy 사용
                         expert_profile = auto_config.get("expert_profile", "balanced_expert")
                         candle_unit = auto_config.get("candle_unit", "10")
+                        custom_weights = auto_config.get("custom_weights")
+                        custom_threshold = auto_config.get("custom_threshold")
 
                         strategy = ExpertStrategy(
                             symbol=symbol,
                             expert_profile=expert_profile,
-                            candle_unit=candle_unit
+                            candle_unit=candle_unit,
+                            custom_weights=custom_weights,
+                            custom_threshold=custom_threshold
                         )
+
+                        profile_info = f"Profile: {expert_profile}"
+                        if expert_profile == "custom":
+                            profile_info = f"Custom (Threshold: {custom_threshold}%)"
 
                         logger.info(
                             f"  - {group['name']}: {symbol} ExpertStrategy 생성 완료 "
-                            f"(Profile: {expert_profile}, Candle: {candle_unit}min)"
+                            f"({profile_info}, Candle: {candle_unit}min)"
                         )
 
                     else:

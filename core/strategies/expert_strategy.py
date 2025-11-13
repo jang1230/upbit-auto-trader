@@ -164,34 +164,69 @@ class ExpertStrategy(BaseStrategy):
         symbol: str,
         expert_profile: str = "balanced_expert",
         candle_unit: str = "10",
+        custom_weights: Dict[str, float] = None,
+        custom_threshold: float = None,
         **kwargs
     ):
         """
         Args:
             symbol: 거래 심볼 (예: 'KRW-BTC')
-            expert_profile: 전문가 프로필 키 (EXPERT_PROFILES 중 하나)
+            expert_profile: 전문가 프로필 키 (EXPERT_PROFILES 중 하나 또는 "custom")
             candle_unit: 캔들 타임프레임 ("10", "15", "60", "240")
+            custom_weights: 커스텀 가중치 (expert_profile="custom"일 때 사용)
+                {
+                    "rsi": 0.65,
+                    "macd": 0.65,
+                    "bollinger": 0.65,
+                    "volume": 0.65,
+                    "trend": 0.60
+                }
+            custom_threshold: 커스텀 신뢰도 기준 (expert_profile="custom"일 때 사용)
 
         Raises:
-            ValueError: 잘못된 expert_profile
+            ValueError: 잘못된 expert_profile 또는 커스텀 설정 누락
         """
-        if expert_profile not in self.EXPERT_PROFILES:
-            raise ValueError(
-                f"Unknown expert profile: {expert_profile}. "
-                f"Available: {list(self.EXPERT_PROFILES.keys())}"
-            )
-
-        self.profile = self.EXPERT_PROFILES[expert_profile]
-        super().__init__(name=f"Expert ({self.profile['name']})")
-
         self.symbol = symbol
         self.expert_profile = expert_profile
         self.candle_unit = candle_unit
 
-        logger.info(
-            f"ExpertStrategy 초기화: {self.profile['name']}, "
-            f"Symbol={symbol}, Candle={candle_unit}min"
-        )
+        # 커스텀 프로필 처리
+        if expert_profile == "custom":
+            if not custom_weights or custom_threshold is None:
+                raise ValueError(
+                    "custom 프로필은 custom_weights와 custom_threshold가 필요합니다."
+                )
+
+            # 커스텀 프로필 생성
+            self.profile = {
+                "name": "커스텀 전문가",
+                "description": "사용자 정의 가중치",
+                "weights": custom_weights,
+                "confidence_threshold": custom_threshold
+            }
+
+            logger.info(
+                f"ExpertStrategy 초기화: 커스텀 프로필, "
+                f"Symbol={symbol}, Candle={candle_unit}min, "
+                f"Weights={custom_weights}, Threshold={custom_threshold}%"
+            )
+
+        else:
+            # 프리셋 프로필 사용
+            if expert_profile not in self.EXPERT_PROFILES:
+                raise ValueError(
+                    f"Unknown expert profile: {expert_profile}. "
+                    f"Available: {list(self.EXPERT_PROFILES.keys())} or 'custom'"
+                )
+
+            self.profile = self.EXPERT_PROFILES[expert_profile]
+
+            logger.info(
+                f"ExpertStrategy 초기화: {self.profile['name']}, "
+                f"Symbol={symbol}, Candle={candle_unit}min"
+            )
+
+        super().__init__(name=f"Expert ({self.profile['name']})")
 
     def should_buy(self, candles: pd.DataFrame) -> bool:
         """
