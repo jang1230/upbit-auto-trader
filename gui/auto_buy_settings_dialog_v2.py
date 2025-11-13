@@ -162,19 +162,38 @@ class AutoBuySettingsDialogV2(QDialog):
             current_index = self.tab_widget.currentIndex()
 
             if current_index == 0:
-                # V4 탭: 기존 AutoBuySettingsDialog의 get_config() 사용
+                # V4 탭: V4 전용 필드만 추출
                 v4_config = self.v4_widget.get_config()
-                v4_config["strategy"] = "v4_auto_buy"
-                self.config = v4_config
 
-                logger.info(f"✅ V4 전략 설정 저장: {v4_config.get('investment_style')}")
+                # V4 전용 필드만 명시적으로 구성 (Expert 필드 제거)
+                self.config = {
+                    "enabled": v4_config.get("enabled", True),
+                    "strategy": "v4_auto_buy",
+                    "investment_style": v4_config.get("investment_style"),
+                    "candle_unit": v4_config.get("candle_unit"),
+                    "indicators": v4_config.get("indicators"),
+                    "buy_amount_krw": v4_config.get("buy_amount_krw")
+                }
+
+                logger.info(f"✅ V4 전략 설정 저장: {self.config.get('investment_style')}")
 
             else:
-                # Expert 탭: ExpertStrategyWidget의 get_config() 사용
+                # Expert 탭: Expert 전용 필드만 추출
                 expert_config = self.expert_widget.get_config()
-                expert_config["enabled"] = True
-                expert_config["buy_amount_krw"] = self.config.get("buy_amount_krw", 50000)
-                self.config = expert_config
+
+                # Expert 전용 필드만 명시적으로 구성 (V4 필드 제거)
+                self.config = {
+                    "enabled": True,
+                    "strategy": "expert",
+                    "expert_profile": expert_config.get("expert_profile"),
+                    "candle_unit": expert_config.get("candle_unit"),
+                    "buy_amount_krw": self.config.get("buy_amount_krw", 50000)
+                }
+
+                # custom 프로필인 경우 가중치 정보 추가
+                if expert_config.get("expert_profile") == "custom":
+                    self.config["custom_weights"] = expert_config.get("custom_weights")
+                    self.config["custom_threshold"] = expert_config.get("custom_threshold")
 
                 profile = expert_config.get("expert_profile")
                 logger.info(f"✅ Expert 전략 설정 저장: {profile}")
