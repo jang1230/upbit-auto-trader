@@ -189,9 +189,28 @@
                         "aggressive_expert",
                         "trend_follower",
                         "reversal_hunter",
-                        "smart_money"
+                        "smart_money",
+                        "custom"
                       ],
                       "description": "Expert profile (for expert strategy)"
+                    },
+                    "custom_weights": {
+                      "type": "object",
+                      "description": "Custom indicator weights (required if expert_profile=custom)",
+                      "properties": {
+                        "rsi": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                        "macd": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                        "bollinger": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                        "volume": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                        "trend": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+                      },
+                      "required": ["rsi", "macd", "bollinger", "volume", "trend"]
+                    },
+                    "custom_threshold": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Custom confidence threshold percentage (required if expert_profile=custom)"
                     },
                     "candle_unit": {
                       "type": "string",

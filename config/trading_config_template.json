@@ -152,6 +152,56 @@
           }
         ]
       }
+    },
+    "expert_custom_group": {
+      "name": "Expert 커스텀 전략 예제",
+      "observation_only": false,
+      "coins": ["KRW-SOL"],
+      "buy_settings": {
+        "mode": "auto",
+        "auto_config": {
+          "enabled": true,
+          "strategy": "expert",
+          "expert_profile": "custom",
+          "custom_weights": {
+            "rsi": 0.70,
+            "macd": 0.65,
+            "bollinger": 0.60,
+            "volume": 0.65,
+            "trend": 0.55
+          },
+          "custom_threshold": 50,
+          "candle_unit": "15",
+          "buy_amount_krw": 50000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -3.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": 5.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -10.0,
+            "quantity_ratio": 100
+          }
+        ]
+      }
     }
   }
 }
