@@ -207,16 +207,55 @@ class GroupUnifiedSettingsDialog(QDialog):
             logger.info(f"  💰 익절 레벨: {len(profit_levels)}개")
             logger.info(f"  🛑 손절 레벨: {len(loss_levels)}개")
 
-            # TODO: Step 5에서 구현
-            # - ConfigManager.update_group() 호출
+            # 레벨 검증
+            if not self.level_widget._validate_levels(dca_levels, profit_levels, loss_levels):
+                logger.warning("레벨 검증 실패")
+                return
+
+            # ConfigManager로 설정 저장
+            config = self.config_manager.load_config()
+            groups = config.get("groups", {})
+
+            if self.group_id not in groups:
+                raise ValueError(f"그룹을 찾을 수 없습니다: {self.group_id}")
+
+            group = groups[self.group_id]
+
+            # 자동매수 설정 업데이트
+            if "buy_settings" not in group:
+                group["buy_settings"] = {}
+
+            group["buy_settings"]["mode"] = "auto"
+            group["buy_settings"]["auto_config"] = autobuy_config
+
+            # DCA 설정 업데이트
+            if "dca_settings" not in group:
+                group["dca_settings"] = {"mode": "auto"}
+            group["dca_settings"]["levels"] = dca_levels
+
+            # 익절 설정 업데이트
+            if "profit_settings" not in group:
+                group["profit_settings"] = {"mode": "auto"}
+            group["profit_settings"]["levels"] = profit_levels
+
+            # 손절 설정 업데이트
+            if "loss_settings" not in group:
+                group["loss_settings"] = {"mode": "auto"}
+            group["loss_settings"]["levels"] = loss_levels
+
+            # 저장
+            self.config_manager.save_config(config)
+
+            logger.info(f"✅ 그룹 {self.group_id} 통합 설정 저장 완료")
 
             QMessageBox.information(
                 self,
                 "저장 완료",
-                f"그룹 '{self.group_config.get('name')}' 설정이 저장되었습니다.\n"
-                f"자동매수: {autobuy_config.get('strategy')}\n"
-                f"DCA: {len(dca_levels)}개, 익절: {len(profit_levels)}개, 손절: {len(loss_levels)}개\n"
-                f"(Step 5에서 실제 파일 저장 구현 예정)"
+                f"그룹 '{self.group_config.get('name')}' 설정이 저장되었습니다.\n\n"
+                f"📊 자동매수: {autobuy_config.get('strategy')}\n"
+                f"📈 DCA: {len(dca_levels)}개 레벨\n"
+                f"💰 익절: {len(profit_levels)}개 레벨\n"
+                f"🛑 손절: {len(loss_levels)}개 레벨"
             )
 
             self.accept()
