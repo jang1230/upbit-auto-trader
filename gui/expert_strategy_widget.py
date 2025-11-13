@@ -195,29 +195,24 @@ class ExpertStrategyWidget(QWidget):
         form = QFormLayout()
 
         # RSI 가중치
-        rsi_layout = self._create_weight_slider("RSI")
-        self.rsi_slider, self.rsi_value_label = rsi_layout
-        form.addRow("📊 RSI:", rsi_layout)
+        rsi_container, self.rsi_slider, self.rsi_value_label = self._create_weight_slider("RSI")
+        form.addRow("📊 RSI:", rsi_container)
 
         # MACD 가중치
-        macd_layout = self._create_weight_slider("MACD")
-        self.macd_slider, self.macd_value_label = macd_layout
-        form.addRow("📈 MACD:", macd_layout)
+        macd_container, self.macd_slider, self.macd_value_label = self._create_weight_slider("MACD")
+        form.addRow("📈 MACD:", macd_container)
 
         # Bollinger 가중치
-        bollinger_layout = self._create_weight_slider("Bollinger")
-        self.bollinger_slider, self.bollinger_value_label = bollinger_layout
-        form.addRow("📉 Bollinger:", bollinger_layout)
+        bollinger_container, self.bollinger_slider, self.bollinger_value_label = self._create_weight_slider("Bollinger")
+        form.addRow("📉 Bollinger:", bollinger_container)
 
         # Volume 가중치
-        volume_layout = self._create_weight_slider("Volume")
-        self.volume_slider, self.volume_value_label = volume_layout
-        form.addRow("📊 Volume:", volume_layout)
+        volume_container, self.volume_slider, self.volume_value_label = self._create_weight_slider("Volume")
+        form.addRow("📊 Volume:", volume_container)
 
         # Trend 가중치
-        trend_layout = self._create_weight_slider("Trend")
-        self.trend_slider, self.trend_value_label = trend_layout
-        form.addRow("📈 Trend:", trend_layout)
+        trend_container, self.trend_slider, self.trend_value_label = self._create_weight_slider("Trend")
+        form.addRow("📈 Trend:", trend_container)
 
         layout.addLayout(form)
 
@@ -240,7 +235,11 @@ class ExpertStrategyWidget(QWidget):
         return group
 
     def _create_weight_slider(self, name: str):
-        """가중치 슬라이더 생성 (0.0 ~ 1.0)"""
+        """가중치 슬라이더 생성 (0.0 ~ 1.0)
+
+        Returns:
+            tuple: (container, slider, value_label)
+        """
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -263,7 +262,7 @@ class ExpertStrategyWidget(QWidget):
         layout.addWidget(slider, 3)
         layout.addWidget(value_label, 1)
 
-        return (slider, value_label)
+        return (container, slider, value_label)
 
     def _create_profile_info_group(self) -> QGroupBox:
         """프로필 정보 표시 그룹"""
