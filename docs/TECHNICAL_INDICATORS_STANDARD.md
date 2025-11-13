@@ -6,7 +6,7 @@
 
 **목표 빈도**: 시총 상위 10개 코인 전체 합쳐서 하루 **20~30회 범위** (시장 상황에 따라 유동적)
 
-**최종 업데이트**: 2025-10-23
+**최종 업데이트**: 2025-01-26 (V4 프리셋 추가)
 
 ---
 
@@ -16,6 +16,162 @@
 2. **거래량 확인**: 모든 매수 신호는 거래량 급증과 함께 확인
 3. **시장 상황 고려**: 횡보장/추세장에 따라 지표 신뢰도 다름
 4. **범위 유지**: 하루 20~30회 범위 유지 (너무 많거나 적으면 조정)
+
+---
+
+## V4 Preset Indicator Settings
+
+**V4 시스템**에서는 3가지 **사전 정의된 프리셋**을 제공하여 초보자도 쉽게 자동매수 전략을 사용할 수 있습니다.
+
+각 프리셋은 **캔들 주기, RSI, MACD, Volume** 조합으로 구성되며, 투자 스타일에 따라 선택 가능합니다.
+
+---
+
+### ⏰ Conservative Preset (4-hour candles)
+
+**대상**: 장기 투자자, 안정적 진입 원하는 사용자
+
+**지표 설정**:
+```json
+{
+  "candle_unit": "240",  // 4시간봉
+  "indicators": {
+    "rsi": {
+      "enabled": true,
+      "period": 14,
+      "oversold": 25,  // 강한 과매도
+      "overbought": 75
+    },
+    "macd": {
+      "enabled": true,
+      "fast": 12,
+      "slow": 26,
+      "signal": 9
+    },
+    "volume": {
+      "enabled": true,
+      "period": 20,
+      "threshold": 2.5  // 평균 대비 250%
+    }
+  }
+}
+```
+
+**매수 조건** (ALL 충족):
+1. ✅ RSI < 25 (강한 과매도)
+2. ✅ MACD 골든크로스 (MACD선 > Signal선)
+3. ✅ Volume > 2.5x 평균 (높은 거래량 급증)
+
+**특징**:
+- 매수 신호 적음 (코인당 주 1-2회)
+- 높은 신뢰도 진입
+- 보수적 투자자에게 적합
+- **장기 보유 전략과 어울림**
+
+---
+
+### ⚖️ Balanced Preset (1-hour candles) ⭐ 권장
+
+**대상**: 대부분의 사용자, 균형잡힌 트레이딩
+
+**지표 설정**:
+```json
+{
+  "candle_unit": "60",  // 1시간봉
+  "indicators": {
+    "rsi": {
+      "enabled": true,
+      "period": 14,
+      "oversold": 30,  // 표준 과매도
+      "overbought": 70
+    },
+    "macd": {
+      "enabled": true,
+      "fast": 12,
+      "slow": 26,
+      "signal": 9
+    },
+    "volume": {
+      "enabled": true,
+      "period": 20,
+      "threshold": 2.0  // 평균 대비 200%
+    }
+  }
+}
+```
+
+**매수 조건** (ALL 충족):
+1. ✅ RSI < 30 (과매도)
+2. ✅ MACD 골든크로스
+3. ✅ Volume > 2.0x 평균
+
+**특징**:
+- 적당한 매수 신호 (코인당 주 3-5회)
+- 빈도와 품질의 좋은 균형
+- **초보자에게 추천** ⭐
+- 백테스트 검증된 설정
+
+---
+
+### ⚡ Aggressive Preset (15-minute candles)
+
+**대상**: 스캘핑, 빠른 진입 원하는 숙련자
+
+**지표 설정**:
+```json
+{
+  "candle_unit": "15",  // 15분봉
+  "indicators": {
+    "rsi": {
+      "enabled": true,
+      "period": 14,
+      "oversold": 35,  // 약한 과매도
+      "overbought": 65
+    },
+    "macd": {
+      "enabled": true,
+      "fast": 12,
+      "slow": 26,
+      "signal": 9
+    },
+    "volume": {
+      "enabled": true,
+      "period": 20,
+      "threshold": 1.5  // 평균 대비 150%
+    }
+  }
+}
+```
+
+**매수 조건** (ALL 충족):
+1. ✅ RSI < 35 (약한 과매도)
+2. ✅ MACD 골든크로스
+3. ✅ Volume > 1.5x 평균
+
+**특징**:
+- 매수 신호 많음 (코인당 주 10-20회)
+- 낮은 신뢰도지만 더 많은 기회
+- **고위험, 적극적 모니터링 필요** ⚠️
+- 빠른 시장 변화 대응 가능
+
+---
+
+### 📊 Choosing the Right Preset
+
+| 상황 | 추천 프리셋 | 이유 |
+|------|-------------|------|
+| 암호화폐 트레이딩 처음 | **Balanced** | 중간 빈도, 검증된 설정 |
+| 보수적 장기 투자자 | **Conservative** | 높은 신뢰도, 적은 거래 |
+| 숙련된 트레이더, 적극적 모니터링 | **Aggressive** | 많은 기회, 빠른 진입 |
+| 새로운 전략 테스트 | **Balanced** (dry-run) | 안전한 백테스팅 |
+| 고변동성 시장 (급등락) | **Conservative** | 안정적 진입 |
+| 안정적 시장 (횡보) | **Balanced** 또는 **Aggressive** | 더 많은 기회 포착 |
+
+**프리셋 변경 방법**:
+1. GUI → 그룹 관리 → 그룹 선택
+2. 매수 설정 → 자동매수 → "⚙️ 자동매수 설정..."
+3. 투자 스타일 선택: Conservative / Balanced / Aggressive
+4. 저장
 
 ---
 
