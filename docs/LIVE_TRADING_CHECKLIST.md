@@ -1,4 +1,4 @@
-# 🚨 실계좌 거래 전 필수 체크리스트
+# 🚨 실계좌 거래 전 필수 체크리스트 (V4)
 
 **주의**: 이 문서는 Dry-run에서 Live 모드로 전환하기 전에 **반드시** 확인해야 할 사항들을 정리한 것입니다.
 
@@ -8,23 +8,258 @@
 
 ### 1. Dry-run 충분한 테스트 완료
 - [ ] 최소 1주일 이상 Dry-run 모드로 안정적 운영 확인
-- [ ] 모든 거래 시나리오가 예상대로 동작하는지 확인
+- [ ] 모든 거래 시나리오가 예상대로 동작하는지 확인 (자동매수, DCA, 익절, 손절)
 - [ ] 로그 파일에 에러가 없는지 확인
+- [ ] 승률 ≥ 55% 달성
+- [ ] 수익률 > 0% 달성
 
 ### 2. API 키 설정
-- [ ] Upbit API 키 발급 완료 (출금 권한 **제외** 권장)
-- [ ] API 키가 `config/api_keys.json`에 올바르게 저장됨
+- [ ] Upbit API 키 발급 완료
+- [ ] **권한 확인**: 자산 조회, 주문 조회, 주문 등록/취소 ✅
+- [ ] **권한 확인**: 출금 **제외** ❌ (보안상 필수)
+- [ ] API 키가 GUI 설정에 올바르게 저장됨
 - [ ] IP 화이트리스트 설정 (선택사항, 보안 강화)
 
-### 3. 설정 파일 검증
-- [ ] `config/trading_config.json` 파일 존재 확인
-- [ ] 그룹 설정이 올바른지 확인 (coins 리스트)
-- [ ] `dry_run: false` 설정 확인
-- [ ] 투자 금액이 의도한 금액인지 재확인
+### 3. V4 설정 파일 검증 ✅
+
+#### ✅ Verify V4 Configuration File
+
+```bash
+# Check config exists and is valid JSON
+python -m json.tool config/trading_config.json
+```
+
+**Expected Structure**:
+```json
+{
+  "version": "4.0",
+  "mode": "dryrun",  // ← 먼저 dry-run으로!
+  "groups": {
+    "group_1": {...}  // ← 최소 1개 그룹
+  },
+  "daily_loss_limit": {
+    "enabled": true,
+    "loss_pct": 10.0
+  }
+}
+```
 
 ---
 
-## 🔍 필수 테스트 항목
+### 4. 각 그룹 설정 검증 ⭐⭐⭐
+
+**For each group, check**:
+
+#### 1. **Buy Settings**:
+   - [ ] `mode`: "auto", "manual", or "observation" 확인
+   - [ ] If auto: preset 선택 확인 (conservative/balanced/aggressive)
+   - [ ] `buy_amount_krw`: 합리적인 금액 (예: 50,000 KRW)
+   - [ ] **첫 실행 시 소액 권장**: 10,000 ~ 50,000원
+
+#### 2. **DCA Settings**:
+   - [ ] Levels defined (예: -3%, -5%, -7%)
+   - [ ] `quantity_ratio` 합리적 (예: 100%)
+   - [ ] 너무 많은 레벨 없음 (권장 ≤ 5)
+   - [ ] **같은 값 중복 없음** (DCA, 익절, 손절 간)
+
+#### 3. **Profit Settings**:
+   - [ ] Levels defined (예: +5%, +10%)
+   - [ ] `quantity_ratio` 합계 100% 이하
+   - [ ] 너무 공격적이지 않음 (첫 레벨 ≥ 3%)
+
+#### 4. **Loss Settings**:
+   - [ ] 최소 1 레벨 정의 (예: -15%)
+   - [ ] `quantity_ratio` = 100% (전량 손절)
+   - [ ] 너무 타이트하지 않음 (≥ -15% 권장)
+
+**Example Good Configuration**:
+```json
+{
+  "groups": {
+    "conservative_trading": {
+      "name": "Conservative BTC/ETH",
+      "coins": ["KRW-BTC", "KRW-ETH"],
+      "buy_settings": {
+        "mode": "auto",
+        "auto_config": {
+          "investment_style": "conservative",
+          "buy_amount_krw": 50000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {"price_ratio": -5.0, "quantity_ratio": 100},
+          {"price_ratio": -10.0, "quantity_ratio": 100}
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {"price_ratio": 5.0, "quantity_ratio": 50},
+          {"price_ratio": 10.0, "quantity_ratio": 50}
+        ]
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "levels": [
+          {"price_ratio": -15.0, "quantity_ratio": 100}
+        ]
+      }
+    }
+  }
+}
+```
+
+---
+
+### 5. Daily Loss Limit 검증 ⭐
+
+```bash
+grep -A 5 "daily_loss_limit" config/trading_config.json
+```
+
+**Recommended Settings for Live Trading**:
+```json
+{
+  "daily_loss_limit": {
+    "enabled": true,
+    "loss_pct": 10.0,  // 10% daily loss limit
+    "action": "liquidate",  // ⚠️ Force liquidate (not just alert!)
+    "calculation_method": "daily_only"  // Reset at 09:00 daily
+  }
+}
+```
+
+**⚠️ CRITICAL**: Set `action` to "liquidate" for live trading!
+
+- [ ] `enabled`: true
+- [ ] `loss_pct`: 합리적 (5% ~ 15%)
+- [ ] `action`: "liquidate" (실거래 시 필수)
+- [ ] `calculation_method`: "daily_only" (권장)
+
+---
+
+### 6. Position Files 검증
+
+```bash
+# Check position files
+ls -lh data/positions_live.json data/positions_dryrun.json
+
+# Verify they're valid JSON
+python -m json.tool data/positions_live.json
+python -m json.tool data/positions_dryrun.json
+```
+
+**Expected Content** (empty at first):
+```json
+{
+  "positions": {}
+}
+```
+
+- [ ] `positions_live.json` 존재
+- [ ] `positions_dryrun.json` 존재
+- [ ] 유효한 JSON 형식
+
+---
+
+## 🔍 필수 Dry-run 테스트 항목 (MANDATORY)
+
+### ✅ Run Dry-run Mode for Minimum 1 Week
+
+1. Set mode to "dryrun":
+```json
+{
+  "mode": "dryrun"
+}
+```
+
+2. Start application:
+```bash
+python main.py
+```
+
+3. Monitor for 1 week (7 days minimum)
+
+4. Check results:
+```bash
+# Check trade history
+cat data/trade_history.json | python -m json.tool
+
+# Check positions
+cat data/positions_dryrun.json | python -m json.tool
+
+# Check virtual balance
+cat data/virtual_balances.json | python -m json.tool
+```
+
+---
+
+### ✅ Verify Key Scenarios
+
+#### Scenario 1: Auto-buy Execution
+- [ ] Buy signal detected (check logs)
+- [ ] Position created in `positions_dryrun.json`
+- [ ] Virtual balance decreased
+- [ ] Telegram notification received
+
+#### Scenario 2: DCA Execution
+- [ ] Price drops to DCA level (e.g., -3%)
+- [ ] Additional buy executed
+- [ ] `dca_count` increased (0 → 1)
+- [ ] `avg_buy_price` updated (lowered)
+- [ ] `total_invested_krw` increased
+- [ ] **No duplicate execution** (Level 1 only once)
+
+#### Scenario 3: Profit-taking
+- [ ] Price rises to profit level (e.g., +5%)
+- [ ] Partial sell executed
+- [ ] `profit_levels_executed` updated
+- [ ] Position still active (if partial)
+- [ ] Profit recorded in `trade_history`
+
+#### Scenario 4: Stop-loss
+- [ ] Price drops to loss level (e.g., -15%)
+- [ ] Full sell executed
+- [ ] Position closed
+- [ ] Loss recorded in `trade_history`
+
+#### Scenario 5: Daily Loss Limit
+- [ ] Accumulate 10% daily loss
+- [ ] Alert/liquidate triggered
+- [ ] Next day (09:00) resets correctly
+
+---
+
+### ✅ Calculate Dry-run Performance
+
+```python
+from core.trade_history_manager import TradeHistoryManager
+
+history = TradeHistoryManager()
+
+for group_id in ["group_1", "group_2"]:  # Your group IDs
+    stats = history.calculate_statistics(group_id)
+
+    print(f"\n=== {group_id} ===")
+    print(f"Total Trades: {stats['total_trades']}")
+    print(f"Win Rate: {stats['win_rate']:.1f}%")
+    print(f"Total Profit: {stats['total_profit']:,} KRW")
+    print(f"Avg Profit per Trade: {stats['avg_profit_per_trade']:,.0f} KRW")
+```
+
+**Acceptable Results** (for live trading):
+- [ ] ✅ Win Rate ≥ 55%
+- [ ] ✅ Total Profit > 0 (positive)
+- [ ] ✅ No critical errors in logs
+- [ ] ✅ All scenarios tested successfully
+- [ ] ✅ No unexpected behavior
+
+**If Dry-run Results Are Poor**:
+- ❌ DO NOT switch to live mode
+- Adjust group settings (DCA levels, profit targets, etc.)
+- Test again for another week
 
 ### 1. 포지션 동기화 테스트 ⭐⭐⭐
 **이유**: 기존 보유 자산과 프로그램이 올바르게 동기화되는지 확인
