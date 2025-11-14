@@ -295,12 +295,14 @@ class AutoBuySettingsDialogV2(QDialog):
     def _on_buy_mode_changed(self):
         """매수 모드 변경 시 호출"""
         if self.manual_mode_radio.isChecked():
-            # Manual 모드: 자동 설정 컨테이너 숨김
-            self.auto_settings_container.setVisible(False)
+            # Manual 모드: 자동 설정 컨테이너 완전히 숨김 (공간 차지 안 함)
+            self.auto_settings_container.hide()
+            self.auto_settings_container.setMaximumHeight(0)
             logger.info("📱 수동 매수 모드 선택됨")
         else:
-            # Auto 모드: 자동 설정 컨테이너 표시
-            self.auto_settings_container.setVisible(True)
+            # Auto 모드: 자동 설정 컨테이너 표시 (높이 복원)
+            self.auto_settings_container.setMaximumHeight(16777215)  # Qt 기본 최대값
+            self.auto_settings_container.show()
             logger.info("🤖 자동 매수 모드 선택됨")
 
     def _create_buy_amount_group(self) -> QGroupBox:

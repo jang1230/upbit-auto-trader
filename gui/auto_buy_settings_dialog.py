@@ -366,13 +366,32 @@ class AutoBuySettingsDialog(QDialog):
         group = QGroupBox("📈 지표 설정 (커스텀 모드에서만 수정 가능)")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         layout = QVBoxLayout()
+        layout.setSpacing(15)  # 지표 그룹 간 간격
+        layout.setContentsMargins(10, 10, 10, 10)
 
         # ========================================
         # RSI 지표 설정
         # ========================================
-        rsi_group = QGroupBox("RSI (Relative Strength Index)")
-        rsi_group.setFont(QFont("맑은 고딕", 9))
+        rsi_group = QGroupBox("📊 RSI (Relative Strength Index)")
+        rsi_group.setFont(QFont("맑은 고딕", 9, QFont.Bold))
+        rsi_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                padding: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         rsi_layout = QVBoxLayout()
+        rsi_layout.setContentsMargins(10, 10, 10, 10)
+        rsi_layout.setSpacing(10)
 
         # RSI 활성화 체크박스
         self.rsi_enabled = QCheckBox("RSI 지표 사용")
@@ -381,18 +400,28 @@ class AutoBuySettingsDialog(QDialog):
 
         # RSI 파라미터
         rsi_form = QFormLayout()
+        rsi_form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        rsi_form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        rsi_form.setHorizontalSpacing(20)
+        rsi_form.setVerticalSpacing(10)
 
         self.rsi_period_spin = QSpinBox()
         self.rsi_period_spin.setRange(5, 50)
         self.rsi_period_spin.setSuffix(" 기간")
+        self.rsi_period_spin.setMinimumWidth(150)
+        self.rsi_period_spin.setFont(QFont("맑은 고딕", 10))
         rsi_form.addRow("기간:", self.rsi_period_spin)
 
         self.rsi_oversold_spin = QSpinBox()
         self.rsi_oversold_spin.setRange(10, 40)
+        self.rsi_oversold_spin.setMinimumWidth(150)
+        self.rsi_oversold_spin.setFont(QFont("맑은 고딕", 10))
         rsi_form.addRow("과매도 기준:", self.rsi_oversold_spin)
 
         self.rsi_overbought_spin = QSpinBox()
         self.rsi_overbought_spin.setRange(60, 90)
+        self.rsi_overbought_spin.setMinimumWidth(150)
+        self.rsi_overbought_spin.setFont(QFont("맑은 고딕", 10))
         rsi_form.addRow("과매수 기준:", self.rsi_overbought_spin)
 
         rsi_layout.addLayout(rsi_form)
@@ -407,9 +436,26 @@ class AutoBuySettingsDialog(QDialog):
         # ========================================
         # MACD 지표 설정
         # ========================================
-        macd_group = QGroupBox("MACD (Moving Average Convergence Divergence)")
-        macd_group.setFont(QFont("맑은 고딕", 9))
+        macd_group = QGroupBox("📈 MACD (Moving Average Convergence Divergence)")
+        macd_group.setFont(QFont("맑은 고딕", 9, QFont.Bold))
+        macd_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                padding: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         macd_layout = QVBoxLayout()
+        macd_layout.setContentsMargins(10, 10, 10, 10)
+        macd_layout.setSpacing(10)
 
         # MACD 활성화 체크박스
         self.macd_enabled = QCheckBox("MACD 지표 사용")
@@ -418,20 +464,30 @@ class AutoBuySettingsDialog(QDialog):
 
         # MACD 파라미터
         macd_form = QFormLayout()
+        macd_form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        macd_form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        macd_form.setHorizontalSpacing(20)
+        macd_form.setVerticalSpacing(10)
 
         self.macd_fast_spin = QSpinBox()
         self.macd_fast_spin.setRange(5, 30)
         self.macd_fast_spin.setSuffix(" 기간")
+        self.macd_fast_spin.setMinimumWidth(150)
+        self.macd_fast_spin.setFont(QFont("맑은 고딕", 10))
         macd_form.addRow("Fast 기간:", self.macd_fast_spin)
 
         self.macd_slow_spin = QSpinBox()
         self.macd_slow_spin.setRange(10, 50)
         self.macd_slow_spin.setSuffix(" 기간")
+        self.macd_slow_spin.setMinimumWidth(150)
+        self.macd_slow_spin.setFont(QFont("맑은 고딕", 10))
         macd_form.addRow("Slow 기간:", self.macd_slow_spin)
 
         self.macd_signal_spin = QSpinBox()
         self.macd_signal_spin.setRange(5, 20)
         self.macd_signal_spin.setSuffix(" 기간")
+        self.macd_signal_spin.setMinimumWidth(150)
+        self.macd_signal_spin.setFont(QFont("맑은 고딕", 10))
         macd_form.addRow("Signal 기간:", self.macd_signal_spin)
 
         macd_layout.addLayout(macd_form)
@@ -446,9 +502,26 @@ class AutoBuySettingsDialog(QDialog):
         # ========================================
         # Volume 지표 설정
         # ========================================
-        volume_group = QGroupBox("Volume (거래량)")
-        volume_group.setFont(QFont("맑은 고딕", 9))
+        volume_group = QGroupBox("📊 Volume (거래량)")
+        volume_group.setFont(QFont("맑은 고딕", 9, QFont.Bold))
+        volume_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                padding: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         volume_layout = QVBoxLayout()
+        volume_layout.setContentsMargins(10, 10, 10, 10)
+        volume_layout.setSpacing(10)
 
         # Volume 활성화 체크박스
         self.volume_enabled = QCheckBox("거래량 지표 사용")
@@ -457,16 +530,24 @@ class AutoBuySettingsDialog(QDialog):
 
         # Volume 파라미터
         volume_form = QFormLayout()
+        volume_form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        volume_form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        volume_form.setHorizontalSpacing(20)
+        volume_form.setVerticalSpacing(10)
 
         self.volume_period_spin = QSpinBox()
         self.volume_period_spin.setRange(10, 50)
         self.volume_period_spin.setSuffix(" 기간")
+        self.volume_period_spin.setMinimumWidth(150)
+        self.volume_period_spin.setFont(QFont("맑은 고딕", 10))
         volume_form.addRow("평균 기간:", self.volume_period_spin)
 
         self.volume_threshold_spin = QDoubleSpinBox()
         self.volume_threshold_spin.setRange(1.0, 5.0)
         self.volume_threshold_spin.setSingleStep(0.1)
         self.volume_threshold_spin.setSuffix("배")
+        self.volume_threshold_spin.setMinimumWidth(150)
+        self.volume_threshold_spin.setFont(QFont("맑은 고딕", 10))
         volume_form.addRow("급증 기준:", self.volume_threshold_spin)
 
         volume_layout.addLayout(volume_form)
