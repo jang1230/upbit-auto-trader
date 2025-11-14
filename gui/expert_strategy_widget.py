@@ -134,8 +134,6 @@ class ExpertStrategyWidget(QWidget):
         info_group = self._create_profile_info_group()
         layout.addWidget(info_group)
 
-        layout.addStretch()
-
         self.setLayout(layout)
 
     def _create_profile_selection_group(self) -> QGroupBox:

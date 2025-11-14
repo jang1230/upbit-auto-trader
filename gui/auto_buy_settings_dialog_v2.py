@@ -6,7 +6,8 @@ V4 전략과 Expert 전략을 라디오 버튼으로 선택
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QPushButton, QRadioButton, QLabel, QMessageBox, QSpinBox
+    QPushButton, QRadioButton, QLabel, QMessageBox, QSpinBox,
+    QScrollArea, QWidget
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -39,8 +40,8 @@ class AutoBuySettingsDialogV2(QDialog):
 
         self.setWindowTitle("⚙️ 자동매수 전략 설정")
         self.setMinimumWidth(800)
-        self.setMinimumHeight(750)
-        self.resize(850, 850)  # 충분히 큰 크기로 설정
+        self.setMinimumHeight(700)
+        self.resize(820, 750)  # 적절한 크기로 설정
 
         self._init_ui()
         self._load_config()
@@ -166,18 +167,38 @@ class AutoBuySettingsDialogV2(QDialog):
         buy_amount_group = self._create_buy_amount_group()
         auto_layout.addWidget(buy_amount_group)
 
-        # === 2-3. 설정 폼 영역 (Visibility Toggle - No Scroll) ===
+        # === 2-3. 설정 폼 영역 (Scrollable) ===
+        # Container 위젯 생성 (V4 + Expert 위젯을 담을 컨테이너)
+        widget_container = QWidget()
+        widget_container.setStyleSheet("QWidget { background-color: transparent; }")
+        container_layout = QVBoxLayout(widget_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+
         # V4 위젯
         self.v4_widget = self._create_v4_widget()
-        auto_layout.addWidget(self.v4_widget)
+        container_layout.addWidget(self.v4_widget)
 
         # Expert 위젯
         self.expert_widget = self._create_expert_widget()
-        auto_layout.addWidget(self.expert_widget)
+        container_layout.addWidget(self.expert_widget)
 
         # 기본값: V4 숨김, Expert 표시
         self.v4_widget.setVisible(False)
         self.expert_widget.setVisible(True)
+
+        # 스크롤 영역으로 감싸기 (V4/Expert 위젯만 스크롤)
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(widget_container)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setStyleSheet("QScrollArea { background-color: transparent; border: none; }")
+        scroll_area.setMinimumHeight(350)  # 스크롤 영역 최소 높이
+        scroll_area.setMaximumHeight(500)  # 스크롤 영역 최대 높이
+
+        auto_layout.addWidget(scroll_area, 1)  # stretch factor = 1
 
         # 자동 매수 컨테이너 레이아웃 설정
         self.auto_settings_container.setLayout(auto_layout)
