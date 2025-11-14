@@ -39,9 +39,9 @@ class AutoBuySettingsDialogV2(QDialog):
         self.config = config or self._get_default_config()
 
         self.setWindowTitle("⚙️ 자동매수 전략 설정")
-        self.setMinimumWidth(750)
-        self.setMinimumHeight(600)
-        self.setMaximumHeight(650)
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(700)
+        self.setMaximumHeight(900)  # 최대 높이 늘림
 
         self._init_ui()
         self._load_config()
@@ -78,7 +78,7 @@ class AutoBuySettingsDialogV2(QDialog):
     def _init_ui(self):
         """UI 초기화 - 매수 모드 + 전략 선택"""
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(15)
+        main_layout.setSpacing(20)  # 간격 늘림
 
         # === 1. 매수 모드 선택 (Manual vs Auto) ===
         mode_group = self._create_buy_mode_group()
@@ -88,6 +88,7 @@ class AutoBuySettingsDialogV2(QDialog):
         self.auto_settings_container = QGroupBox()
         self.auto_settings_container.setStyleSheet("QGroupBox { border: none; }")
         auto_layout = QVBoxLayout()
+        auto_layout.setSpacing(20)  # 그룹 간 간격 늘림
 
         # === 2-1. 전략 선택 영역 (라디오 버튼) ===
         strategy_group = QGroupBox("📊 자동매수 전략 선택")
@@ -151,7 +152,8 @@ class AutoBuySettingsDialogV2(QDialog):
         # Container 위젯 생성 (V4 + Expert 위젯을 담을 컨테이너)
         widget_container = QWidget()
         container_layout = QVBoxLayout(widget_container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setContentsMargins(10, 10, 10, 10)  # 적절한 마진
+        container_layout.setSpacing(15)  # 위젯 간 간격
 
         # V4 위젯
         self.v4_widget = self._create_v4_widget()
@@ -172,6 +174,7 @@ class AutoBuySettingsDialogV2(QDialog):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setMinimumHeight(400)  # 스크롤 영역 최소 높이
 
         auto_layout.addWidget(scroll_area, 1)  # stretch factor = 1
 
