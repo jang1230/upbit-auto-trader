@@ -206,8 +206,8 @@ class AutoBuySettingsDialogV2(QDialog):
 
         # embedded 모드일 때는 더 작은 최소 높이 사용
         if self.embedded:
-            scroll_area.setMinimumHeight(200)  # 임베딩 모드: 최소 200px
-            scroll_area.setMaximumHeight(350)  # 임베딩 모드: 최대 350px
+            scroll_area.setMinimumHeight(150)  # 임베딩 모드: 최소 150px
+            scroll_area.setMaximumHeight(250)  # 임베딩 모드: 최대 250px
         else:
             scroll_area.setMinimumHeight(350)  # Standalone: 최소 350px
             scroll_area.setMaximumHeight(500)  # Standalone: 최대 500px

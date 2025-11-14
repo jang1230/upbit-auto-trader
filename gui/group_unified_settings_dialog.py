@@ -49,8 +49,8 @@ class GroupUnifiedSettingsDialog(QDialog):
 
         self.setWindowTitle(f"⚙️ 그룹 설정: {self.group_config.get('name', group_id)}")
         self.setMinimumWidth(800)  # 너비 800px (원래대로)
-        self.setMinimumHeight(500)  # 높이 500px (700 → 500 축소)
-        self.resize(800, 500)  # 초기 크기 설정
+        self.setMinimumHeight(400)  # 높이 400px (500 → 400 축소)
+        self.resize(800, 400)  # 초기 크기 설정
 
         self._init_ui()
 
