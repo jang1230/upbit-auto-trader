@@ -22,15 +22,16 @@ logger = logging.getLogger(__name__)
 
 class AutoBuySettingsDialogV2(QDialog):
     """
-    자동매수 설정 다이얼로그 V2
+    매수 설정 다이얼로그 V2 (Manual + Auto 통합)
 
-    V4 전략과 Expert 전략을 라디오 버튼으로 선택
+    1. 매수 모드 선택: Manual (수동 매수) vs Auto (자동 매수)
+    2. Auto 모드 시 전략 선택: V4 vs Expert
     """
 
     def __init__(self, config: dict = None, parent=None):
         """
         Args:
-            config: 자동매수 설정 딕셔너리
+            config: buy_settings 딕셔너리 (mode + auto_config 또는 legacy auto_config)
             parent: 부모 위젯
         """
         super().__init__(parent)
@@ -75,11 +76,20 @@ class AutoBuySettingsDialogV2(QDialog):
         }
 
     def _init_ui(self):
-        """UI 초기화 - 라디오 버튼 + 스택 위젯 구조"""
+        """UI 초기화 - 매수 모드 + 전략 선택"""
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(15)
 
-        # === 1. 전략 선택 영역 (라디오 버튼) ===
+        # === 1. 매수 모드 선택 (Manual vs Auto) ===
+        mode_group = self._create_buy_mode_group()
+        main_layout.addWidget(mode_group)
+
+        # === 2. 자동 매수 설정 컨테이너 (auto 모드에서만 표시) ===
+        self.auto_settings_container = QGroupBox()
+        self.auto_settings_container.setStyleSheet("QGroupBox { border: none; }")
+        auto_layout = QVBoxLayout()
+
+        # === 2-1. 전략 선택 영역 (라디오 버튼) ===
         strategy_group = QGroupBox("📊 자동매수 전략 선택")
         strategy_group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         strategy_layout = QVBoxLayout()
@@ -127,17 +137,17 @@ class AutoBuySettingsDialogV2(QDialog):
         strategy_layout.addWidget(expert_desc)
 
         strategy_group.setLayout(strategy_layout)
-        main_layout.addWidget(strategy_group)
+        auto_layout.addWidget(strategy_group)
 
         # 라디오 버튼 이벤트 연결
         self.v4_radio.toggled.connect(self._on_strategy_changed)
         self.expert_radio.toggled.connect(self._on_strategy_changed)
 
-        # === 2. 매수 금액 설정 (공통) ===
+        # === 2-2. 매수 금액 설정 (공통) ===
         buy_amount_group = self._create_buy_amount_group()
-        main_layout.addWidget(buy_amount_group)
+        auto_layout.addWidget(buy_amount_group)
 
-        # === 3. 설정 폼 영역 (스택 위젯 + 스크롤) ===
+        # === 2-3. 설정 폼 영역 (스택 위젯 + 스크롤) ===
         self.stack_widget = QStackedWidget()
 
         # V4 위젯 (index 0)
@@ -156,13 +166,91 @@ class AutoBuySettingsDialogV2(QDialog):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setFrameShape(QScrollArea.NoFrame)  # 테두리 제거
 
-        main_layout.addWidget(scroll_area, 1)  # stretch factor = 1
+        auto_layout.addWidget(scroll_area, 1)  # stretch factor = 1
 
-        # === 4. 버튼 영역 ===
+        # 자동 매수 컨테이너 레이아웃 설정
+        self.auto_settings_container.setLayout(auto_layout)
+        main_layout.addWidget(self.auto_settings_container)
+
+        # === 3. 버튼 영역 ===
         button_layout = self._create_button_layout()
         main_layout.addLayout(button_layout)
 
         self.setLayout(main_layout)
+
+    def _create_buy_mode_group(self) -> QGroupBox:
+        """
+        매수 모드 선택 그룹 생성 (Manual vs Auto)
+
+        Returns:
+            매수 모드 선택 QGroupBox
+        """
+        group = QGroupBox("🎯 매수 모드 선택")
+        group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        layout = QVBoxLayout()
+
+        # Manual 모드 라디오 버튼
+        self.manual_mode_radio = QRadioButton("📱 수동 매수 (Upbit에서 직접 매수)")
+        self.manual_mode_radio.setFont(QFont("맑은 고딕", 10))
+        self.manual_mode_radio.setStyleSheet("""
+            QRadioButton {
+                padding: 8px;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        layout.addWidget(self.manual_mode_radio)
+
+        # Manual 설명
+        manual_desc = QLabel("   ↳ Upbit 거래소에서 직접 매수, DCA/익절/손절은 자동 실행")
+        manual_desc.setFont(QFont("맑은 고딕", 9))
+        manual_desc.setStyleSheet("color: #666; padding-left: 30px;")
+        layout.addWidget(manual_desc)
+
+        layout.addSpacing(10)
+
+        # Auto 모드 라디오 버튼
+        self.auto_mode_radio = QRadioButton("🤖 자동 매수 (전략 기반 자동 매수)")
+        self.auto_mode_radio.setFont(QFont("맑은 고딕", 10))
+        self.auto_mode_radio.setStyleSheet("""
+            QRadioButton {
+                padding: 8px;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        layout.addWidget(self.auto_mode_radio)
+
+        # Auto 설명
+        auto_desc = QLabel("   ↳ V4/Expert 전략으로 자동 매수, DCA/익절/손절도 자동 실행")
+        auto_desc.setFont(QFont("맑은 고딕", 9))
+        auto_desc.setStyleSheet("color: #666; padding-left: 30px;")
+        layout.addWidget(auto_desc)
+
+        # 라디오 버튼 이벤트 연결
+        self.manual_mode_radio.toggled.connect(self._on_buy_mode_changed)
+        self.auto_mode_radio.toggled.connect(self._on_buy_mode_changed)
+
+        # 기본값: Auto 모드 선택
+        self.auto_mode_radio.setChecked(True)
+
+        group.setLayout(layout)
+        return group
+
+    def _on_buy_mode_changed(self):
+        """매수 모드 변경 시 호출"""
+        if self.manual_mode_radio.isChecked():
+            # Manual 모드: 자동 설정 컨테이너 숨김
+            self.auto_settings_container.setVisible(False)
+            logger.info("📱 수동 매수 모드 선택됨")
+        else:
+            # Auto 모드: 자동 설정 컨테이너 표시
+            self.auto_settings_container.setVisible(True)
+            logger.info("🤖 자동 매수 모드 선택됨")
 
     def _create_buy_amount_group(self) -> QGroupBox:
         """
@@ -268,83 +356,127 @@ class AutoBuySettingsDialogV2(QDialog):
         return layout
 
     def _load_config(self):
-        """설정 로드 및 라디오 버튼 선택"""
+        """설정 로드 및 모드/전략 선택"""
         try:
-            strategy = self.config.get("strategy", "v4_auto_buy")
-
-            if strategy == "expert":
-                # Expert 라디오 버튼 선택
-                self.expert_radio.setChecked(True)
-                self.stack_widget.setCurrentIndex(1)
-                logger.info("📊 Expert 전략 로드")
-            else:
-                # V4 라디오 버튼 선택 (기본값)
-                self.v4_radio.setChecked(True)
-                self.stack_widget.setCurrentIndex(0)
-                logger.info("📊 V4 전략 로드")
-
             # 매수 금액 로드 (공통)
             buy_amount = self.config.get("buy_amount_krw", 50000)
             self.buy_amount_spin.setValue(buy_amount)
 
+            # 모드 확인 (backward compatibility)
+            mode = self.config.get("mode", None)
+
+            if mode == "manual":
+                # Manual 모드
+                self.manual_mode_radio.setChecked(True)
+                self.auto_settings_container.setVisible(False)
+                logger.info("📱 Manual 모드 로드")
+
+            elif mode == "auto" or mode is None:
+                # Auto 모드 또는 구버전 (mode 필드 없음)
+                self.auto_mode_radio.setChecked(True)
+                self.auto_settings_container.setVisible(True)
+
+                # auto_config에서 전략 정보 가져오기
+                auto_config = self.config.get("auto_config", self.config)  # Fallback to self.config for backward compatibility
+                strategy = auto_config.get("strategy", "v4_auto_buy")
+
+                if strategy == "expert":
+                    # Expert 라디오 버튼 선택
+                    self.expert_radio.setChecked(True)
+                    self.stack_widget.setCurrentIndex(1)
+                    logger.info("📊 Auto Expert 전략 로드")
+                else:
+                    # V4 라디오 버튼 선택 (기본값)
+                    self.v4_radio.setChecked(True)
+                    self.stack_widget.setCurrentIndex(0)
+                    logger.info("📊 Auto V4 전략 로드")
+
         except Exception as e:
             logger.error(f"❌ 설정 로드 실패: {e}")
-            # 기본값: V4 선택
+            # 기본값: Auto V4 선택
+            self.auto_mode_radio.setChecked(True)
+            self.auto_settings_container.setVisible(True)
             self.v4_radio.setChecked(True)
             self.stack_widget.setCurrentIndex(0)
             self.buy_amount_spin.setValue(50000)
 
     def get_config(self) -> dict:
         """
-        현재 선택된 전략의 설정을 실시간으로 반환
+        현재 선택된 모드 및 전략의 설정을 반환
 
         Returns:
-            현재 선택된 전략의 설정 딕셔너리
+            buy_settings 구조의 설정 딕셔너리
         """
         try:
-            # 공통 매수 금액 (상단 필드에서 가져오기)
+            # 공통 매수 금액
             buy_amount = self.buy_amount_spin.value()
 
+            # Manual 모드 선택 시
+            if self.manual_mode_radio.isChecked():
+                result = {
+                    "mode": "manual",
+                    "buy_amount_krw": buy_amount
+                }
+                logger.info(f"📱 Manual 모드 설정 반환: 매수금액 {buy_amount:,}원")
+                return result
+
+            # Auto 모드 선택 시
             if self.v4_radio.isChecked():
                 # V4 전략 선택됨
                 v4_config = self.v4_widget.get_config()
 
-                result = {
+                auto_config = {
                     "enabled": v4_config.get("enabled", True),
                     "strategy": "v4_auto_buy",
                     "investment_style": v4_config.get("investment_style"),
                     "candle_unit": v4_config.get("candle_unit"),
                     "indicators": v4_config.get("indicators"),
-                    "buy_amount_krw": buy_amount  # 공통 필드 사용
+                    "buy_amount_krw": buy_amount
                 }
 
-                logger.info(f"📊 V4 설정 반환: {result.get('investment_style')}, 매수금액: {buy_amount:,}원")
+                result = {
+                    "mode": "auto",
+                    "buy_amount_krw": buy_amount,  # 공통 필드
+                    "auto_config": auto_config
+                }
+
+                logger.info(f"📊 Auto V4 설정 반환: {auto_config.get('investment_style')}, 매수금액: {buy_amount:,}원")
                 return result
 
             else:
                 # Expert 전략 선택됨
                 expert_config = self.expert_widget.get_config()
 
-                result = {
+                auto_config = {
                     "enabled": True,
                     "strategy": "expert",
                     "expert_profile": expert_config.get("expert_profile"),
                     "candle_unit": expert_config.get("candle_unit"),
-                    "buy_amount_krw": buy_amount  # 공통 필드 사용
+                    "buy_amount_krw": buy_amount
                 }
 
                 # Custom 프로필인 경우 가중치 추가
                 if expert_config.get("expert_profile") == "custom":
-                    result["custom_weights"] = expert_config.get("custom_weights")
-                    result["custom_threshold"] = expert_config.get("custom_threshold")
+                    auto_config["custom_weights"] = expert_config.get("custom_weights")
+                    auto_config["custom_threshold"] = expert_config.get("custom_threshold")
 
-                logger.info(f"🎯 Expert 설정 반환: {result.get('expert_profile')}, 매수금액: {buy_amount:,}원")
+                result = {
+                    "mode": "auto",
+                    "buy_amount_krw": buy_amount,  # 공통 필드
+                    "auto_config": auto_config
+                }
+
+                logger.info(f"🎯 Auto Expert 설정 반환: {auto_config.get('expert_profile')}, 매수금액: {buy_amount:,}원")
                 return result
 
         except Exception as e:
             logger.error(f"❌ get_config() 실패: {e}", exc_info=True)
-            # 기본값 반환
-            return self._get_default_config()
+            # 기본값 반환 (auto 모드)
+            return {
+                "mode": "auto",
+                "buy_amount_krw": 50000,
+                "auto_config": self._get_default_config()
+            }
 
 
 if __name__ == "__main__":
