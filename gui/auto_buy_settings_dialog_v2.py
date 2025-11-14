@@ -37,6 +37,7 @@ class AutoBuySettingsDialogV2(QDialog):
         super().__init__(parent)
 
         self.config = config or self._get_default_config()
+        self.embedded = embedded  # embedded 모드 저장
 
         self.setWindowTitle("⚙️ 자동매수 전략 설정")
 
@@ -202,8 +203,14 @@ class AutoBuySettingsDialogV2(QDialog):
         scroll_area.setFrameShape(QScrollArea.NoFrame)
         # 중요: ID selector 사용하여 자식 위젯에 cascade되지 않도록 함
         scroll_area.setStyleSheet("#scrollArea { background-color: transparent; border: none; }")
-        scroll_area.setMinimumHeight(350)  # 스크롤 영역 최소 높이
-        scroll_area.setMaximumHeight(500)  # 스크롤 영역 최대 높이
+
+        # embedded 모드일 때는 더 작은 최소 높이 사용
+        if self.embedded:
+            scroll_area.setMinimumHeight(200)  # 임베딩 모드: 최소 200px
+            scroll_area.setMaximumHeight(350)  # 임베딩 모드: 최대 350px
+        else:
+            scroll_area.setMinimumHeight(350)  # Standalone: 최소 350px
+            scroll_area.setMaximumHeight(500)  # Standalone: 최대 500px
 
         auto_layout.addWidget(scroll_area, 1)  # stretch factor = 1
 
