@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
+from gui.manual_buy_dialog import ManualBuyDialog
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,6 +57,7 @@ class GroupManagementDialog(QDialog):
         self.observation_checkbox = None
         self.coin_checkboxes: Dict[str, QCheckBox] = {}
         self.settings_btn = None
+        self.manual_buy_btn = None  # 수동 매수 버튼
         self.save_btn = None
         self.delete_btn = None
 
@@ -216,6 +219,15 @@ class GroupManagementDialog(QDialog):
         self.settings_btn.clicked.connect(self._open_group_settings)
         self.settings_btn.setEnabled(False)  # 그룹 선택 시 활성화
         button_layout.addWidget(self.settings_btn)
+
+        # 수동 매수 버튼 (Manual 모드 그룹에서만 표시)
+        self.manual_buy_btn = QPushButton("💰 수동 매수")
+        self.manual_buy_btn.setFont(QFont("맑은 고딕", 9, QFont.Bold))
+        self.manual_buy_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 10px;")
+        self.manual_buy_btn.clicked.connect(self._open_manual_buy_dialog)
+        self.manual_buy_btn.setEnabled(False)  # 그룹 선택 시 활성화
+        self.manual_buy_btn.setVisible(False)  # 처음엔 숨김 (Manual 모드일 때만 표시)
+        button_layout.addWidget(self.manual_buy_btn)
 
         button_layout.addStretch()
 
@@ -513,6 +525,20 @@ class GroupManagementDialog(QDialog):
             observation_mode = group.get("observation_only", False)
             self.observation_checkbox.setChecked(observation_mode)
 
+            # 매수 모드 확인 (Manual 모드면 수동 매수 버튼 표시)
+            buy_settings = group.get("buy_settings", {})
+            buy_mode = buy_settings.get("mode", "auto")
+
+            if buy_mode == "manual" and self.is_trading_running:
+                # Manual 모드 + 거래 실행 중: 수동 매수 버튼 표시
+                self.manual_buy_btn.setVisible(True)
+                self.manual_buy_btn.setEnabled(True)
+                logger.info(f"💰 수동 매수 버튼 활성화 (그룹: {group_id}, mode=manual)")
+            else:
+                # Auto/Disabled 모드 또는 거래 중지: 수동 매수 버튼 숨김
+                self.manual_buy_btn.setVisible(False)
+                self.manual_buy_btn.setEnabled(False)
+
             # 코인 체크박스 로드
             self._load_available_coins()
 
@@ -740,6 +766,64 @@ class GroupManagementDialog(QDialog):
                 self,
                 "오류",
                 f"그룹 설정 다이얼로그를 열 수 없습니다.\n{e}"
+            )
+
+    def _open_manual_buy_dialog(self):
+        """수동 매수 다이얼로그 열기"""
+        if not self.selected_group_id:
+            return
+
+        try:
+            # 그룹 정보 로드
+            config = self.config_manager.load_config()
+            groups = config.get("groups", {})
+
+            if self.selected_group_id not in groups:
+                QMessageBox.warning(self, "오류", "그룹 정보를 찾을 수 없습니다.")
+                return
+
+            group = groups[self.selected_group_id]
+            group_name = group.get("name", self.selected_group_id)
+            coins = group.get("coins", [])
+            buy_settings = group.get("buy_settings", {})
+            default_amount = buy_settings.get("buy_amount_krw", 50000)
+
+            # 코인이 없으면 경고
+            if not coins:
+                QMessageBox.warning(
+                    self,
+                    "코인 없음",
+                    f"그룹 '{group_name}'에 코인이 없습니다.\n"
+                    "먼저 코인을 추가해주세요."
+                )
+                return
+
+            # Dry-run 모드 확인
+            dry_run = config.get("global_settings", {}).get("dry_run", False)
+
+            # ManualBuyDialog 열기
+            dialog = ManualBuyDialog(
+                group_name=group_name,
+                coins=coins,
+                default_amount=default_amount,
+                upbit_api=self.upbit_api,
+                dry_run=dry_run,
+                parent=self
+            )
+
+            if dialog.exec():
+                logger.info(f"✅ 수동 매수 완료: {group_name}")
+                # 매수 성공 시 필요한 추가 처리 (예: 포지션 새로고침)
+                # 현재는 ManualBuyDialog가 직접 주문을 실행하므로 별도 처리 불필요
+            else:
+                logger.info(f"❌ 수동 매수 취소: {group_name}")
+
+        except Exception as e:
+            logger.error(f"❌ 수동 매수 다이얼로그 오류: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "오류",
+                f"수동 매수 다이얼로그를 열 수 없습니다:\n{e}"
             )
 
     def _on_settings_saved(self):
