@@ -6,8 +6,7 @@ V4 전략과 Expert 전략을 라디오 버튼으로 선택
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QPushButton, QRadioButton, QStackedWidget, QLabel, QMessageBox,
-    QScrollArea, QSpinBox
+    QPushButton, QRadioButton, QLabel, QMessageBox, QSpinBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -147,26 +146,18 @@ class AutoBuySettingsDialogV2(QDialog):
         buy_amount_group = self._create_buy_amount_group()
         auto_layout.addWidget(buy_amount_group)
 
-        # === 2-3. 설정 폼 영역 (스택 위젯 + 스크롤) ===
-        self.stack_widget = QStackedWidget()
-
-        # V4 위젯 (index 0)
+        # === 2-3. 설정 폼 영역 (Visibility Toggle) ===
+        # V4 위젯
         self.v4_widget = self._create_v4_widget()
-        self.stack_widget.addWidget(self.v4_widget)
+        auto_layout.addWidget(self.v4_widget)
 
-        # Expert 위젯 (index 1)
+        # Expert 위젯
         self.expert_widget = self._create_expert_widget()
-        self.stack_widget.addWidget(self.expert_widget)
+        auto_layout.addWidget(self.expert_widget)
 
-        # 스크롤 영역으로 감싸기
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(self.stack_widget)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)  # 테두리 제거
-
-        auto_layout.addWidget(scroll_area, 1)  # stretch factor = 1
+        # 기본값: V4 숨김, Expert 표시
+        self.v4_widget.setVisible(False)
+        self.expert_widget.setVisible(True)
 
         # 자동 매수 컨테이너 레이아웃 설정
         self.auto_settings_container.setLayout(auto_layout)
@@ -317,10 +308,12 @@ class AutoBuySettingsDialogV2(QDialog):
     def _on_strategy_changed(self):
         """전략 선택 변경 시 호출"""
         if self.v4_radio.isChecked():
-            self.stack_widget.setCurrentIndex(0)
+            self.v4_widget.setVisible(True)
+            self.expert_widget.setVisible(False)
             logger.info("✅ V4 전략 선택됨")
         else:
-            self.stack_widget.setCurrentIndex(1)
+            self.v4_widget.setVisible(False)
+            self.expert_widget.setVisible(True)
             logger.info("✅ Expert 전략 선택됨")
 
     def _create_button_layout(self) -> QHBoxLayout:
