@@ -72,9 +72,17 @@ class ConfigManager:
             raise ConfigValidationError(f"JSON 파싱 오류: {e}")
 
         # 'strategy' 필드 자동 마이그레이션 (V4 내부 업데이트)
-        migrated = self._migrate_strategy_field(self.config)
-        if migrated:
+        migrated_strategy = self._migrate_strategy_field(self.config)
+        if migrated_strategy:
             print("🔄 설정 업데이트: 'strategy' 필드 추가됨")
+
+        # 'buy_amount_krw' 필드 자동 마이그레이션 (manual 모드 지원)
+        migrated_buy_amount = self._migrate_buy_amount_field(self.config)
+        if migrated_buy_amount:
+            print("🔄 설정 업데이트: 'buy_amount_krw' 필드 추가됨")
+
+        # 마이그레이션이 있었으면 저장
+        if migrated_strategy or migrated_buy_amount:
             self.save_config(self.config)
 
         # 스키마 검증
@@ -442,6 +450,60 @@ class ConfigManager:
                 auto_config['strategy'] = 'v4_auto_buy'
                 migrated_groups.append(group_id)
                 print(f"  ⚠️ 그룹 '{group_id}': 잘못된 strategy '{old_value}' → v4_auto_buy")
+
+        return len(migrated_groups) > 0
+
+    def _migrate_buy_amount_field(self, config: Dict[str, Any]) -> bool:
+        """
+        'buy_amount_krw' 필드 자동 마이그레이션
+
+        기존 V4 config에서 manual 모드를 위한 buy_amount_krw 필드를 추가합니다.
+        - mode='manual' + buy_amount_krw 없음 → 기본값 50000 추가
+        - mode='auto' + buy_amount_krw 없음 → auto_config.buy_amount_krw에서 복사
+
+        Args:
+            config: 설정 딕셔너리
+
+        Returns:
+            bool: 마이그레이션 수행 여부
+        """
+        migrated_groups = []
+
+        for group_id, group in config.get('groups', {}).items():
+            # buy_settings가 없으면 skip
+            if 'buy_settings' not in group:
+                continue
+
+            buy_settings = group['buy_settings']
+
+            # mode가 없으면 skip (잘못된 설정)
+            if 'mode' not in buy_settings:
+                continue
+
+            mode = buy_settings['mode']
+
+            # buy_amount_krw가 이미 있으면 skip
+            if 'buy_amount_krw' in buy_settings:
+                continue
+
+            # mode별 마이그레이션
+            if mode == 'manual':
+                # manual 모드: 기본값 50000 추가
+                buy_settings['buy_amount_krw'] = 50000
+                migrated_groups.append(group_id)
+                print(f"  ✅ 그룹 '{group_id}' (manual): buy_amount_krw → 50000")
+
+            elif mode == 'auto':
+                # auto 모드: auto_config.buy_amount_krw에서 복사
+                if 'auto_config' in buy_settings and 'buy_amount_krw' in buy_settings['auto_config']:
+                    buy_settings['buy_amount_krw'] = buy_settings['auto_config']['buy_amount_krw']
+                    migrated_groups.append(group_id)
+                    print(f"  ✅ 그룹 '{group_id}' (auto): buy_amount_krw → {buy_settings['buy_amount_krw']}")
+                else:
+                    # auto_config.buy_amount_krw도 없으면 기본값
+                    buy_settings['buy_amount_krw'] = 50000
+                    migrated_groups.append(group_id)
+                    print(f"  ⚠️ 그룹 '{group_id}' (auto): buy_amount_krw → 50000 (기본값)")
 
         return len(migrated_groups) > 0
 
