@@ -224,11 +224,8 @@ class GroupUnifiedSettingsDialog(QDialog):
             group = groups[self.group_id]
 
             # 자동매수 설정 업데이트
-            if "buy_settings" not in group:
-                group["buy_settings"] = {}
-
-            group["buy_settings"]["mode"] = "auto"
-            group["buy_settings"]["auto_config"] = autobuy_config
+            # autobuy_config는 이미 전체 buy_settings 구조 (mode, buy_amount_krw, auto_config)를 포함
+            group["buy_settings"] = autobuy_config
 
             # DCA 설정 업데이트
             if "dca_settings" not in group:
