@@ -170,7 +170,9 @@ class AutoBuySettingsDialogV2(QDialog):
         # === 2-3. 설정 폼 영역 (Scrollable) ===
         # Container 위젯 생성 (V4 + Expert 위젯을 담을 컨테이너)
         widget_container = QWidget()
-        widget_container.setStyleSheet("QWidget { background-color: transparent; }")
+        widget_container.setObjectName("widgetContainer")
+        # 중요: ID selector 사용하여 자식 위젯에 cascade되지 않도록 함
+        widget_container.setStyleSheet("#widgetContainer { background-color: transparent; }")
         container_layout = QVBoxLayout(widget_container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
@@ -189,12 +191,14 @@ class AutoBuySettingsDialogV2(QDialog):
 
         # 스크롤 영역으로 감싸기 (V4/Expert 위젯만 스크롤)
         scroll_area = QScrollArea()
+        scroll_area.setObjectName("scrollArea")
         scroll_area.setWidget(widget_container)
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { background-color: transparent; border: none; }")
+        # 중요: ID selector 사용하여 자식 위젯에 cascade되지 않도록 함
+        scroll_area.setStyleSheet("#scrollArea { background-color: transparent; border: none; }")
         scroll_area.setMinimumHeight(350)  # 스크롤 영역 최소 높이
         scroll_area.setMaximumHeight(500)  # 스크롤 영역 최대 높이
 
