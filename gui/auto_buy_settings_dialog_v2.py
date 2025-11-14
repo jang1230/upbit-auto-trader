@@ -169,6 +169,11 @@ class AutoBuySettingsDialogV2(QDialog):
 
         self.setLayout(main_layout)
 
+        # === 4. 이벤트 연결 (UI 생성 완료 후) ===
+        # 매수 모드 변경 이벤트
+        self.manual_mode_radio.toggled.connect(self._on_buy_mode_changed)
+        self.auto_mode_radio.toggled.connect(self._on_buy_mode_changed)
+
     def _create_buy_mode_group(self) -> QGroupBox:
         """
         매수 모드 선택 그룹 생성 (Manual vs Auto)
@@ -222,11 +227,8 @@ class AutoBuySettingsDialogV2(QDialog):
         auto_desc.setStyleSheet("color: #666; padding-left: 30px;")
         layout.addWidget(auto_desc)
 
-        # 라디오 버튼 이벤트 연결
-        self.manual_mode_radio.toggled.connect(self._on_buy_mode_changed)
-        self.auto_mode_radio.toggled.connect(self._on_buy_mode_changed)
-
-        # 기본값: Auto 모드 선택
+        # NOTE: 이벤트 연결은 _init_ui()에서 auto_settings_container 생성 후에 수행
+        # 기본값: Auto 모드 선택 (이벤트 없이)
         self.auto_mode_radio.setChecked(True)
 
         group.setLayout(layout)
@@ -376,12 +378,14 @@ class AutoBuySettingsDialogV2(QDialog):
                 if strategy == "expert":
                     # Expert 라디오 버튼 선택
                     self.expert_radio.setChecked(True)
-                    self.stack_widget.setCurrentIndex(1)
+                    self.v4_widget.setVisible(False)
+                    self.expert_widget.setVisible(True)
                     logger.info("📊 Auto Expert 전략 로드")
                 else:
                     # V4 라디오 버튼 선택 (기본값)
                     self.v4_radio.setChecked(True)
-                    self.stack_widget.setCurrentIndex(0)
+                    self.v4_widget.setVisible(True)
+                    self.expert_widget.setVisible(False)
                     logger.info("📊 Auto V4 전략 로드")
 
         except Exception as e:
@@ -390,7 +394,8 @@ class AutoBuySettingsDialogV2(QDialog):
             self.auto_mode_radio.setChecked(True)
             self.auto_settings_container.setVisible(True)
             self.v4_radio.setChecked(True)
-            self.stack_widget.setCurrentIndex(0)
+            self.v4_widget.setVisible(True)
+            self.expert_widget.setVisible(False)
             self.buy_amount_spin.setValue(50000)
 
     def get_config(self) -> dict:
