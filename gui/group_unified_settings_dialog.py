@@ -109,7 +109,8 @@ class GroupUnifiedSettingsDialog(QDialog):
 
         # AutoBuySettingsDialogV2를 위젯으로 사용
         # buy_settings 전체를 전달 (mode="manual"이면 manual 모드로 로드됨)
-        autobuy_dialog = AutoBuySettingsDialogV2(config=buy_settings.copy(), parent=self)
+        # embedded=True로 설정하여 사이즈 제약 스킵 (부모 다이얼로그 크기 우선)
+        autobuy_dialog = AutoBuySettingsDialogV2(config=buy_settings.copy(), parent=self, embedded=True)
 
         # 다이얼로그를 위젯처럼 사용하기 위해 윈도우 플래그 제거
         autobuy_dialog.setWindowFlags(Qt.Widget)

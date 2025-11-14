@@ -27,20 +27,24 @@ class AutoBuySettingsDialogV2(QDialog):
     2. Auto 모드 시 전략 선택: V4 vs Expert
     """
 
-    def __init__(self, config: dict = None, parent=None):
+    def __init__(self, config: dict = None, parent=None, embedded=False):
         """
         Args:
             config: buy_settings 딕셔너리 (mode + auto_config 또는 legacy auto_config)
             parent: 부모 위젯
+            embedded: True면 다른 다이얼로그에 임베딩되는 모드 (사이즈 설정 스킵)
         """
         super().__init__(parent)
 
         self.config = config or self._get_default_config()
 
         self.setWindowTitle("⚙️ 자동매수 전략 설정")
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(700)
-        self.resize(820, 750)  # 적절한 크기로 설정
+
+        # Standalone 다이얼로그일 때만 사이즈 설정
+        if not embedded:
+            self.setMinimumWidth(800)
+            self.setMinimumHeight(700)
+            self.resize(820, 750)
 
         self._init_ui()
         self._load_config()
