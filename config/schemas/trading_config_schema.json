@@ -159,6 +159,11 @@
                   "enum": ["manual", "auto", "disabled"],
                   "description": "Buy mode: manual (buy on Upbit), auto (strategy-based), disabled (no buying)"
                 },
+                "buy_amount_krw": {
+                  "type": "integer",
+                  "minimum": 5000,
+                  "description": "Default buy amount for manual mode (minimum 5,000 KRW)"
+                },
                 "auto_config": {
                   "type": "object",
                   "description": "Auto-buy configuration (required if mode=auto)",
@@ -260,7 +265,27 @@
                     }
                   }
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {"mode": {"const": "manual"}}
+                  },
+                  "then": {
+                    "required": ["buy_amount_krw"],
+                    "description": "Manual mode requires buy_amount_krw"
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {"mode": {"const": "auto"}}
+                  },
+                  "then": {
+                    "required": ["auto_config"],
+                    "description": "Auto mode requires auto_config"
+                  }
+                }
+              ]
             },
             "dca_settings": {
               "type": "object",
