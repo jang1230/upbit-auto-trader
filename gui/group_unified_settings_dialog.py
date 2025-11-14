@@ -103,12 +103,12 @@ class GroupUnifiedSettingsDialog(QDialog):
 
     def _create_tab1_autobuy(self) -> QWidget:
         """탭1: 자동매수 전략 (AutoBuySettingsDialogV2 임베딩)"""
-        # 자동매수 설정 추출
+        # 자동매수 설정 추출 (buy_settings 전체를 전달해야 mode 정보 포함됨)
         buy_settings = self.group_config.get('buy_settings', {})
-        auto_config = buy_settings.get('auto_config', {})
 
         # AutoBuySettingsDialogV2를 위젯으로 사용
-        autobuy_dialog = AutoBuySettingsDialogV2(config=auto_config.copy(), parent=self)
+        # buy_settings 전체를 전달 (mode="manual"이면 manual 모드로 로드됨)
+        autobuy_dialog = AutoBuySettingsDialogV2(config=buy_settings.copy(), parent=self)
 
         # 다이얼로그를 위젯처럼 사용하기 위해 윈도우 플래그 제거
         autobuy_dialog.setWindowFlags(Qt.Widget)
