@@ -13,8 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 import logging
 
-# 기존 V4 다이얼로그와 Expert 위젯 임포트
-from gui.auto_buy_settings_dialog import AutoBuySettingsDialog
+# Expert 위젯 임포트 (V4는 _create_v4_widget()에서 임포트)
 from gui.expert_strategy_widget import ExpertStrategyWidget
 
 logger = logging.getLogger(__name__)
@@ -354,32 +353,11 @@ class AutoBuySettingsDialogV2(QDialog):
         return group
 
     def _create_v4_widget(self):
-        """V4 설정 위젯 생성"""
+        """V4 설정 위젯 생성 (순수 QWidget 사용)"""
+        from gui.v4_settings_widget import V4SettingsWidget
+
         v4_config = self.config if self.config.get("strategy") in [None, "v4_auto_buy"] else None
-        v4_dialog = AutoBuySettingsDialog(v4_config, self)
-
-        # 다이얼로그를 위젯처럼 사용
-        v4_dialog.setWindowFlags(Qt.Widget)
-
-        # 내부 버튼 및 매수금액 그룹 숨기기
-        main_layout = v4_dialog.layout()
-        if main_layout and main_layout.count() > 0:
-            # 마지막 아이템 (버튼 레이아웃) 숨기기
-            last_item = main_layout.itemAt(main_layout.count() - 1)
-            if last_item and last_item.layout():
-                button_layout = last_item.layout()
-                for i in range(button_layout.count()):
-                    widget = button_layout.itemAt(i).widget()
-                    if widget:
-                        widget.setVisible(False)
-
-            # 마지막에서 두 번째 아이템 (매수금액 그룹) 숨기기
-            if main_layout.count() > 1:
-                buy_amount_item = main_layout.itemAt(main_layout.count() - 2)
-                if buy_amount_item and buy_amount_item.widget():
-                    buy_amount_item.widget().setVisible(False)
-
-        return v4_dialog
+        return V4SettingsWidget(v4_config, self)
 
     def _create_expert_widget(self):
         """Expert 설정 위젯 생성"""
