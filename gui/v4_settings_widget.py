@@ -78,6 +78,9 @@ class V4SettingsWidget(QWidget):
         style_group = self._create_investment_style_group()
         layout.addWidget(style_group)
 
+        # 투자 스타일 ↔ 지표 설정 사이 추가 간격
+        layout.addSpacing(10)
+
         # 2. 지표 설정 그룹
         indicators_group = self._create_indicators_group()
         layout.addWidget(indicators_group)
@@ -93,7 +96,24 @@ class V4SettingsWidget(QWidget):
         """
         group = QGroupBox("📊 투자 스타일")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                padding: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
         # 라디오 버튼 그룹
         self.style_button_group = QButtonGroup()
@@ -341,6 +361,21 @@ class V4SettingsWidget(QWidget):
         """
         group = QGroupBox("📈 지표 설정 (커스텀 모드에서만 수정 가능)")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                padding: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
         layout.setSpacing(15)  # 지표 그룹 간 간격
         layout.setContentsMargins(10, 10, 10, 10)

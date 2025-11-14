@@ -298,15 +298,13 @@ class AutoBuySettingsDialogV2(QDialog):
     def _on_buy_mode_changed(self):
         """매수 모드 변경 시 호출"""
         if self.manual_mode_radio.isChecked():
-            # Manual 모드: 자동 설정 컨테이너 완전히 숨김 (공간 차지 안 함)
-            self.auto_settings_container.hide()
-            self.auto_settings_container.setMaximumHeight(0)
-            logger.info("📱 수동 매수 모드 선택됨")
+            # Manual 모드: 자동 설정 컨테이너 비활성화 (보이지만 편집 불가)
+            self.auto_settings_container.setEnabled(False)
+            logger.info("📱 수동 매수 모드 선택됨 (자동매수 설정 비활성화)")
         else:
-            # Auto 모드: 자동 설정 컨테이너 표시 (높이 복원)
-            self.auto_settings_container.setMaximumHeight(16777215)  # Qt 기본 최대값
-            self.auto_settings_container.show()
-            logger.info("🤖 자동 매수 모드 선택됨")
+            # Auto 모드: 자동 설정 컨테이너 활성화
+            self.auto_settings_container.setEnabled(True)
+            logger.info("🤖 자동 매수 모드 선택됨 (자동매수 설정 활성화)")
 
     def _create_buy_amount_group(self) -> QGroupBox:
         """
@@ -421,13 +419,13 @@ class AutoBuySettingsDialogV2(QDialog):
             if mode == "manual":
                 # Manual 모드
                 self.manual_mode_radio.setChecked(True)
-                self.auto_settings_container.setVisible(False)
+                # NOTE: _on_buy_mode_changed()가 자동 호출되어 setEnabled(False) 실행됨
                 logger.info("📱 Manual 모드 로드")
 
             elif mode == "auto" or mode is None:
                 # Auto 모드 또는 구버전 (mode 필드 없음)
                 self.auto_mode_radio.setChecked(True)
-                self.auto_settings_container.setVisible(True)
+                # NOTE: _on_buy_mode_changed()가 자동 호출되어 setEnabled(True) 실행됨
 
                 # auto_config에서 전략 정보 가져오기
                 auto_config = self.config.get("auto_config", self.config)  # Fallback to self.config for backward compatibility
@@ -450,7 +448,7 @@ class AutoBuySettingsDialogV2(QDialog):
             logger.error(f"❌ 설정 로드 실패: {e}")
             # 기본값: Auto V4 선택
             self.auto_mode_radio.setChecked(True)
-            self.auto_settings_container.setVisible(True)
+            # NOTE: _on_buy_mode_changed()가 자동 호출되어 setEnabled(True) 실행됨
             self.v4_radio.setChecked(True)
             self.v4_widget.setVisible(True)
             self.expert_widget.setVisible(False)
