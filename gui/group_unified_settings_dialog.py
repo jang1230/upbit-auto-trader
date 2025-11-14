@@ -248,11 +248,17 @@ class GroupUnifiedSettingsDialog(QDialog):
             logger.info(f"✅ 그룹 {self.group_id} 통합 설정 저장 완료")
 
             # 전략 정보 표시 개선
-            strategy = autobuy_config.get("strategy")
-            if strategy == "expert":
-                strategy_info = f"Expert 전략 - {autobuy_config.get('expert_profile', 'N/A')}"
+            mode = autobuy_config.get("mode", "auto")
+            if mode == "manual":
+                strategy_info = "수동 매수 (Upbit에서 직접 매수)"
             else:
-                strategy_info = f"V4 전략 - {autobuy_config.get('investment_style', 'N/A')}"
+                # Auto 모드일 때 전략 확인
+                auto_config = autobuy_config.get("auto_config", {})
+                strategy = auto_config.get("strategy", "v4_auto_buy")
+                if strategy == "expert":
+                    strategy_info = f"Expert 전략 - {auto_config.get('expert_profile', 'N/A')}"
+                else:
+                    strategy_info = f"V4 전략 - {auto_config.get('investment_style', 'N/A')}"
 
             QMessageBox.information(
                 self,
