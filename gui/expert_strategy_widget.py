@@ -6,7 +6,7 @@ ExpertStrategyWidget - Expert 전략 설정 위젯
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QComboBox, QSlider, QSpinBox, QGroupBox,
+    QLabel, QComboBox, QSlider, QSpinBox, QDoubleSpinBox, QGroupBox,
     QTextEdit
 )
 from PySide6.QtCore import Qt
@@ -191,27 +191,27 @@ class ExpertStrategyWidget(QWidget):
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         layout = QVBoxLayout()
 
-        # 5개 지표 슬라이더
+        # 5개 지표 슬라이더 + SpinBox
         form = QFormLayout()
 
         # RSI 가중치
-        rsi_container, self.rsi_slider, self.rsi_value_label = self._create_weight_slider("RSI")
+        rsi_container, self.rsi_slider, self.rsi_spinbox = self._create_weight_slider("RSI")
         form.addRow("📊 RSI:", rsi_container)
 
         # MACD 가중치
-        macd_container, self.macd_slider, self.macd_value_label = self._create_weight_slider("MACD")
+        macd_container, self.macd_slider, self.macd_spinbox = self._create_weight_slider("MACD")
         form.addRow("📈 MACD:", macd_container)
 
         # Bollinger 가중치
-        bollinger_container, self.bollinger_slider, self.bollinger_value_label = self._create_weight_slider("Bollinger")
+        bollinger_container, self.bollinger_slider, self.bollinger_spinbox = self._create_weight_slider("Bollinger")
         form.addRow("📉 Bollinger:", bollinger_container)
 
         # Volume 가중치
-        volume_container, self.volume_slider, self.volume_value_label = self._create_weight_slider("Volume")
+        volume_container, self.volume_slider, self.volume_spinbox = self._create_weight_slider("Volume")
         form.addRow("📊 Volume:", volume_container)
 
         # Trend 가중치
-        trend_container, self.trend_slider, self.trend_value_label = self._create_weight_slider("Trend")
+        trend_container, self.trend_slider, self.trend_spinbox = self._create_weight_slider("Trend")
         form.addRow("📈 Trend:", trend_container)
 
         layout.addLayout(form)
@@ -235,34 +235,63 @@ class ExpertStrategyWidget(QWidget):
         return group
 
     def _create_weight_slider(self, name: str):
-        """가중치 슬라이더 생성 (0.0 ~ 1.0)
+        """가중치 슬라이더 + SpinBox 생성 (0.0 ~ 1.0)
+
+        Args:
+            name: 지표 이름 (예: "RSI")
 
         Returns:
-            tuple: (container, slider, value_label)
+            tuple: (container, slider, spinbox)
         """
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # 슬라이더 (0~100 정수)
         slider = QSlider(Qt.Horizontal)
         slider.setRange(0, 100)  # 0.00 ~ 1.00을 0~100으로 표현
         slider.setValue(65)  # 기본값 0.65
+        slider.setSingleStep(5)  # 5% 단위
+        slider.setPageStep(10)  # 10% 단위
         slider.setTickPosition(QSlider.TicksBelow)
         slider.setTickInterval(10)
 
-        value_label = QLabel("0.65")
-        value_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        value_label.setMinimumWidth(50)
-        value_label.setAlignment(Qt.AlignCenter)
+        # DoubleSpinBox (0.0~1.0, 0.01 단위)
+        spinbox = QDoubleSpinBox()
+        spinbox.setRange(0.0, 1.0)
+        spinbox.setSingleStep(0.01)  # 0.01 단위로 정밀 조정
+        spinbox.setDecimals(2)  # 소수점 2자리
+        spinbox.setValue(0.65)  # 기본값
+        spinbox.setMinimumWidth(80)
+        spinbox.setMaximumWidth(100)
+        spinbox.setAlignment(Qt.AlignCenter)
+        spinbox.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        spinbox.setStyleSheet("""
+            QDoubleSpinBox {
+                padding: 5px;
+            }
+        """)
 
-        slider.valueChanged.connect(
-            lambda v: value_label.setText(f"{v/100:.2f}")
-        )
+        # 양방향 동기화: 슬라이더 → SpinBox
+        def slider_to_spinbox(value):
+            spinbox.blockSignals(True)
+            spinbox.setValue(value / 100.0)
+            spinbox.blockSignals(False)
+
+        slider.valueChanged.connect(slider_to_spinbox)
+
+        # 양방향 동기화: SpinBox → 슬라이더
+        def spinbox_to_slider(value):
+            slider.blockSignals(True)
+            slider.setValue(int(value * 100))
+            slider.blockSignals(False)
+
+        spinbox.valueChanged.connect(spinbox_to_slider)
 
         layout.addWidget(slider, 3)
-        layout.addWidget(value_label, 1)
+        layout.addWidget(spinbox, 1)
 
-        return (container, slider, value_label)
+        return (container, slider, spinbox)
 
     def _create_profile_info_group(self) -> QGroupBox:
         """프로필 정보 표시 그룹"""
@@ -335,11 +364,12 @@ class ExpertStrategyWidget(QWidget):
         # 커스텀 가중치
         if profile_key == "custom":
             custom_weights = self.config.get("custom_weights", {})
-            self.rsi_slider.setValue(int(custom_weights.get("rsi", 0.65) * 100))
-            self.macd_slider.setValue(int(custom_weights.get("macd", 0.65) * 100))
-            self.bollinger_slider.setValue(int(custom_weights.get("bollinger", 0.65) * 100))
-            self.volume_slider.setValue(int(custom_weights.get("volume", 0.65) * 100))
-            self.trend_slider.setValue(int(custom_weights.get("trend", 0.60) * 100))
+            # SpinBox에 값 설정 (슬라이더는 자동 동기화됨)
+            self.rsi_spinbox.setValue(custom_weights.get("rsi", 0.65))
+            self.macd_spinbox.setValue(custom_weights.get("macd", 0.65))
+            self.bollinger_spinbox.setValue(custom_weights.get("bollinger", 0.65))
+            self.volume_spinbox.setValue(custom_weights.get("volume", 0.65))
+            self.trend_spinbox.setValue(custom_weights.get("trend", 0.60))
 
             custom_threshold = self.config.get("custom_threshold", 50)
             self.threshold_spin.setValue(custom_threshold)
@@ -356,12 +386,13 @@ class ExpertStrategyWidget(QWidget):
         }
 
         if profile_key == "custom":
+            # SpinBox 값 사용 (정확한 값)
             config["custom_weights"] = {
-                "rsi": self.rsi_slider.value() / 100.0,
-                "macd": self.macd_slider.value() / 100.0,
-                "bollinger": self.bollinger_slider.value() / 100.0,
-                "volume": self.volume_slider.value() / 100.0,
-                "trend": self.trend_slider.value() / 100.0
+                "rsi": self.rsi_spinbox.value(),
+                "macd": self.macd_spinbox.value(),
+                "bollinger": self.bollinger_spinbox.value(),
+                "volume": self.volume_spinbox.value(),
+                "trend": self.trend_spinbox.value()
             }
             config["custom_threshold"] = self.threshold_spin.value()
 
