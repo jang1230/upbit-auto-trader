@@ -142,7 +142,23 @@ class ExpertStrategyWidget(QWidget):
         """전문가 프로필 선택 그룹"""
         group = QGroupBox("🎯 전문가 프로필")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
 
         # 프로필 선택 콤보박스
         self.profile_combo = QComboBox()
@@ -165,7 +181,23 @@ class ExpertStrategyWidget(QWidget):
         """캔들 타임프레임 선택 그룹"""
         group = QGroupBox("⏱️ 캔들 타임프레임")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
 
         self.candle_combo = QComboBox()
         self.candle_combo.setFont(QFont("맑은 고딕", 10))
@@ -189,7 +221,23 @@ class ExpertStrategyWidget(QWidget):
         """커스텀 가중치 설정 그룹"""
         group = QGroupBox("🔧 커스텀 가중치 설정")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
 
         # 5개 지표 슬라이더 + SpinBox
         form = QFormLayout()
@@ -297,7 +345,23 @@ class ExpertStrategyWidget(QWidget):
         """프로필 정보 표시 그룹"""
         group = QGroupBox("📊 프로필 정보")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
 
         self.profile_info_text = QTextEdit()
         self.profile_info_text.setReadOnly(True)

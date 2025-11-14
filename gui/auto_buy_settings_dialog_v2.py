@@ -6,8 +6,7 @@ V4 전략과 Expert 전략을 라디오 버튼으로 선택
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
-    QPushButton, QRadioButton, QLabel, QMessageBox, QSpinBox,
-    QScrollArea, QWidget
+    QPushButton, QRadioButton, QLabel, QMessageBox, QSpinBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -40,8 +39,8 @@ class AutoBuySettingsDialogV2(QDialog):
 
         self.setWindowTitle("⚙️ 자동매수 전략 설정")
         self.setMinimumWidth(800)
-        self.setMinimumHeight(700)
-        self.setMaximumHeight(900)  # 최대 높이 늘림
+        self.setMinimumHeight(750)
+        self.resize(850, 850)  # 충분히 큰 크기로 설정
 
         self._init_ui()
         self._load_config()
@@ -78,7 +77,8 @@ class AutoBuySettingsDialogV2(QDialog):
     def _init_ui(self):
         """UI 초기화 - 매수 모드 + 전략 선택"""
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(20)  # 간격 늘림
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(15, 15, 15, 15)
 
         # === 1. 매수 모드 선택 (Manual vs Auto) ===
         mode_group = self._create_buy_mode_group()
@@ -88,12 +88,30 @@ class AutoBuySettingsDialogV2(QDialog):
         self.auto_settings_container = QGroupBox()
         self.auto_settings_container.setStyleSheet("QGroupBox { border: none; }")
         auto_layout = QVBoxLayout()
-        auto_layout.setSpacing(20)  # 그룹 간 간격 늘림
+        auto_layout.setSpacing(12)
+        auto_layout.setContentsMargins(0, 5, 0, 0)
 
         # === 2-1. 전략 선택 영역 (라디오 버튼) ===
         strategy_group = QGroupBox("📊 자동매수 전략 선택")
         strategy_group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        strategy_group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         strategy_layout = QVBoxLayout()
+        strategy_layout.setContentsMargins(10, 10, 10, 10)
+        strategy_layout.setSpacing(8)
 
         # V4 라디오 버튼
         self.v4_radio = QRadioButton("📊 V4 전략 (3개 지표 - RSI, MACD, Volume)")
@@ -148,35 +166,18 @@ class AutoBuySettingsDialogV2(QDialog):
         buy_amount_group = self._create_buy_amount_group()
         auto_layout.addWidget(buy_amount_group)
 
-        # === 2-3. 설정 폼 영역 (Visibility Toggle + Scroll) ===
-        # Container 위젯 생성 (V4 + Expert 위젯을 담을 컨테이너)
-        widget_container = QWidget()
-        container_layout = QVBoxLayout(widget_container)
-        container_layout.setContentsMargins(10, 10, 10, 10)  # 적절한 마진
-        container_layout.setSpacing(15)  # 위젯 간 간격
-
+        # === 2-3. 설정 폼 영역 (Visibility Toggle - No Scroll) ===
         # V4 위젯
         self.v4_widget = self._create_v4_widget()
-        container_layout.addWidget(self.v4_widget)
+        auto_layout.addWidget(self.v4_widget)
 
         # Expert 위젯
         self.expert_widget = self._create_expert_widget()
-        container_layout.addWidget(self.expert_widget)
+        auto_layout.addWidget(self.expert_widget)
 
         # 기본값: V4 숨김, Expert 표시
         self.v4_widget.setVisible(False)
         self.expert_widget.setVisible(True)
-
-        # 스크롤 영역으로 감싸기
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(widget_container)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setFrameShape(QScrollArea.NoFrame)
-        scroll_area.setMinimumHeight(400)  # 스크롤 영역 최소 높이
-
-        auto_layout.addWidget(scroll_area, 1)  # stretch factor = 1
 
         # 자동 매수 컨테이너 레이아웃 설정
         self.auto_settings_container.setLayout(auto_layout)
@@ -202,7 +203,24 @@ class AutoBuySettingsDialogV2(QDialog):
         """
         group = QGroupBox("🎯 매수 모드 선택")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
         # Manual 모드 라디오 버튼
         self.manual_mode_radio = QRadioButton("📱 수동 매수 (Upbit에서 직접 매수)")
@@ -273,7 +291,23 @@ class AutoBuySettingsDialogV2(QDialog):
         """
         group = QGroupBox("💰 1회 매수 금액")
         group.setFont(QFont("맑은 고딕", 10, QFont.Bold))
+        group.setStyleSheet("""
+            QGroupBox {
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
         layout = QFormLayout()
+        layout.setContentsMargins(10, 10, 10, 10)
 
         self.buy_amount_spin = QSpinBox()
         self.buy_amount_spin.setRange(5000, 10000000)
