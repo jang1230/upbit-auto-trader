@@ -405,13 +405,23 @@ class V4TradingEngine:
         total_added = 0
 
         for group_id, group in all_groups.items():
-            # 자동 매수 모드가 아니면 스킵
             buy_settings = group.get("buy_settings", {})
-            if buy_settings.get("mode") != "auto":
+            buy_mode = buy_settings.get("mode", "auto")
+
+            # disabled 모드는 스킵
+            if buy_mode == "disabled":
+                logger.info(f"  - {group['name']}: disabled 모드, WebSocket 스킵")
                 continue
 
-            auto_config = buy_settings.get("auto_config", {})
-            candle_unit = int(auto_config.get("candle_unit", "60"))
+            # candle_unit 결정
+            if buy_mode == "auto":
+                # Auto 모드: auto_config에서 가져옴
+                auto_config = buy_settings.get("auto_config", {})
+                candle_unit = int(auto_config.get("candle_unit", "60"))
+            else:
+                # Manual 모드: 기본값 60분 (DCA/익절/손절 판단용)
+                candle_unit = 60
+                logger.info(f"  - {group['name']}: manual 모드, candle_unit=60 (DCA/익절/손절용)")
 
             # 그룹의 각 코인에 대한 WebSocket + CandleAggregator 생성
             for symbol in group.get("coins", []):
@@ -424,7 +434,7 @@ class V4TradingEngine:
                         completed_candles=None  # REST API로 자동 로드
                     )
                     total_added += 1
-                    logger.info(f"  - {group['name']}: {symbol} WebSocket 추가 완료")
+                    logger.info(f"  - {group['name']}: {symbol} WebSocket 추가 완료 (mode={buy_mode}, candle={candle_unit}min)")
 
                 except Exception as e:
                     logger.error(f"❌ {symbol} WebSocket 추가 실패: {e}")
