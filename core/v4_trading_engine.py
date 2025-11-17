@@ -934,11 +934,64 @@ class V4TradingEngine:
         if dca_settings.get("mode") != "auto":
             return
 
-        # pending_order 체크: 진행 중인 주문이 있으면 스킵
+        # pending_order 체크 및 Timeout 확인 (Bug #2 수정)
         pending_order = position.get("pending_order")
         if pending_order:
-            logger.debug(f"   ⏳ {symbol}: DCA 스킵 (진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')})")
-            return
+            timestamp_str = pending_order.get('timestamp')
+
+            if timestamp_str:
+                try:
+                    from datetime import datetime
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    elapsed = (datetime.now() - timestamp).total_seconds()
+
+                    # 5분(300초) 이상 대기 중이면 자동 제거
+                    if elapsed > 300:
+                        logger.warning(
+                            f"⚠️ {symbol} pending_order timeout "
+                            f"(경과: {elapsed:.0f}초, 타입: {pending_order.get('type')}, "
+                            f"레벨: {pending_order.get('level')}) → 제거 및 재시도"
+                        )
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+
+                        # Telegram 알림
+                        if self.telegram_bot:
+                            self.telegram_bot.send_message(
+                                f"⚠️ pending_order Timeout\n"
+                                f"코인: {symbol}\n"
+                                f"타입: {pending_order.get('type')}\n"
+                                f"레벨: {pending_order.get('level')}\n"
+                                f"경과 시간: {elapsed:.0f}초\n"
+                                f"자동 제거 후 재시도합니다."
+                            )
+
+                        # Timeout 후 계속 진행 (재시도)
+                    else:
+                        # 정상 대기 중
+                        logger.debug(
+                            f"   ⏳ {symbol}: DCA 스킵 "
+                            f"(진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')}, "
+                            f"경과: {elapsed:.0f}초)"
+                        )
+                        return  # 스킵
+
+                except (ValueError, TypeError) as e:
+                    # timestamp parsing 실패
+                    logger.error(f"⚠️ {symbol} pending_order timestamp 파싱 실패: {e}")
+                    # timestamp가 잘못되었으면 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+                    # 계속 진행 (재시도)
+            else:
+                # timestamp 없음 (오래된 데이터)
+                logger.warning(f"⚠️ {symbol} pending_order에 timestamp 없음 → 제거")
+                self.position_manager.update_position(symbol, {
+                    "pending_order": None
+                })
+                # 계속 진행 (재시도)
 
         dca_levels = dca_settings.get("levels", [])
         dca_count = position.get("dca_count", 0)
@@ -1119,11 +1172,64 @@ class V4TradingEngine:
         if profit_settings.get("mode") not in ["auto", "alert"]:
             return
 
-        # pending_order 체크: 진행 중인 주문이 있으면 스킵
+        # pending_order 체크 및 Timeout 확인 (Bug #2 수정)
         pending_order = position.get("pending_order")
         if pending_order:
-            logger.debug(f"   ⏳ {symbol}: 익절 스킵 (진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')})")
-            return
+            timestamp_str = pending_order.get('timestamp')
+
+            if timestamp_str:
+                try:
+                    from datetime import datetime
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    elapsed = (datetime.now() - timestamp).total_seconds()
+
+                    # 5분(300초) 이상 대기 중이면 자동 제거
+                    if elapsed > 300:
+                        logger.warning(
+                            f"⚠️ {symbol} pending_order timeout "
+                            f"(경과: {elapsed:.0f}초, 타입: {pending_order.get('type')}, "
+                            f"레벨: {pending_order.get('level')}) → 제거 및 재시도"
+                        )
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+
+                        # Telegram 알림
+                        if self.telegram_bot:
+                            self.telegram_bot.send_message(
+                                f"⚠️ pending_order Timeout\n"
+                                f"코인: {symbol}\n"
+                                f"타입: {pending_order.get('type')}\n"
+                                f"레벨: {pending_order.get('level')}\n"
+                                f"경과 시간: {elapsed:.0f}초\n"
+                                f"자동 제거 후 재시도합니다."
+                            )
+
+                        # Timeout 후 계속 진행 (재시도)
+                    else:
+                        # 정상 대기 중
+                        logger.debug(
+                            f"   ⏳ {symbol}: 익절 스킵 "
+                            f"(진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')}, "
+                            f"경과: {elapsed:.0f}초)"
+                        )
+                        return  # 스킵
+
+                except (ValueError, TypeError) as e:
+                    # timestamp parsing 실패
+                    logger.error(f"⚠️ {symbol} pending_order timestamp 파싱 실패: {e}")
+                    # timestamp가 잘못되었으면 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+                    # 계속 진행 (재시도)
+            else:
+                # timestamp 없음 (오래된 데이터)
+                logger.warning(f"⚠️ {symbol} pending_order에 timestamp 없음 → 제거")
+                self.position_manager.update_position(symbol, {
+                    "pending_order": None
+                })
+                # 계속 진행 (재시도)
 
         profit_levels = profit_settings.get("levels", [])
         profit_levels_executed = position.get("profit_levels_executed", [])
@@ -1168,11 +1274,64 @@ class V4TradingEngine:
         if loss_settings.get("mode") not in ["auto", "alert"]:
             return
 
-        # pending_order 체크: 진행 중인 주문이 있으면 스킵
+        # pending_order 체크 및 Timeout 확인 (Bug #2 수정)
         pending_order = position.get("pending_order")
         if pending_order:
-            logger.debug(f"   ⏳ {symbol}: 손절 스킵 (진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')})")
-            return
+            timestamp_str = pending_order.get('timestamp')
+
+            if timestamp_str:
+                try:
+                    from datetime import datetime
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    elapsed = (datetime.now() - timestamp).total_seconds()
+
+                    # 5분(300초) 이상 대기 중이면 자동 제거
+                    if elapsed > 300:
+                        logger.warning(
+                            f"⚠️ {symbol} pending_order timeout "
+                            f"(경과: {elapsed:.0f}초, 타입: {pending_order.get('type')}, "
+                            f"레벨: {pending_order.get('level')}) → 제거 및 재시도"
+                        )
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+
+                        # Telegram 알림
+                        if self.telegram_bot:
+                            self.telegram_bot.send_message(
+                                f"⚠️ pending_order Timeout\n"
+                                f"코인: {symbol}\n"
+                                f"타입: {pending_order.get('type')}\n"
+                                f"레벨: {pending_order.get('level')}\n"
+                                f"경과 시간: {elapsed:.0f}초\n"
+                                f"자동 제거 후 재시도합니다."
+                            )
+
+                        # Timeout 후 계속 진행 (재시도)
+                    else:
+                        # 정상 대기 중
+                        logger.debug(
+                            f"   ⏳ {symbol}: 손절 스킵 "
+                            f"(진행 중인 주문: {pending_order.get('type')} 레벨 {pending_order.get('level')}, "
+                            f"경과: {elapsed:.0f}초)"
+                        )
+                        return  # 스킵
+
+                except (ValueError, TypeError) as e:
+                    # timestamp parsing 실패
+                    logger.error(f"⚠️ {symbol} pending_order timestamp 파싱 실패: {e}")
+                    # timestamp가 잘못되었으면 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+                    # 계속 진행 (재시도)
+            else:
+                # timestamp 없음 (오래된 데이터)
+                logger.warning(f"⚠️ {symbol} pending_order에 timestamp 없음 → 제거")
+                self.position_manager.update_position(symbol, {
+                    "pending_order": None
+                })
+                # 계속 진행 (재시도)
 
         loss_levels = loss_settings.get("levels", [])
         loss_levels_executed = position.get("loss_levels_executed", [])
