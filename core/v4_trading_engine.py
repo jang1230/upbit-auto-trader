@@ -1003,7 +1003,8 @@ class V4TradingEngine:
                     symbol=symbol,
                     dca_price=current_price,
                     dca_amount=dca_quantity,
-                    dca_value_krw=dca_amount
+                    dca_krw=dca_amount,  # 파라미터명 수정 (dca_value_krw → dca_krw)
+                    level=dca_level_index  # DCA 레벨 추가 (Bug #3 수정)
                 )
 
                 logger.info(f"✅ [Dry-run] {symbol} DCA 완료: {dca_quantity:.8f}개 @ {current_price:,}원")
