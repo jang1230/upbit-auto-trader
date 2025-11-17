@@ -229,20 +229,23 @@ class GroupUnifiedSettingsDialog(QDialog):
             # autobuy_config는 이미 전체 buy_settings 구조 (mode, buy_amount_krw, auto_config)를 포함
             group["buy_settings"] = autobuy_config
 
-            # DCA 설정 업데이트
+            # DCA 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "dca_settings" not in group:
                 group["dca_settings"] = {"mode": "auto"}
             group["dca_settings"]["levels"] = dca_levels
+            group["dca_settings"]["mode"] = "auto" if len(dca_levels) > 0 else "disabled"
 
-            # 익절 설정 업데이트
+            # 익절 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "profit_settings" not in group:
                 group["profit_settings"] = {"mode": "auto"}
             group["profit_settings"]["levels"] = profit_levels
+            group["profit_settings"]["mode"] = "auto" if len(profit_levels) > 0 else "disabled"
 
-            # 손절 설정 업데이트
+            # 손절 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "loss_settings" not in group:
                 group["loss_settings"] = {"mode": "auto"}
             group["loss_settings"]["levels"] = loss_levels
+            group["loss_settings"]["mode"] = "auto" if len(loss_levels) > 0 else "disabled"
 
             # 저장
             self.config_manager.save_config(config)

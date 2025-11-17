@@ -401,20 +401,29 @@ class LevelSettingsDialog(QDialog):
 
             group = groups[self.group_id]
 
-            # DCA 설정 업데이트 (기존 mode 유지)
+            # DCA 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "dca_settings" not in group:
                 group["dca_settings"] = {"mode": "auto", "levels": []}
-            group["dca_settings"]["levels"] = dca_levels
 
-            # 익절 설정 업데이트 (기존 mode 유지)
+            # 레벨이 1개 이상이면 auto, 없으면 disabled
+            group["dca_settings"]["levels"] = dca_levels
+            group["dca_settings"]["mode"] = "auto" if len(dca_levels) > 0 else "disabled"
+
+            # 익절 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "profit_settings" not in group:
                 group["profit_settings"] = {"mode": "auto", "levels": []}
-            group["profit_settings"]["levels"] = profit_levels
 
-            # 손절 설정 업데이트 (기존 mode 유지)
+            # 레벨이 1개 이상이면 auto, 없으면 disabled
+            group["profit_settings"]["levels"] = profit_levels
+            group["profit_settings"]["mode"] = "auto" if len(profit_levels) > 0 else "disabled"
+
+            # 손절 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "loss_settings" not in group:
                 group["loss_settings"] = {"mode": "auto", "levels": []}
+
+            # 레벨이 1개 이상이면 auto, 없으면 disabled
             group["loss_settings"]["levels"] = loss_levels
+            group["loss_settings"]["mode"] = "auto" if len(loss_levels) > 0 else "disabled"
 
             # 저장
             self.config_manager.save_config(config)
