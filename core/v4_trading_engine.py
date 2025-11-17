@@ -888,6 +888,12 @@ class V4TradingEngine:
 
             else:
                 # Live 모드: 실제 주문
+                # 주문 전 현재가 조회 (avg_price가 0일 경우 대비)
+                current_price = self._get_current_price_safe(symbol)
+                if not current_price:
+                    logger.error(f"❌ {symbol} 현재가 조회 실패")
+                    return
+
                 order_result = self.upbit_api.buy_market_order(symbol, buy_amount)
 
                 if not order_result or 'error' in order_result:
@@ -900,16 +906,19 @@ class V4TradingEngine:
                 paid_fee = float(order_result.get('paid_fee', 0))
                 total_paid = float(order_result.get('trades_sum', buy_amount))
 
+                # avg_price가 0이면 현재가 사용 (시장가 주문은 즉시 체결되므로 현재가와 유사)
+                final_price = avg_price if avg_price > 0 else current_price
+
                 # 포지션 생성
                 position = self.position_manager.create_position(
                     group_id=group_id,
                     symbol=symbol,
-                    buy_price=avg_price,
+                    buy_price=final_price,
                     quantity=executed_volume,
                     buy_amount_krw=total_paid
                 )
 
-                logger.info(f"✅ {symbol} 매수 완료: {executed_volume:.8f}개 @ {avg_price:,}원 (수수료: {paid_fee:,}원)")
+                logger.info(f"✅ {symbol} 매수 완료: {executed_volume:.8f}개 @ {final_price:,}원 (수수료: {paid_fee:,}원)")
 
             # 거래 기록
             self.trade_history.add_trade(
@@ -1139,6 +1148,12 @@ class V4TradingEngine:
                 # Live 모드: pending_order 먼저 저장 → 주문 → 콜백 등록
                 from datetime import datetime
 
+                # 0. 주문 전 현재가 조회 (시장가 주문 예상가)
+                current_price = self._get_current_price_safe(symbol)
+                if not current_price:
+                    logger.error(f"❌ {symbol} 현재가 조회 실패")
+                    return
+
                 # 1. pending_order 먼저 저장 (주문 전) - Bug #1 수정
                 self.position_manager.update_position(symbol, {
                     "pending_order": {
@@ -1147,10 +1162,11 @@ class V4TradingEngine:
                         "timestamp": datetime.now().isoformat(),
                         "status": "preparing",  # 주문 준비 중
                         "group_id": group_id,
-                        "group_name": group.get("name", "Unknown")
+                        "group_name": group.get("name", "Unknown"),
+                        "expected_price": current_price  # 예상 체결가 저장
                     }
                 })
-                logger.info(f"   📝 {symbol} DCA 레벨 {dca_level_num} pending_order 사전 저장 완료")
+                logger.info(f"   📝 {symbol} DCA 레벨 {dca_level_num} pending_order 사전 저장 완료 (예상가: {current_price:,.0f}원)")
 
                 # 2. REST API 호출
                 try:
@@ -1187,7 +1203,7 @@ class V4TradingEngine:
                             "timestamp": datetime.now().isoformat(),
                             "status": "waiting",  # 체결 대기
                             # DCA 정보 저장 (체결 후 add_dca 호출용)
-                            "dca_price": avg_price,
+                            "dca_price": current_price if avg_price == 0 else avg_price,  # avg_price 0이면 현재가 사용
                             "dca_amount": executed_volume,
                             "dca_value_krw": dca_amount,
                             "group_id": group_id,
