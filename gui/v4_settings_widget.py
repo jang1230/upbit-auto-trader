@@ -8,7 +8,7 @@ QDialog 스타일 충돌 문제 해결을 위해 작성됨
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QLabel, QSpinBox, QDoubleSpinBox,
-    QGroupBox, QCheckBox, QRadioButton, QButtonGroup
+    QGroupBox, QCheckBox, QRadioButton, QButtonGroup, QComboBox
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -214,6 +214,47 @@ class V4SettingsWidget(QWidget):
         custom_button_container.addStretch()
         layout.addLayout(custom_button_container)
 
+        # Custom 모드 전용: 캔들 선택 ComboBox (처음엔 숨김)
+        candle_container = QHBoxLayout()
+        candle_container.addSpacing(30)  # 들여쓰기
+
+        candle_label = QLabel("📊 캔들 선택:")
+        candle_label.setFont(QFont("맑은 고딕", 9))
+        candle_container.addWidget(candle_label)
+
+        self.custom_candle_combo = QComboBox()
+        self.custom_candle_combo.setFont(QFont("맑은 고딕", 9))
+        self.custom_candle_combo.setMinimumWidth(150)
+
+        # Upbit 지원 모든 분봉
+        candles = [
+            ("1", "1분봉 (초단타)"),
+            ("3", "3분봉"),
+            ("5", "5분봉"),
+            ("10", "10분봉 (스캘핑)"),
+            ("15", "15분봉 (단기)"),
+            ("30", "30분봉"),
+            ("60", "1시간봉 (중기)"),
+            ("240", "4시간봉 (장기)")
+        ]
+
+        for value, label in candles:
+            self.custom_candle_combo.addItem(label, value)
+
+        # 기본값: 60분봉
+        index = self.custom_candle_combo.findData("60")
+        if index >= 0:
+            self.custom_candle_combo.setCurrentIndex(index)
+
+        candle_container.addWidget(self.custom_candle_combo)
+        candle_container.addStretch()
+
+        # candle_label과 combo를 감싸는 컨테이너 위젯 생성 (visibility 관리용)
+        self.custom_candle_container = QWidget()
+        self.custom_candle_container.setLayout(candle_container)
+        self.custom_candle_container.setVisible(False)  # 처음엔 숨김
+        layout.addWidget(self.custom_candle_container)
+
         # 라디오 버튼 변경 시 지표 활성화/비활성화
         self.style_button_group.buttonClicked.connect(self._on_style_changed)
 
@@ -253,12 +294,14 @@ class V4SettingsWidget(QWidget):
         }
 
         if style_id == 3:  # Custom
-            # 커스텀 모드: 고급 설정 버튼 표시, 지표 입력 비활성화
+            # 커스텀 모드: 고급 설정 버튼 및 캔들 선택 표시, 지표 입력 비활성화
             self.custom_advanced_button.setVisible(True)
+            self.custom_candle_container.setVisible(True)
             self._set_indicators_enabled(False)  # Custom은 다이얼로그에서 설정
         else:
-            # 프리셋 모드: 고급 설정 버튼 숨김, 지표 값 적용 후 비활성화
+            # 프리셋 모드: 고급 설정 버튼 및 캔들 선택 숨김, 지표 값 적용 후 비활성화
             self.custom_advanced_button.setVisible(False)
+            self.custom_candle_container.setVisible(False)
             preset = presets[style_id]
             self._apply_preset(preset)
             self._set_indicators_enabled(False)
@@ -606,6 +649,13 @@ class V4SettingsWidget(QWidget):
             else:
                 self.balanced_radio.setChecked(True)
 
+            # Custom 모드일 때 candle_unit 로드
+            if style == "custom":
+                candle_unit = self.config.get("candle_unit", "60")
+                index = self.custom_candle_combo.findData(candle_unit)
+                if index >= 0:
+                    self.custom_candle_combo.setCurrentIndex(index)
+
             # 지표 설정 로드
             indicators = self.config.get("indicators", {})
 
@@ -666,14 +716,18 @@ class V4SettingsWidget(QWidget):
             }
         }
 
-        # investment_style에 따른 candle_unit 매핑
-        candle_unit_map = {
-            "conservative": "240",  # 4시간봉
-            "balanced": "60",       # 1시간봉
-            "aggressive": "15",     # 15분봉
-            "custom": "60"          # 커스텀은 기본값 60분 (추후 UI 추가 가능)
-        }
-        candle_unit = candle_unit_map.get(investment_style, "60")
+        # investment_style에 따른 candle_unit 결정
+        if investment_style == "custom":
+            # Custom 모드: ComboBox에서 선택한 값 사용
+            candle_unit = self.custom_candle_combo.currentData()
+        else:
+            # 프리셋 모드: 자동 매핑
+            candle_unit_map = {
+                "conservative": "240",  # 4시간봉
+                "balanced": "60",       # 1시간봉
+                "aggressive": "15"      # 15분봉
+            }
+            candle_unit = candle_unit_map.get(investment_style, "60")
 
         return {
             "enabled": True,
