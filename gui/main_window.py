@@ -2308,8 +2308,8 @@ class MainWindow(QMainWindow):
                     QTableWidgetItem(dca_text),                          # 3: DCA
                     QTableWidgetItem(profit_text),                       # 4: 익절
                     QTableWidgetItem(loss_text),                         # 5: 손절
-                    QTableWidgetItem(f"{average_price:,.0f}"),          # 6: 평균가
-                    QTableWidgetItem(f"{current_price:,.0f}"),          # 7: 현재가
+                    QTableWidgetItem(f"{average_price:,.2f}"),          # 6: 평균가 (소수점 2자리)
+                    QTableWidgetItem(f"{current_price:,.2f}"),          # 7: 현재가 (소수점 2자리)
                     QTableWidgetItem(f"{total_amount:.8f}"),            # 8: 수량
                     QTableWidgetItem(f"{profit_krw:+,.0f}"),            # 9: 평가손익
                     QTableWidgetItem(f"{profit_pct:+.2f}%")             # 10: 수익률
