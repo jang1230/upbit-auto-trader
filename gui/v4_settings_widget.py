@@ -613,6 +613,16 @@ class V4SettingsWidget(QWidget):
             self.volume_period_spin.setValue(volume.get("period", 20))
             self.volume_threshold_spin.setValue(volume.get("threshold", 2.0))
 
+            # UI 업데이트: 스타일에 맞게 visibility와 활성화 상태 설정
+            if style == "custom":
+                # Custom: 캔들 선택 표시, 지표 활성화
+                self.custom_candle_container.setVisible(True)
+                self._set_indicators_enabled(True)
+            else:
+                # 프리셋: 캔들 선택 숨김, 지표 비활성화
+                self.custom_candle_container.setVisible(False)
+                self._set_indicators_enabled(False)
+
         except Exception as e:
             logger.error(f"설정 로드 오류: {e}")
             # 로드 실패 시 기본값 사용 (이미 _get_default_config()에서 설정됨)
