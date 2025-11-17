@@ -1108,6 +1108,17 @@ class V4TradingEngine:
         # 잔고 체크 (DCA 직전에만 REST API 호출)
         if not self._check_min_balance(dca_amount):
             logger.warning(f"⚠️ {symbol} DCA 레벨 {dca_level_num} 취소: 잔고 부족")
+
+            # pending_order 설정 (5분간 재시도 방지)
+            from datetime import datetime
+            self.position_manager.update_position(symbol, {
+                "pending_order": {
+                    "type": "dca_failed",
+                    "level": dca_level_index,
+                    "timestamp": datetime.now().isoformat(),
+                    "reason": "insufficient_balance"
+                }
+            })
             return
 
         logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {quantity_ratio * 100:.0f}% of {total_invested:,}원)")
