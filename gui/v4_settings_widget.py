@@ -14,8 +14,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 import logging
 
-from gui.v4_custom_settings_dialog import V4CustomSettingsDialog
-
 logger = logging.getLogger(__name__)
 
 
@@ -184,35 +182,11 @@ class V4SettingsWidget(QWidget):
         layout.addWidget(self.custom_radio)
 
         custom_desc = QLabel(
-            "   • 지표 상세 설정은 고급 설정 버튼을 눌러주세요"
+            "   • 캔들과 지표를 직접 설정할 수 있습니다"
         )
         custom_desc.setFont(QFont("맑은 고딕", 8))
         custom_desc.setStyleSheet("color: #666; margin-left: 20px;")
         layout.addWidget(custom_desc)
-
-        # 고급 설정 버튼 (Custom 선택 시에만 표시)
-        custom_button_container = QHBoxLayout()
-        custom_button_container.addSpacing(30)  # 들여쓰기
-
-        self.custom_advanced_button = QPushButton("🔧 고급 설정")
-        self.custom_advanced_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                padding: 5px 15px;
-                border-radius: 3px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1976D2;
-            }
-        """)
-        self.custom_advanced_button.clicked.connect(self._open_custom_settings_dialog)
-        self.custom_advanced_button.setVisible(False)  # 처음엔 숨김
-
-        custom_button_container.addWidget(self.custom_advanced_button)
-        custom_button_container.addStretch()
-        layout.addLayout(custom_button_container)
 
         # Custom 모드 전용: 캔들 선택 ComboBox (처음엔 숨김)
         candle_container = QHBoxLayout()
@@ -294,55 +268,15 @@ class V4SettingsWidget(QWidget):
         }
 
         if style_id == 3:  # Custom
-            # 커스텀 모드: 고급 설정 버튼 및 캔들 선택 표시, 지표 입력 비활성화
-            self.custom_advanced_button.setVisible(True)
+            # 커스텀 모드: 캔들 선택 표시, 지표 입력 활성화
             self.custom_candle_container.setVisible(True)
-            self._set_indicators_enabled(False)  # Custom은 다이얼로그에서 설정
+            self._set_indicators_enabled(True)  # Custom은 사용자가 직접 수정
         else:
-            # 프리셋 모드: 고급 설정 버튼 및 캔들 선택 숨김, 지표 값 적용 후 비활성화
-            self.custom_advanced_button.setVisible(False)
+            # 프리셋 모드: 캔들 선택 숨김, 지표 값 적용 후 비활성화
             self.custom_candle_container.setVisible(False)
             preset = presets[style_id]
             self._apply_preset(preset)
             self._set_indicators_enabled(False)
-
-    def _open_custom_settings_dialog(self):
-        """
-        V4 Custom 고급 설정 다이얼로그 열기
-
-        현재 indicators 설정을 전달하고, 사용자가 수정한 값을 받아옴
-        """
-        try:
-            # 현재 indicators 설정 가져오기
-            current_indicators = self.config.get("indicators", {})
-
-            # V4CustomSettingsDialog 열기
-            from PySide6.QtWidgets import QDialog
-            dialog = V4CustomSettingsDialog(
-                config={"indicators": current_indicators},
-                parent=self
-            )
-
-            if dialog.exec() == QDialog.Accepted:
-                # 사용자가 확인 버튼 클릭 시 설정 업데이트
-                updated_config = dialog.get_config()
-                self.config["indicators"] = updated_config["indicators"]
-
-                # UI에도 반영 (미리보기 목적)
-                self._apply_preset(updated_config["indicators"])
-
-                logger.info("✅ V4 Custom 설정 업데이트 완료")
-            else:
-                logger.info("❌ V4 Custom 설정 취소")
-
-        except Exception as e:
-            logger.error(f"❌ V4 Custom 설정 다이얼로그 오류: {e}")
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self,
-                "오류",
-                f"고급 설정 다이얼로그를 여는 중 오류가 발생했습니다:\n{e}"
-            )
 
     def _apply_preset(self, preset: dict):
         """
