@@ -455,7 +455,7 @@ class MainWindow(QMainWindow):
 
         # 테이블 스타일 설정
         self.position_table.setFont(QFont("Consolas", 10))
-        self.position_table.setAlternatingRowColors(True)
+        self.position_table.setAlternatingRowColors(False)  # 그룹별 배경색 사용으로 비활성화
         self.position_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 읽기 전용
         self.position_table.setSelectionBehavior(QTableWidget.SelectRows)  # 행 단위 선택
 
@@ -2262,9 +2262,31 @@ class MainWindow(QMainWindow):
                 logger.info("📊 활성 포지션 없음")
                 return
 
+            # 포지션을 그룹별로 정렬 (그룹 ID → 심볼 순)
+            sorted_positions = sorted(
+                positions.items(),
+                key=lambda x: (x[1].get("group_id", ""), x[0])  # (group_id, symbol)
+            )
+
+            # 그룹별 배경색 정의 (부드러운 파스텔 톤)
+            group_colors = [
+                "#E3F2FD",  # Light Blue
+                "#F3E5F5",  # Light Purple
+                "#E8F5E9",  # Light Green
+                "#FFF3E0",  # Light Orange
+                "#FCE4EC",  # Light Pink
+                "#F1F8E9",  # Light Lime
+                "#FFF9C4",  # Light Yellow
+                "#E0F2F1",  # Light Teal
+            ]
+
+            # 그룹별 색상 매핑
+            group_color_map = {}
+            color_index = 0
+
             # 각 포지션을 테이블에 추가
             row_idx = 0
-            for symbol, pos in positions.items():
+            for symbol, pos in sorted_positions:
                 if pos.get("status") != "active":
                     continue  # 비활성 포지션은 스킵
 
@@ -2315,12 +2337,23 @@ class MainWindow(QMainWindow):
                     QTableWidgetItem(f"{profit_pct:+.2f}%")             # 10: 수익률
                 ]
 
-                # 모든 셀 중앙 정렬
+                # 그룹별 배경색 할당
+                if group_id not in group_color_map:
+                    group_color_map[group_id] = group_colors[color_index % len(group_colors)]
+                    color_index += 1
+
+                bg_color = QColor(group_color_map[group_id])
+
+                # 모든 셀 중앙 정렬 및 배경색 적용
                 for col_idx, item in enumerate(items):
                     item.setTextAlignment(Qt.AlignCenter)
+                    item.setBackground(bg_color)
                     self.position_table.setItem(row_idx, col_idx, item)
 
-                # 수익/손실 색상 적용
+                # 그룹명 셀은 볼드체 적용
+                items[0].setFont(QFont("Consolas", 10, QFont.Bold))
+
+                # 수익/손실 색상 적용 (텍스트 색상)
                 if profit_krw > 0:
                     # 수익: 빨간색
                     items[9].setForeground(QColor("red"))
@@ -2473,15 +2506,21 @@ class MainWindow(QMainWindow):
                 if not symbol_item or symbol_item.text() != symbol:
                     continue
 
+                # 그룹 배경색 가져오기 (그룹명 셀에서)
+                group_item = self.position_table.item(row, 0)
+                bg_color = group_item.background() if group_item else QColor("white")
+
                 # 현재가 업데이트 (컬럼 7)
-                price_item = QTableWidgetItem(f"{current_price:,.0f}")
+                price_item = QTableWidgetItem(f"{current_price:,.2f}")
                 price_item.setTextAlignment(Qt.AlignCenter)
+                price_item.setBackground(bg_color)
                 self.position_table.setItem(row, 7, price_item)
 
                 # 평가손익 업데이트 (컬럼 9)
                 profit_krw = position.get('profit_krw', 0)
                 profit_item = QTableWidgetItem(f"{profit_krw:+,.0f}")
                 profit_item.setTextAlignment(Qt.AlignCenter)
+                profit_item.setBackground(bg_color)
 
                 if profit_krw > 0:
                     profit_item.setForeground(QColor("red"))
@@ -2494,6 +2533,7 @@ class MainWindow(QMainWindow):
                 profit_pct = position.get('profit_pct', 0)
                 pct_item = QTableWidgetItem(f"{profit_pct:+.2f}%")
                 pct_item.setTextAlignment(Qt.AlignCenter)
+                pct_item.setBackground(bg_color)
 
                 if profit_pct > 0:
                     pct_item.setForeground(QColor("red"))
