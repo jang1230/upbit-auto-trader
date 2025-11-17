@@ -365,12 +365,28 @@ class AutoBuySettingsDialogV2(QDialog):
         """V4 설정 위젯 생성 (순수 QWidget 사용)"""
         from gui.v4_settings_widget import V4SettingsWidget
 
-        v4_config = self.config if self.config.get("strategy") in [None, "v4_auto_buy"] else None
+        # auto_config 추출 (구조: buy_settings > auto_config)
+        auto_config = self.config.get("auto_config", self.config)
+
+        # V4 전략일 때만 config 전달
+        if auto_config.get("strategy") in [None, "v4_auto_buy"]:
+            v4_config = auto_config
+        else:
+            v4_config = None
+
         return V4SettingsWidget(v4_config, self)
 
     def _create_expert_widget(self):
         """Expert 설정 위젯 생성"""
-        expert_config = self.config if self.config.get("strategy") == "expert" else None
+        # auto_config 추출 (구조: buy_settings > auto_config)
+        auto_config = self.config.get("auto_config", self.config)
+
+        # Expert 전략일 때만 config 전달
+        if auto_config.get("strategy") == "expert":
+            expert_config = auto_config
+        else:
+            expert_config = None
+
         expert_widget = ExpertStrategyWidget(expert_config, self)
         return expert_widget
 
