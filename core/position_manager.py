@@ -13,6 +13,7 @@ import json
 import os
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pathlib import Path
@@ -795,15 +796,25 @@ class PositionManager:
                     entry_price = avg_buy_price if avg_buy_price > 0 else 0
 
                     if entry_price == 0:
-                        # MyAsset에 avg_buy_price가 없으면 REST API로 조회
+                        # MyAsset에 avg_buy_price가 없으면 REST API로 재시도 조회 (최대 3초)
                         logger.warning(f"   ⚠️ {symbol} MyAsset에 평균가 없음, REST API 조회 필요")
                         if self.upbit_api:
-                            accounts = self.upbit_api.get_accounts()
-                            for acc in accounts:
-                                if f"KRW-{acc['currency']}" == symbol:
-                                    entry_price = float(acc.get('avg_buy_price', 0))
-                                    logger.info(f"   📊 REST API 평균가 조회: {symbol} = {entry_price:.0f}원")
-                                    break
+                            # 최대 6번 재시도 (0.5초 간격, 총 3초)
+                            for retry in range(6):
+                                accounts = self.upbit_api.get_accounts()
+                                for acc in accounts:
+                                    if f"KRW-{acc['currency']}" == symbol:
+                                        entry_price = float(acc.get('avg_buy_price', 0))
+                                        if entry_price > 0:
+                                            logger.info(f"   📊 REST API 평균가 조회: {symbol} = {entry_price:.0f}원 (재시도 {retry+1}회)")
+                                            break
+
+                                if entry_price > 0:
+                                    break  # 성공하면 루프 종료
+
+                                if retry < 5:  # 마지막 시도가 아니면
+                                    time.sleep(0.5)  # 0.5초 대기 후 재시도
+                                    logger.debug(f"   🔄 {symbol} 평균가 재조회 대기 중... ({retry+1}/6)")
 
                     # entry_price가 여전히 0이면 생성하지 않음 (진짜 에어드랍 코인)
                     if entry_price > 0:
