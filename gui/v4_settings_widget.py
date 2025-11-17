@@ -666,11 +666,20 @@ class V4SettingsWidget(QWidget):
             }
         }
 
+        # investment_style에 따른 candle_unit 매핑
+        candle_unit_map = {
+            "conservative": "240",  # 4시간봉
+            "balanced": "60",       # 1시간봉
+            "aggressive": "15",     # 15분봉
+            "custom": "60"          # 커스텀은 기본값 60분 (추후 UI 추가 가능)
+        }
+        candle_unit = candle_unit_map.get(investment_style, "60")
+
         return {
             "enabled": True,
             "strategy": "v4_auto_buy",
             "investment_style": investment_style,
-            "candle_unit": "60",
+            "candle_unit": candle_unit,
             "indicators": indicators,
             "buy_amount_krw": self.config.get("buy_amount_krw", 50000)
         }
