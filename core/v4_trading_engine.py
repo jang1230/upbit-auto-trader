@@ -1025,49 +1025,81 @@ class V4TradingEngine:
                 )
 
             else:
-                # Live 모드: 주문 → 콜백 등록 → pending_order 저장
-                order_result = self.upbit_api.buy_market_order(symbol, dca_amount)
-
-                if not order_result or 'error' in order_result:
-                    logger.error(f"❌ {symbol} DCA 실패: {order_result}")
-                    return
-
-                order_uuid = order_result.get('uuid')
-                if not order_uuid:
-                    logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
-                    return
-
-                executed_volume = float(order_result.get('executed_volume', 0))
-                avg_price = float(order_result.get('avg_price', 0))
-
-                logger.info(f"   📝 {symbol} DCA 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
-
-                # pending_order 저장
+                # Live 모드: pending_order 먼저 저장 → 주문 → 콜백 등록
                 from datetime import datetime
-                position = self.position_manager.get_position(symbol)
+
+                # 1. pending_order 먼저 저장 (주문 전) - Bug #1 수정
                 self.position_manager.update_position(symbol, {
                     "pending_order": {
-                        "order_id": order_uuid,
                         "type": "dca",
                         "level": dca_level_index,
                         "timestamp": datetime.now().isoformat(),
-                        # DCA 정보 저장 (체결 후 add_dca 호출용)
-                        "dca_price": avg_price,
-                        "dca_amount": executed_volume,
-                        "dca_value_krw": dca_amount,
+                        "status": "preparing",  # 주문 준비 중
                         "group_id": group_id,
                         "group_name": group.get("name", "Unknown")
                     }
                 })
+                logger.info(f"   📝 {symbol} DCA 레벨 {dca_level_num} pending_order 사전 저장 완료")
 
-                # MyOrderWebSocket 콜백 등록 (Live 모드에서만)
-                if self.myorder_ws:
-                    self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
-                    logger.info(f"   📡 {symbol} DCA 주문 {order_uuid[:8]}... 콜백 등록 완료")
-                else:
-                    logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+                # 2. REST API 호출
+                try:
+                    order_result = self.upbit_api.buy_market_order(symbol, dca_amount)
 
-                logger.info(f"   ⏳ {symbol} DCA 레벨 {dca_level_num} 주문 대기 중...")
+                    if not order_result or 'error' in order_result:
+                        logger.error(f"❌ {symbol} DCA 실패: {order_result}")
+                        # 실패 시 pending_order 제거
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+                        return
+
+                    order_uuid = order_result.get('uuid')
+                    if not order_uuid:
+                        logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
+                        # 실패 시 pending_order 제거
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+                        return
+
+                    executed_volume = float(order_result.get('executed_volume', 0))
+                    avg_price = float(order_result.get('avg_price', 0))
+
+                    logger.info(f"   📝 {symbol} DCA 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
+
+                    # 3. pending_order 업데이트 (order_id 추가)
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": {
+                            "order_id": order_uuid,
+                            "type": "dca",
+                            "level": dca_level_index,
+                            "timestamp": datetime.now().isoformat(),
+                            "status": "waiting",  # 체결 대기
+                            # DCA 정보 저장 (체결 후 add_dca 호출용)
+                            "dca_price": avg_price,
+                            "dca_amount": executed_volume,
+                            "dca_value_krw": dca_amount,
+                            "group_id": group_id,
+                            "group_name": group.get("name", "Unknown")
+                        }
+                    })
+
+                    # 4. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
+                    if self.myorder_ws:
+                        self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
+                        logger.info(f"   📡 {symbol} DCA 주문 {order_uuid[:8]}... 콜백 등록 완료")
+                    else:
+                        logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+
+                    logger.info(f"   ⏳ {symbol} DCA 레벨 {dca_level_num} 주문 대기 중...")
+
+                except Exception as api_error:
+                    logger.error(f"❌ {symbol} DCA REST API 호출 오류: {api_error}", exc_info=True)
+                    # 예외 발생 시 pending_order 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+                    return
 
         except Exception as e:
             logger.error(f"❌ {symbol} DCA 실행 오류: {e}", exc_info=True)
@@ -1227,47 +1259,80 @@ class V4TradingEngine:
                     logger.info(f"✅ [Dry-run] {symbol} 부분 매도 완료: {sell_amount:.8f}개 @ {current_price:,}원")
 
             else:
-                # Live 모드: 주문 → 콜백 등록 → pending_order 저장
-                order_result = self.upbit_api.sell_market_order(symbol, sell_amount)
-
-                if not order_result or 'error' in order_result:
-                    logger.error(f"❌ {symbol} 매도 실패: {order_result}")
-                    return
-
-                order_uuid = order_result.get('uuid')
-                if not order_uuid:
-                    logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
-                    return
-
-                executed_volume = float(order_result.get('executed_volume', 0))
-                avg_price = float(order_result.get('avg_price', 0))
-
-                logger.info(f"   📝 {symbol} 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
-
-                # pending_order 저장
+                # Live 모드: pending_order 먼저 저장 → 주문 → 콜백 등록
                 from datetime import datetime
+
+                # 1. pending_order 먼저 저장 (주문 전) - Bug #1 수정
                 self.position_manager.update_position(symbol, {
                     "pending_order": {
-                        "order_id": order_uuid,
                         "type": reason,  # "profit" or "loss"
                         "level": level_index,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
+                        "status": "preparing",  # 주문 준비 중
+                        "quantity_ratio": quantity_ratio
                     }
                 })
+                logger.info(f"   📝 {symbol} {reason} 레벨 {level_index} pending_order 사전 저장 완료")
 
-                # MyOrderWebSocket 콜백 등록 (Live 모드에서만)
-                if self.myorder_ws:
-                    self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
-                    logger.info(f"   📡 {symbol} 주문 {order_uuid[:8]}... 콜백 등록 완료")
-                else:
-                    logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+                # 2. REST API 호출
+                try:
+                    order_result = self.upbit_api.sell_market_order(symbol, sell_amount)
 
-                # 포지션 종료 (전량 매도인 경우)
-                if quantity_ratio >= 0.99:
-                    # 체결 확인 후 포지션 종료는 _on_order_completed에서 처리
-                    logger.info(f"   ⏳ {symbol} 전량 매도 주문 대기 중...")
-                else:
-                    logger.info(f"   ⏳ {symbol} 부분 매도 주문 대기 중...")
+                    if not order_result or 'error' in order_result:
+                        logger.error(f"❌ {symbol} 매도 실패: {order_result}")
+                        # 실패 시 pending_order 제거
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+                        return
+
+                    order_uuid = order_result.get('uuid')
+                    if not order_uuid:
+                        logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
+                        # 실패 시 pending_order 제거
+                        self.position_manager.update_position(symbol, {
+                            "pending_order": None
+                        })
+                        return
+
+                    executed_volume = float(order_result.get('executed_volume', 0))
+                    avg_price = float(order_result.get('avg_price', 0))
+
+                    logger.info(f"   📝 {symbol} 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
+
+                    # 3. pending_order 업데이트 (order_id 추가)
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": {
+                            "order_id": order_uuid,
+                            "type": reason,  # "profit" or "loss"
+                            "level": level_index,
+                            "timestamp": datetime.now().isoformat(),
+                            "status": "waiting",  # 체결 대기
+                            "quantity_ratio": quantity_ratio
+                        }
+                    })
+
+                    # 4. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
+                    if self.myorder_ws:
+                        self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
+                        logger.info(f"   📡 {symbol} 주문 {order_uuid[:8]}... 콜백 등록 완료")
+                    else:
+                        logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+
+                    # 5. 포지션 종료 여부 로그
+                    if quantity_ratio >= 0.99:
+                        # 체결 확인 후 포지션 종료는 _on_order_completed에서 처리
+                        logger.info(f"   ⏳ {symbol} 전량 매도 주문 대기 중...")
+                    else:
+                        logger.info(f"   ⏳ {symbol} 부분 매도 주문 대기 중...")
+
+                except Exception as api_error:
+                    logger.error(f"❌ {symbol} 매도 REST API 호출 오류: {api_error}", exc_info=True)
+                    # 예외 발생 시 pending_order 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+                    return
 
             # 거래 기록 (Dry-run만 즉시 기록, Live는 체결 확인 후)
             if self.dry_run:
