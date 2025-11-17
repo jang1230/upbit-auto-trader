@@ -43,6 +43,7 @@ class BalancePollingManager:
         self,
         upbit_api,  # UpbitAPI 인스턴스
         position_manager,  # PositionManager 인스턴스
+        config: dict = None,  # Config 딕셔너리 (Bug #4 수정: 그룹 매핑용)
         interval: float = 1.0  # Polling 간격 (초)
     ):
         """
@@ -51,10 +52,12 @@ class BalancePollingManager:
         Args:
             upbit_api: UpbitAPI 인스턴스 (계좌 조회용)
             position_manager: PositionManager 인스턴스 (포지션 생성용)
+            config: Config 딕셔너리 (그룹 매핑용, Bug #4 수정)
             interval: Polling 간격 (초, 기본 1.0초)
         """
         self.upbit_api = upbit_api
         self.position_manager = position_manager
+        self.config = config or {}  # Config 저장 (Bug #4 수정)
         self.interval = interval
 
         # Polling 상태
@@ -172,16 +175,25 @@ class BalancePollingManager:
                     position = self.position_manager.get_position_by_symbol(symbol)
 
                     if not position:
-                        # 5. group_null 포지션 생성
+                        # 5. 그룹 찾기 (Bug #4 수정: 동적 그룹 매핑)
+                        group_id = self.position_manager._find_group_for_coin(symbol, self.config)
+
+                        if not group_id:
+                            group_id = "group_null"
+                            logger.info(f"   📝 {symbol} 그룹 없음 → group_null로 설정")
+                        else:
+                            logger.info(f"   📝 {symbol} 외부 매수 감지 → {group_id}로 포지션 생성")
+
+                        # 6. 포지션 생성
                         try:
                             self.position_manager.create_position(
-                                group_id="group_null",
+                                group_id=group_id,  # 동적으로 결정된 그룹 (Bug #4 수정)
                                 symbol=symbol,
                                 buy_price=avg_buy_price,
                                 quantity=total,
                                 force_create_for_sync=True
                             )
-                            logger.info(f"✅ group_null 포지션 생성: {symbol}")
+                            logger.info(f"✅ {group_id} 포지션 생성: {symbol}")
                         except Exception as e:
                             logger.error(f"❌ 포지션 생성 실패 ({symbol}): {e}", exc_info=True)
                             continue
@@ -243,3 +255,15 @@ class BalancePollingManager:
             self.polling_thread.join(timeout=3.0)
 
         logger.info("✅ BalancePollingManager 종료 완료")
+
+    def update_config(self, config: dict):
+        """
+        Config 업데이트 (설정 변경 시 호출)
+
+        Bug #4 수정: 설정 변경 시 그룹 매핑 정보 업데이트
+
+        Args:
+            config: 새로운 config dict
+        """
+        self.config = config
+        logger.info("✅ BalancePollingManager config 업데이트 완료")

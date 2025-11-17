@@ -104,6 +104,7 @@ class V4TradingEngine:
                 self.balance_polling_manager = BalancePollingManager(
                     upbit_api=self.upbit_api,
                     position_manager=self.position_manager,
+                    config=self.config,  # Bug #4 수정: config 전달
                     interval=1.0  # 1초 간격
                 )
                 logger.info("✅ BalancePollingManager 인스턴스 생성 완료")
