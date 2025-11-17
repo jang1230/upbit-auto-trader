@@ -2224,9 +2224,22 @@ class MainWindow(QMainWindow):
     def _on_groups_changed(self):
         """그룹 변경 시 호출 (메인 윈도우 업데이트)"""
         logger.info("📊 그룹 변경됨, 메인 윈도우 업데이트")
-        # V4: 포지션 테이블 업데이트
+
+        # 1. GUI 업데이트
         self._load_v4_positions()
         self._add_log("✅ 그룹 설정이 업데이트되었습니다.")
+
+        # 2. V4TradingEngine 리로드 (Bug #5 수정: 거래 중인 경우)
+        if hasattr(self, 'v4_engine') and self.v4_engine:
+            try:
+                self.v4_engine.reload_config_and_update_groups()
+                logger.info("   ✅ V4TradingEngine config 리로드 완료")
+                self._add_log("✅ 거래 엔진 설정이 즉시 반영되었습니다.")
+            except Exception as e:
+                logger.error(f"   ❌ V4TradingEngine config 리로드 실패: {e}")
+                self._add_log(f"⚠️ 설정 적용 실패: {e}")
+        else:
+            logger.info("   ℹ️ V4TradingEngine 없음 (거래 중지 상태)")
 
     def _load_v4_positions(self):
         """V4: 포지션 데이터 로드 및 테이블 표시"""

@@ -425,6 +425,51 @@ class PositionManager:
 
         return None
 
+    def update_position_groups_from_config(self, config: Dict[str, Any]) -> int:
+        """
+        Config 기반으로 포지션 그룹 업데이트
+
+        API 호출 없이 메모리 내 포지션의 group_id만 업데이트
+        설정 변경 시 즉시 반영용 (Bug #5 수정)
+
+        Args:
+            config: 새로운 config dict
+
+        Returns:
+            업데이트된 포지션 개수
+        """
+        logger.info("🔄 Config 기반 포지션 그룹 업데이트 시작")
+
+        updated_count = 0
+
+        for symbol, position in self.positions.items():
+            # active 포지션만 대상
+            if position.get('status') != 'active':
+                continue
+
+            # 현재 config에서 그룹 찾기
+            current_group_id = self._find_group_for_coin(symbol, config)
+            old_group_id = position.get('group_id')
+
+            # 그룹 변경 감지
+            if current_group_id and current_group_id != old_group_id:
+                self.update_position(symbol, {'group_id': current_group_id})
+                logger.info(f"   🔄 {symbol} 그룹 변경: {old_group_id} → {current_group_id}")
+                updated_count += 1
+
+            # 그룹에서 제거됨 (config에 없음)
+            elif not current_group_id and old_group_id != "group_null":
+                self.update_position(symbol, {'group_id': "group_null"})
+                logger.info(f"   ⚠️ {symbol} 그룹 제거됨: {old_group_id} → group_null")
+                updated_count += 1
+
+        if updated_count > 0:
+            logger.info(f"✅ {updated_count}개 포지션 그룹 업데이트 완료")
+        else:
+            logger.info("✅ 그룹 변경 없음")
+
+        return updated_count
+
     def get_total_valuation(self) -> float:
         """
         전체 포지션 평가액 합계

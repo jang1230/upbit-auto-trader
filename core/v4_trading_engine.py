@@ -327,6 +327,49 @@ class V4TradingEngine:
 
         logger.info("✅ V4 거래 엔진 중지 완료")
 
+    def reload_config_and_update_groups(self):
+        """
+        설정 변경 시 config 리로드 및 그룹 업데이트
+
+        MainWindow의 groups_changed Signal에서 호출됨
+        API 호출 없이 메모리 기반 업데이트만 수행
+        Bug #5 수정: 재시작 없이 설정 변경 즉시 반영
+        """
+        logger.info("🔄 Config 리로드 중...")
+
+        try:
+            # 1. Config 파일 다시 로드
+            self.config = self.config_manager.load_config()
+            logger.info("   📄 Config 파일 로드 완료")
+
+            # 2. 포지션 그룹 업데이트 (API 호출 없음)
+            updated_count = self.position_manager.update_position_groups_from_config(self.config)
+            logger.info(f"   📊 포지션 그룹 업데이트 완료 ({updated_count}개 변경)")
+
+            # 3. BalancePollingManager 업데이트
+            if hasattr(self, 'balance_polling_manager') and self.balance_polling_manager:
+                self.balance_polling_manager.update_config(self.config)
+                logger.info("   🔄 BalancePollingManager config 업데이트 완료")
+
+            logger.info("✅ Config 리로드 완료 (재시작 불필요)")
+
+            # 4. Telegram 알림
+            if self.telegram_bot:
+                self.telegram_bot.send_message(
+                    "✅ 설정 변경 적용 완료\n"
+                    f"그룹 설정이 즉시 반영되었습니다.\n"
+                    f"업데이트: {updated_count}개 포지션"
+                )
+
+        except Exception as e:
+            logger.error(f"❌ Config 리로드 실패: {e}", exc_info=True)
+            if self.telegram_bot:
+                self.telegram_bot.send_message(
+                    f"⚠️ 설정 변경 적용 실패\n"
+                    f"오류: {e}\n"
+                    f"프로그램을 재시작해주세요."
+                )
+
     def _initialize_strategies(self):
         """그룹별 전략 초기화"""
         logger.info("📊 그룹별 전략 초기화 중...")
