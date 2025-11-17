@@ -430,7 +430,13 @@ class UpbitAPI:
         }
         
         order = self._request("POST", "/orders", body=body)
-        
+
+        # 에러 응답 체크
+        if "status_code" in order:
+            # 에러 응답: {"status_code": int, "name": str, "message": str}
+            logger.error(f"❌ 매수 주문 실패: {order.get('name')} - {order.get('message')}")
+            return order
+
         logger.info(f"✅ 매수 주문 완료: {order['uuid']}")
         return order
     
@@ -455,7 +461,13 @@ class UpbitAPI:
         }
         
         order = self._request("POST", "/orders", body=body)
-        
+
+        # 에러 응답 체크
+        if "status_code" in order:
+            # 에러 응답: {"status_code": int, "name": str, "message": str}
+            logger.error(f"❌ 매도 주문 실패: {order.get('name')} - {order.get('message')}")
+            return order
+
         logger.info(f"✅ 매도 주문 완료: {order['uuid']}")
         return order
     

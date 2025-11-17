@@ -1468,20 +1468,50 @@ class V4TradingEngine:
         if not position:
             return
 
+        # 현재가 조회 (최소 주문 금액 체크용)
+        current_price = self._get_current_price_safe(symbol)
+        if not current_price:
+            logger.error(f"❌ {symbol} 현재가 조회 실패")
+            return
+
         total_amount = position.get("total_amount", 0)
         sell_amount = total_amount * quantity_ratio
+        sell_value_krw = sell_amount * current_price
 
-        logger.info(f"💰 {symbol} 매도 실행 중... (사유: {reason}, 레벨: {level_index}, 수량: {sell_amount:.8f}개)")
+        # Upbit 최소 주문 금액 체크 (5000원)
+        MIN_ORDER_KRW = 5000
+
+        if sell_value_krw < MIN_ORDER_KRW:
+            if quantity_ratio >= 0.99:
+                # 전량 매도인데도 5000원 미만 → 매도 불가
+                logger.warning(
+                    f"⚠️ {symbol} 매도 불가: 주문 금액 {sell_value_krw:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 "
+                    f"(전량 {total_amount:.8f}개 @ {current_price:,.2f}원)"
+                )
+                return
+            else:
+                # 부분 매도인데 5000원 미만 → 전량 매도로 변경
+                logger.warning(
+                    f"⚠️ {symbol} 부분 매도 금액 부족 ({sell_value_krw:,.0f}원 < {MIN_ORDER_KRW:,.0f}원) "
+                    f"→ 전량 매도로 변경"
+                )
+                quantity_ratio = 1.0
+                sell_amount = total_amount
+                sell_value_krw = sell_amount * current_price
+
+                # 전량 매도로 변경해도 5000원 미만이면 포기
+                if sell_value_krw < MIN_ORDER_KRW:
+                    logger.warning(
+                        f"⚠️ {symbol} 매도 불가: 전량 매도해도 {sell_value_krw:,.0f}원 < {MIN_ORDER_KRW:,.0f}원"
+                    )
+                    return
+
+        logger.info(f"💰 {symbol} 매도 실행 중... (사유: {reason}, 레벨: {level_index}, 수량: {sell_amount:.8f}개, 금액: {sell_value_krw:,.0f}원)")
 
         try:
             if self.dry_run or not self.upbit_api:
                 # Dry-run 모드: 즉시 실행 (체결 확인 불필요)
-                current_price = self._get_current_price_safe(symbol)
-                if not current_price:
-                    logger.error(f"❌ {symbol} 현재가 조회 실패")
-                    return
-
-                sell_value = sell_amount * current_price
+                sell_value = sell_value_krw
                 profit = sell_value - (position.get("total_invested_krw", 0) * quantity_ratio)
 
                 # 포지션 업데이트 (executed_levels 추가)
