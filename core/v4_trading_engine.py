@@ -743,28 +743,32 @@ class V4TradingEngine:
                 logger.info(f"      ⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
             return
 
-        # 1. 전역 제약 확인
-        constraints_ok = self._check_global_constraints(verbose=verbose)
-        if verbose:
-            logger.info(f"      🔧 {symbol}: 전역 제약 체크 = {constraints_ok}")
-        if not constraints_ok:
-            if verbose:
-                logger.info(f"      ⏭️ {symbol}: 전역 제약 실패로 스킵")
-            return
-
-        # 2. 매수 신호 확인 (포지션이 없는 경우)
+        # 1. 포지션 확인
         position = self.position_manager.get_position(symbol)
         if verbose:
             logger.info(f"      📊 {symbol}: 포지션 존재 = {position is not None}")
 
+        # 2-A. 신규 매수 (포지션이 없는 경우) - 전역 제약 체크 필요
         if not position and group.get("buy_settings", {}).get("mode") == "auto":
+            # 전역 제약 확인 (신규 매수 시에만)
+            constraints_ok = self._check_global_constraints(verbose=verbose)
+            if verbose:
+                logger.info(f"      🔧 {symbol}: 전역 제약 체크 = {constraints_ok}")
+            if not constraints_ok:
+                if verbose:
+                    logger.info(f"      ⏭️ {symbol}: 전역 제약 실패로 신규 매수 스킵")
+                return
+
             if verbose:
                 logger.info(f"      🎯 {symbol}: 매수 신호 체크 시작")
             self._check_buy_signal(symbol, group_id, group, verbose=verbose)
+
+        # 2-B. 포지션 관리 (DCA, 익절, 손절) - 전역 제약 무관
         elif position:
             if verbose:
-                logger.info(f"      🎯 {symbol}: 포지션 관리 시작")
+                logger.info(f"      🎯 {symbol}: 포지션 관리 시작 (DCA/익절/손절)")
             self._manage_position(symbol, group_id, group)
+
         else:
             if verbose:
                 buy_mode = group.get("buy_settings", {}).get("mode", "unknown")
