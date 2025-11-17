@@ -511,6 +511,8 @@ class AutoBuySettingsDialogV2(QDialog):
                     "strategy": "v4_auto_buy",
                     "investment_style": v4_config.get("investment_style"),
                     "candle_unit": v4_config.get("candle_unit"),
+                    "signal_mode": v4_config.get("signal_mode", "all"),
+                    "min_signals_required": v4_config.get("min_signals_required"),
                     "indicators": v4_config.get("indicators"),
                     "buy_amount_krw": buy_amount
                 }
@@ -521,7 +523,10 @@ class AutoBuySettingsDialogV2(QDialog):
                     "auto_config": auto_config
                 }
 
-                logger.info(f"📊 Auto V4 설정 반환: {auto_config.get('investment_style')}, 매수금액: {buy_amount:,}원")
+                signal_info = f"신호모드: {auto_config.get('signal_mode')}"
+                if auto_config.get('signal_mode') == "partial":
+                    signal_info += f" (최소 {auto_config.get('min_signals_required')}개)"
+                logger.info(f"📊 Auto V4 설정 반환: {auto_config.get('investment_style')}, {signal_info}, 매수금액: {buy_amount:,}원")
                 return result
 
             else:
