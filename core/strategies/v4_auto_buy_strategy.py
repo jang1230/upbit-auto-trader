@@ -109,6 +109,8 @@ class V4AutoBuyStrategy(BaseStrategy):
         investment_style: str = "balanced",
         candle_unit: str = None,
         indicators_config: Dict[str, Any] = None,
+        signal_mode: str = "all",
+        min_signals_required: int = None,
         **kwargs
     ):
         """
@@ -122,11 +124,18 @@ class V4AutoBuyStrategy(BaseStrategy):
                     "macd": {"enabled": True, "fast": 12, ...},
                     "volume": {"enabled": True, "threshold": 2.0, ...}
                 }
+            signal_mode: 신호 모드 ("all" 또는 "partial")
+                - "all": 모든 활성화된 지표 만족 필요 (AND)
+                - "partial": 일부 지표만 만족해도 매수 (OR)
+            min_signals_required: partial 모드일 때 필요한 최소 신호 개수
+                (예: 3개 지표 중 2개 이상)
         """
         super().__init__(name=f"V4 Auto-buy ({investment_style})")
 
         self.symbol = symbol
         self.investment_style = investment_style
+        self.signal_mode = signal_mode
+        self.min_signals_required = min_signals_required
 
         # Preset 적용
         if investment_style in self.PRESETS:
@@ -185,11 +194,24 @@ class V4AutoBuyStrategy(BaseStrategy):
             else:
                 buy_signals.append(False)
 
-        # 모든 활성화된 조건 만족 시 매수
-        if len(buy_signals) > 0 and all(buy_signals):
-            return True
+        # 신호 판단 로직
+        if len(buy_signals) == 0:
+            return False
 
-        return False
+        if self.signal_mode == "all":
+            # 모든 활성화된 조건 만족 (AND)
+            return all(buy_signals)
+        elif self.signal_mode == "partial":
+            # N개 이상의 조건 만족 (OR)
+            if self.min_signals_required is None:
+                # min_signals_required 없으면 기본값: 절반 이상
+                self.min_signals_required = max(1, len(buy_signals) // 2)
+
+            satisfied_count = sum(buy_signals)  # True 개수 세기
+            return satisfied_count >= self.min_signals_required
+        else:
+            # 알 수 없는 모드면 안전하게 all 사용
+            return all(buy_signals)
 
     def should_sell(self, candles: pd.DataFrame) -> bool:
         """

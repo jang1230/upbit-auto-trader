@@ -421,17 +421,26 @@ class V4TradingEngine:
                         investment_style = auto_config.get("investment_style", "balanced")
                         candle_unit = auto_config.get("candle_unit", "60")
                         indicators_config = auto_config.get("indicators", {})
+                        signal_mode = auto_config.get("signal_mode", "all")
+                        min_signals_required = auto_config.get("min_signals_required", None)
 
                         strategy = V4AutoBuyStrategy(
                             symbol=symbol,
                             investment_style=investment_style,
                             candle_unit=candle_unit,
-                            indicators_config=indicators_config
+                            indicators_config=indicators_config,
+                            signal_mode=signal_mode,
+                            min_signals_required=min_signals_required
                         )
+
+                        # 신호 모드 정보 추가
+                        signal_info = f"신호: {signal_mode}"
+                        if signal_mode == "partial" and min_signals_required:
+                            signal_info += f" (최소 {min_signals_required}개)"
 
                         logger.info(
                             f"  - {group['name']}: {symbol} V4AutoBuyStrategy 생성 완료 "
-                            f"(Style: {investment_style}, Candle: {candle_unit}min)"
+                            f"(Style: {investment_style}, Candle: {candle_unit}min, {signal_info})"
                         )
 
                     self.strategies[group_id][symbol] = strategy

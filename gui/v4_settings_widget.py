@@ -229,6 +229,57 @@ class V4SettingsWidget(QWidget):
         self.custom_candle_container.setVisible(False)  # 처음엔 숨김
         layout.addWidget(self.custom_candle_container)
 
+        # Custom 모드 전용: 신호 모드 선택 (처음엔 숨김)
+        signal_mode_container = QHBoxLayout()
+        signal_mode_container.addSpacing(30)  # 들여쓰기
+
+        signal_mode_label = QLabel("🎯 매수 조건:")
+        signal_mode_label.setFont(QFont("맑은 고딕", 9))
+        signal_mode_container.addWidget(signal_mode_label)
+
+        # 라디오 버튼 그룹
+        self.signal_mode_button_group = QButtonGroup()
+
+        self.signal_all_radio = QRadioButton("모든 지표 (AND)")
+        self.signal_all_radio.setFont(QFont("맑은 고딕", 9))
+        self.signal_mode_button_group.addButton(self.signal_all_radio, 0)
+        signal_mode_container.addWidget(self.signal_all_radio)
+
+        self.signal_partial_radio = QRadioButton("일부 지표 (OR)")
+        self.signal_partial_radio.setFont(QFont("맑은 고딕", 9))
+        self.signal_mode_button_group.addButton(self.signal_partial_radio, 1)
+        signal_mode_container.addWidget(self.signal_partial_radio)
+
+        # 최소 신호 개수 SpinBox
+        min_signals_label = QLabel("최소:")
+        min_signals_label.setFont(QFont("맑은 고딕", 9))
+        signal_mode_container.addWidget(min_signals_label)
+
+        self.min_signals_spin = QSpinBox()
+        self.min_signals_spin.setFont(QFont("맑은 고딕", 9))
+        self.min_signals_spin.setRange(1, 5)
+        self.min_signals_spin.setValue(2)
+        self.min_signals_spin.setSuffix("개")
+        self.min_signals_spin.setMinimumWidth(80)
+        self.min_signals_spin.setEnabled(False)  # 기본 비활성화
+        signal_mode_container.addWidget(self.min_signals_spin)
+
+        signal_mode_container.addStretch()
+
+        # partial 선택 시 min_signals_spin 활성화
+        self.signal_partial_radio.toggled.connect(
+            lambda checked: self.min_signals_spin.setEnabled(checked)
+        )
+
+        # 기본값: 모든 지표 선택
+        self.signal_all_radio.setChecked(True)
+
+        # 신호 모드 컨테이너 위젯 생성
+        self.signal_mode_container = QWidget()
+        self.signal_mode_container.setLayout(signal_mode_container)
+        self.signal_mode_container.setVisible(False)  # 처음엔 숨김
+        layout.addWidget(self.signal_mode_container)
+
         # 라디오 버튼 변경 시 지표 활성화/비활성화
         self.style_button_group.buttonClicked.connect(self._on_style_changed)
 
@@ -268,12 +319,14 @@ class V4SettingsWidget(QWidget):
         }
 
         if style_id == 3:  # Custom
-            # 커스텀 모드: 캔들 선택 표시, 지표 입력 활성화
+            # 커스텀 모드: 캔들 선택, 신호 모드 표시, 지표 입력 활성화
             self.custom_candle_container.setVisible(True)
+            self.signal_mode_container.setVisible(True)
             self._set_indicators_enabled(True)  # Custom은 사용자가 직접 수정
         else:
-            # 프리셋 모드: 캔들 선택 숨김, 지표 값 적용 후 비활성화
+            # 프리셋 모드: 캔들 선택, 신호 모드 숨김, 지표 값 적용 후 비활성화
             self.custom_candle_container.setVisible(False)
+            self.signal_mode_container.setVisible(False)
             preset = presets[style_id]
             self._apply_preset(preset)
             self._set_indicators_enabled(False)
@@ -613,14 +666,25 @@ class V4SettingsWidget(QWidget):
             self.volume_period_spin.setValue(volume.get("period", 20))
             self.volume_threshold_spin.setValue(volume.get("threshold", 2.0))
 
+            # 신호 모드 로드
+            signal_mode = self.config.get("signal_mode", "all")
+            if signal_mode == "all":
+                self.signal_all_radio.setChecked(True)
+            else:
+                self.signal_partial_radio.setChecked(True)
+                min_signals = self.config.get("min_signals_required", 2)
+                self.min_signals_spin.setValue(min_signals)
+
             # UI 업데이트: 스타일에 맞게 visibility와 활성화 상태 설정
             if style == "custom":
-                # Custom: 캔들 선택 표시, 지표 활성화
+                # Custom: 캔들 선택, 신호 모드 표시, 지표 활성화
                 self.custom_candle_container.setVisible(True)
+                self.signal_mode_container.setVisible(True)
                 self._set_indicators_enabled(True)
             else:
-                # 프리셋: 캔들 선택 숨김, 지표 비활성화
+                # 프리셋: 캔들 선택, 신호 모드 숨김, 지표 비활성화
                 self.custom_candle_container.setVisible(False)
+                self.signal_mode_container.setVisible(False)
                 self._set_indicators_enabled(False)
 
         except Exception as e:
@@ -673,11 +737,21 @@ class V4SettingsWidget(QWidget):
             }
             candle_unit = candle_unit_map.get(investment_style, "60")
 
+        # 신호 모드 추출
+        if self.signal_all_radio.isChecked():
+            signal_mode = "all"
+            min_signals_required = None
+        else:
+            signal_mode = "partial"
+            min_signals_required = self.min_signals_spin.value()
+
         return {
             "enabled": True,
             "strategy": "v4_auto_buy",
             "investment_style": investment_style,
             "candle_unit": candle_unit,
+            "signal_mode": signal_mode,
+            "min_signals_required": min_signals_required,
             "indicators": indicators,
             "buy_amount_krw": self.config.get("buy_amount_krw", 50000)
         }
