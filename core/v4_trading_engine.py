@@ -342,6 +342,11 @@ class V4TradingEngine:
             self.config = self.config_manager.load_config()
             logger.info("   📄 Config 파일 로드 완료")
 
+            # 1-1. GroupManager의 ConfigManager도 리로드 (Bug 수정: DCA 설정 실시간 반영)
+            self.group_manager.config_manager.config = None  # 캐시 무효화
+            self.group_manager.config = self.group_manager.config_manager.load_config()
+            logger.info("   📄 GroupManager config 리로드 완료")
+
             # 2. 포지션 그룹 업데이트 (API 호출 없음)
             updated_count = self.position_manager.update_position_groups_from_config(self.config)
             logger.info(f"   📊 포지션 그룹 업데이트 완료 ({updated_count}개 변경)")
