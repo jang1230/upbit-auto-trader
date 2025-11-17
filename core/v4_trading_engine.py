@@ -1838,7 +1838,8 @@ class V4TradingEngine:
                 logger.info(f"         🔍 현재 포지션: {active_positions}개 / 최대: {max_limit}개")
 
             if active_positions >= max_limit:
-                logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 ({active_positions}개 >= {max_limit}개)")
+                if verbose:
+                    logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 ({active_positions}개 >= {max_limit}개)")
                 return False
 
         if verbose:
