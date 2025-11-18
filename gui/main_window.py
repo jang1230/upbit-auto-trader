@@ -227,6 +227,9 @@ class MainWindow(QMainWindow):
         # 🔧 V4: Trading Engine 인스턴스
         self.v4_engine = None  # V4TradingEngine 인스턴스
 
+        # 🔧 V4: 실시간 가격 업데이트 타이머 (V4 WebSocket에서 읽어옴)
+        self.price_update_timer = None
+
         # 🔧 GUI 업데이트 throttling
         self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
 
@@ -977,7 +980,15 @@ class MainWindow(QMainWindow):
             self._add_log("🚀 V4 Trading Engine 시작")
             self._add_log("=" * 50)
 
-            # V4TradingEngine 인스턴스 생성
+            # 🔧 1단계: GUI WebSocket 중지 (V4 WebSocket으로 전환)
+            if self.price_websocket_worker and self.price_websocket_worker.isRunning():
+                logger.info("🔄 GUI WebSocket → V4 WebSocket 전환")
+                self._add_log("🔄 실시간 가격: GUI WebSocket → V4 WebSocket 전환")
+                self.price_websocket_worker.stop()
+                self.price_websocket_worker.wait(3000)  # 최대 3초 대기
+                self.price_websocket_worker = None
+
+            # 🔧 2단계: V4TradingEngine 인스턴스 생성
             self.v4_engine = V4TradingEngine(
                 config_path="config/trading_config.json",
                 upbit_api=self.upbit_api
@@ -994,15 +1005,22 @@ class MainWindow(QMainWindow):
             self.engine_thread = threading.Thread(target=run_engine, daemon=True)
             self.engine_thread.start()
 
-            # 상태 업데이트
+            # 🔧 3단계: 상태 업데이트
             self.is_running = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
             self.statusbar.showMessage("실행 중")
 
+            # 🔧 4단계: V4 WebSocket 데이터를 GUI로 전달하는 타이머 시작
+            self.price_update_timer = QTimer(self)
+            self.price_update_timer.timeout.connect(self._update_from_v4)
+            self.price_update_timer.start(100)  # 0.1초마다 (실시간)
+            logger.info("✅ V4 → GUI 실시간 가격 업데이트 타이머 시작 (0.1초 간격)")
+
             mode_str = "🧪 Dry-run" if dry_run else "💰 Live"
             self._add_log(f"✅ V4 엔진 시작 완료 ({mode_str})")
             self._add_log(f"📊 활성 그룹: {len(groups)}개")
+            self._add_log("✅ 실시간 가격 업데이트: V4 WebSocket 사용")
 
         except Exception as e:
             logger.error(f"❌ V4 엔진 시작 실패: {e}", exc_info=True)
@@ -1248,7 +1266,13 @@ class MainWindow(QMainWindow):
             # 즉시 버튼 비활성화 (중복 클릭 방지)
             self.stop_btn.setEnabled(False)
 
-            # V4 엔진 중지
+            # 🔧 1단계: V4 → GUI 가격 업데이트 타이머 중지
+            if self.price_update_timer:
+                logger.info("🛑 V4 → GUI 가격 업데이트 타이머 중지")
+                self.price_update_timer.stop()
+                self.price_update_timer = None
+
+            # 🔧 2단계: V4 엔진 중지
             if self.v4_engine:
                 try:
                     self._add_log("⏳ V4 엔진 중지 중...")
@@ -1260,12 +1284,25 @@ class MainWindow(QMainWindow):
                 finally:
                     self.v4_engine = None
 
-            # 상태 업데이트
+            # 🔧 3단계: 상태 업데이트
             self.is_running = False
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
             self.statusbar.showMessage("중지됨")
             self._add_log("✅ 트레이딩 중지 완료")
+
+            # 🔧 4단계: GUI WebSocket 재시작 (포지션이 있으면)
+            try:
+                positions = self.v4_position_manager.get_all_positions()
+                if positions:
+                    symbols = [p['symbol'] for p in positions.values()]
+                    logger.info(f"🔄 V4 WebSocket → GUI WebSocket 전환 ({len(symbols)}개 심볼)")
+                    self._add_log(f"🔄 실시간 가격: V4 WebSocket → GUI WebSocket 전환")
+                    self._start_price_websocket(symbols)
+                else:
+                    logger.info("⏭️ 포지션 없음: GUI WebSocket 시작 불필요")
+            except Exception as e:
+                logger.error(f"❌ GUI WebSocket 재시작 실패: {e}", exc_info=True)
 
     def _check_worker_shutdown(self):
         """Worker 종료 체크 (비동기, 500ms마다)"""
@@ -2388,6 +2425,11 @@ class MainWindow(QMainWindow):
             symbols: 구독할 심볼 리스트
         """
         try:
+            # 🔧 시작 버튼 누른 상태면 V4 WebSocket 사용 (GUI WebSocket 사용 안 함)
+            if self.is_running:
+                logger.debug("⏭️ 시작 중: V4 WebSocket 사용, GUI WebSocket 스킵")
+                return
+
             # 🔥 핵심: 워커가 실행 중이면 재구독만 수행 (연결 재시작 X)
             if self.price_websocket_worker and self.price_websocket_worker.isRunning():
                 logger.info(f"🔄 Symbol 리스트 업데이트 시도: {len(symbols)}개")
@@ -2561,6 +2603,34 @@ class MainWindow(QMainWindow):
         """WebSocket 에러 핸들러"""
         logger.error(f"❌ WebSocket 에러: {error_msg}")
         self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {error_msg}")
+
+    def _update_from_v4(self):
+        """
+        V4 WebSocket 데이터를 GUI로 전달 (0.1초마다 호출됨)
+
+        V4TradingEngine의 WebSocketManager에서 실시간 현재가를 읽어서
+        GUI 포지션 테이블을 업데이트합니다.
+        """
+        try:
+            if not self.v4_engine or not self.v4_position_manager:
+                return
+
+            # WebSocketManager가 실행 중인지 확인
+            if not self.v4_engine.websocket_manager or not self.v4_engine.websocket_manager.is_running:
+                return
+
+            # 모든 포지션의 심볼에 대해 현재가 가져오기
+            positions = self.v4_position_manager.get_all_positions()
+            for symbol, position in positions.items():
+                # V4 WebSocketManager에서 실시간 현재가 가져오기
+                current_price = self.v4_engine.websocket_manager.get_current_price(symbol)
+
+                if current_price and current_price > 0:
+                    # GUI 업데이트 (기존 _on_price_updated 메서드 재사용)
+                    self._on_price_updated(symbol, current_price)
+
+        except Exception as e:
+            logger.error(f"❌ V4 → GUI 가격 업데이트 오류: {e}", exc_info=True)
 
     def _on_balance_updated(self, assets: list):
         """
