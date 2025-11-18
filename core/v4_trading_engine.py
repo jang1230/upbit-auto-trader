@@ -497,6 +497,10 @@ class V4TradingEngine:
                     total_added += 1
                     logger.info(f"  - {group['name']}: {symbol} WebSocket 추가 완료 (mode={buy_mode}, candle={candle_unit}min)")
 
+                    # Rate Limit 준수: candle 그룹 초당 10회 제한
+                    # 0.11초 대기 (초당 최대 9.09회 = 안전)
+                    await asyncio.sleep(0.11)
+
                 except Exception as e:
                     logger.error(f"❌ {symbol} WebSocket 추가 실패: {e}")
 
