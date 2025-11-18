@@ -121,6 +121,23 @@ class V4TradingEngine:
                 self.myasset_ws = None
                 self.balance_polling_manager = None
 
+        # 텔레그램 봇 초기화
+        telegram_config = self.global_settings.get("telegram", {})
+        if telegram_config.get("enabled", False):
+            try:
+                from core.telegram_bot import TelegramBot
+                self.telegram_bot = TelegramBot(
+                    token=telegram_config.get("token", ""),
+                    chat_id=telegram_config.get("chat_id", "")
+                )
+                logger.info("✅ 텔레그램 봇 초기화 완료")
+            except Exception as e:
+                logger.warning(f"⚠️ 텔레그램 봇 초기화 실패: {e}")
+                self.telegram_bot = None
+        else:
+            logger.info("ℹ️ 텔레그램 알림 비활성화")
+            self.telegram_bot = None
+
         # 일일 손실 추적 (deprecated - 포지션 손실 한도로 대체)
         daily_loss_config = self.global_settings.get("daily_loss_limit", {})
         if daily_loss_config.get("enabled", False):
@@ -2415,8 +2432,20 @@ class V4TradingEngine:
 
     def _send_telegram_alert(self, message: str):
         """텔레그램 알림 전송"""
-        # TODO: 텔레그램 봇 통합
         logger.info(f"📱 [Telegram] {message}")
+
+        # 텔레그램 봇 전송
+        if self.telegram_bot:
+            def send_async():
+                """비동기 메시지 전송 (별도 스레드에서 asyncio.run 실행)"""
+                try:
+                    asyncio.run(self.telegram_bot.send_message(message))
+                except Exception as e:
+                    logger.error(f"❌ 텔레그램 메시지 전송 실패: {e}")
+
+            # 별도 스레드에서 비동기 전송 (메인 루프 블로킹 방지)
+            thread = threading.Thread(target=send_async, daemon=True)
+            thread.start()
 
     def _run_scheduler(self):
         """스케줄러 실행 (09:00 리셋 등)"""
