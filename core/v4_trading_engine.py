@@ -1660,6 +1660,7 @@ class V4TradingEngine:
             ask_bid = order_data.get('ask_bid')
             executed_volume = order_data.get('executed_volume', 0)
             avg_price = order_data.get('avg_price', 0)
+            trade_price = order_data.get('price', 0)  # ✅ 실제 체결가 (state='trade'일 때)
 
             logger.info(f"📬 주문 체결 이벤트 수신: {symbol} {order_uuid[:8]}... state={state}")
 
@@ -1689,11 +1690,20 @@ class V4TradingEngine:
 
                     # DCA 주문이면 add_dca() 호출
                     if order_type == 'dca':
-                        dca_price = pending_order.get('dca_price', avg_price)
+                        # ✅ 실제 체결가 사용 (MyOrder WebSocket의 price 필드)
+                        # trade_price가 없으면 avg_price, 그것도 없으면 예상가 사용
+                        dca_price = trade_price if trade_price > 0 else (avg_price if avg_price > 0 else pending_order.get('dca_price', 0))
                         dca_amount = executed_volume  # 실제 체결 수량
                         dca_value_krw = pending_order.get('dca_value_krw', 0)
                         group_id = pending_order.get('group_id', 'unknown')
                         group_name = pending_order.get('group_name', 'Unknown')
+
+                        # 예상가와 실제 체결가 비교 로그
+                        expected_price = pending_order.get('dca_price', 0)
+                        if expected_price > 0 and dca_price > 0:
+                            price_diff = dca_price - expected_price
+                            price_diff_pct = (price_diff / expected_price) * 100
+                            logger.info(f"   📊 {symbol} 체결가: {dca_price:,.0f}원 (예상: {expected_price:,.0f}원, 차이: {price_diff:+,.0f}원 / {price_diff_pct:+.3f}%)")
 
                         # 포지션 DCA 추가
                         self.position_manager.add_dca(
@@ -1704,7 +1714,7 @@ class V4TradingEngine:
                             level=level_index
                         )
 
-                        logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 부분 체결 완료 → add_dca() 호출")
+                        logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 부분 체결 완료 → add_dca() 호출 (실제 체결가: {dca_price:,.0f}원)")
 
                         # 거래 기록 추가
                         updated_position = self.position_manager.get_position(symbol)
