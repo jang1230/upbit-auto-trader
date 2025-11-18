@@ -1489,10 +1489,25 @@ class V4TradingEngine:
                 return
             else:
                 # 부분 매도인데 5000원 미만 → 전량 매도로 변경
+                original_ratio = quantity_ratio * 100
                 logger.warning(
                     f"⚠️ {symbol} 부분 매도 금액 부족 ({sell_value_krw:,.0f}원 < {MIN_ORDER_KRW:,.0f}원) "
                     f"→ 전량 매도로 변경"
                 )
+
+                # 텔레그램 알림
+                self._send_telegram_alert(
+                    f"⚠️ 익절/손절 수량 자동 조정\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"코인: {symbol}\n"
+                    f"사유: {reason} (레벨 {level_index})\n"
+                    f"설정: {original_ratio:.0f}% 매도\n"
+                    f"예정 금액: {sell_value_krw:,.0f}원\n"
+                    f"최소 금액: {MIN_ORDER_KRW:,.0f}원\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"→ 전량 매도(100%)로 변경됩니다"
+                )
+
                 quantity_ratio = 1.0
                 sell_amount = total_amount
                 sell_value_krw = sell_amount * current_price
@@ -1501,6 +1516,19 @@ class V4TradingEngine:
                 if sell_value_krw < MIN_ORDER_KRW:
                     logger.warning(
                         f"⚠️ {symbol} 매도 불가: 전량 매도해도 {sell_value_krw:,.0f}원 < {MIN_ORDER_KRW:,.0f}원"
+                    )
+
+                    # 텔레그램 알림
+                    self._send_telegram_alert(
+                        f"⚠️ 매도 불가 알림\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"코인: {symbol}\n"
+                        f"사유: {reason} (레벨 {level_index})\n"
+                        f"보유 수량: {total_amount:.8f}개\n"
+                        f"전량 매도 금액: {sell_value_krw:,.0f}원\n"
+                        f"최소 주문 금액: {MIN_ORDER_KRW:,.0f}원\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"→ 매도 스킵 (다음 기회 대기)"
                     )
                     return
 
