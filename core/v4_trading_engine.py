@@ -142,6 +142,9 @@ class V4TradingEngine:
         # 그룹별 전략 캐시
         self.strategies: Dict[str, Dict[str, Any]] = {}  # {group_id: {symbol: strategy}} (V4AutoBuyStrategy or ExpertStrategy)
 
+        # 초기 매수 주문 추적 (MyOrder WebSocket에서 포지션 생성용)
+        self.pending_initial_buys: Dict[str, Dict[str, Any]] = {}  # {order_uuid: {symbol, group_id, buy_amount_krw, ...}}
+
         # 캔들 데이터 캐시
         self.candles_cache: Dict[str, Dict[str, Any]] = {}  # {symbol: {candle_unit: candles}}
 
@@ -892,39 +895,30 @@ class V4TradingEngine:
 
             else:
                 # Live 모드: 실제 주문
-                # 주문 전 현재가 조회 (avg_price가 0일 경우 대비)
-                current_price = self._get_current_price_safe(symbol)
-                if not current_price:
-                    logger.error(f"❌ {symbol} 현재가 조회 실패")
-                    return
-
                 order_result = self.upbit_api.buy_market_order(symbol, buy_amount)
 
                 if not order_result or 'error' in order_result:
                     logger.error(f"❌ {symbol} 매수 실패: {order_result}")
                     return
 
-                # 주문 정보 추출
-                executed_volume = float(order_result.get('executed_volume', 0))
-                avg_price = float(order_result.get('avg_price', 0))
-                paid_fee = float(order_result.get('paid_fee', 0))
-                total_paid = float(order_result.get('trades_sum', buy_amount))
+                order_uuid = order_result.get('uuid')
+                if not order_uuid:
+                    logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
+                    return
 
-                # avg_price가 0이면 현재가 사용 (시장가 주문은 즉시 체결되므로 현재가와 유사)
-                final_price = avg_price if avg_price > 0 else current_price
+                # 초기 매수 주문 추적 (MyOrder WebSocket에서 체결 완료 시 포지션 생성)
+                self.pending_initial_buys[order_uuid] = {
+                    'symbol': symbol,
+                    'group_id': group_id,
+                    'group_name': group.get('name', 'Unknown'),
+                    'buy_amount_krw': buy_amount
+                }
 
-                # 포지션 생성
-                position = self.position_manager.create_position(
-                    group_id=group_id,
-                    symbol=symbol,
-                    buy_price=final_price,
-                    quantity=executed_volume,
-                    buy_amount_krw=total_paid
-                )
+                logger.info(f"✅ {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
+                return  # 포지션은 MyOrder WebSocket에서 생성
 
-                logger.info(f"✅ {symbol} 매수 완료: {executed_volume:.8f}개 @ {final_price:,}원 (수수료: {paid_fee:,}원)")
-
-            # 거래 기록
+            # Dry-run 모드에만 거래 기록 및 알림
+            # Live 모드는 MyOrder WebSocket에서 처리
             self.trade_history.add_trade(
                 group_id=group_id,
                 group_name=group.get("name", "Unknown"),
@@ -934,12 +928,12 @@ class V4TradingEngine:
                 price=position.get("avg_buy_price"),
                 amount=position.get("total_amount"),
                 total_krw=buy_amount,
-                dry_run=self.dry_run
+                dry_run=True
             )
 
             # 텔레그램 알림
             self._send_telegram_alert(
-                f"✅ 매수 완료\n"
+                f"✅ [Dry-run] 매수 완료\n"
                 f"그룹: {group.get('name')}\n"
                 f"코인: {symbol}\n"
                 f"금액: {buy_amount:,}원\n"
@@ -1668,6 +1662,52 @@ class V4TradingEngine:
             if state == 'wait':
                 logger.debug(f"   ⏳ 주문 {order_uuid[:8]}... 아직 대기 중")
                 return
+
+            # 초기 매수 주문 체결 처리 (pending_initial_buys 확인)
+            if order_uuid in self.pending_initial_buys:
+                pending_buy = self.pending_initial_buys[order_uuid]
+
+                # state='done'일 때만 포지션 생성 (전체 체결 완료)
+                if state == 'done':
+                    logger.info(f"   ✅ {symbol} 초기 매수 체결 완료 (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
+
+                    # 포지션 생성
+                    position = self.position_manager.create_position(
+                        group_id=pending_buy['group_id'],
+                        symbol=symbol,
+                        buy_price=avg_price,
+                        quantity=executed_volume,
+                        buy_amount_krw=pending_buy['buy_amount_krw']
+                    )
+
+                    # 거래 기록
+                    self.trade_history.add_trade(
+                        group_id=pending_buy['group_id'],
+                        group_name=pending_buy['group_name'],
+                        symbol=symbol,
+                        action="buy",
+                        trade_type="initial",
+                        price=avg_price,
+                        amount=executed_volume,
+                        total_krw=pending_buy['buy_amount_krw'],
+                        dry_run=False
+                    )
+
+                    # 텔레그램 알림
+                    self._send_telegram_alert(
+                        f"✅ 매수 완료\n"
+                        f"그룹: {pending_buy['group_name']}\n"
+                        f"코인: {symbol}\n"
+                        f"금액: {pending_buy['buy_amount_krw']:,}원\n"
+                        f"수량: {executed_volume:.8f}개\n"
+                        f"가격: {avg_price:,}원"
+                    )
+
+                    # pending_initial_buys에서 제거
+                    del self.pending_initial_buys[order_uuid]
+                    logger.info(f"   🗑️ {symbol} pending_initial_buys 제거 완료")
+
+                return  # 초기 매수는 여기서 종료
 
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
