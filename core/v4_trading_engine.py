@@ -772,8 +772,16 @@ class V4TradingEngine:
         if verbose:
             logger.info(f"      📊 {symbol}: 포지션 존재 = {position is not None}")
 
-        # 2-A. 신규 매수 (포지션이 없는 경우) - 전역 제약 체크 필요
-        if not position and group.get("buy_settings", {}).get("mode") == "auto":
+        # 1-A. pending 초기 매수 확인 (중복 매수 방지)
+        has_pending_buy = any(
+            pending['symbol'] == symbol
+            for pending in self.pending_initial_buys.values()
+        )
+        if verbose:
+            logger.info(f"      📊 {symbol}: pending 초기 매수 = {has_pending_buy}")
+
+        # 2-A. 신규 매수 (포지션이 없고 pending도 없는 경우) - 전역 제약 체크 필요
+        if not position and not has_pending_buy and group.get("buy_settings", {}).get("mode") == "auto":
             # 전역 제약 확인 (신규 매수 시에만)
             constraints_ok = self._check_global_constraints(verbose=verbose)
             if verbose:
@@ -792,6 +800,11 @@ class V4TradingEngine:
             if verbose:
                 logger.info(f"      🎯 {symbol}: 포지션 관리 시작 (DCA/익절/손절)")
             self._manage_position(symbol, group_id, group)
+
+        # 2-C. pending 초기 매수 대기 중 (중복 매수 방지)
+        elif not position and has_pending_buy:
+            if verbose:
+                logger.info(f"      ⏭️ {symbol}: pending 초기 매수 대기 중 (중복 매수 방지)")
 
         else:
             if verbose:
