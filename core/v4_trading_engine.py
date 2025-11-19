@@ -636,8 +636,19 @@ class V4TradingEngine:
                 position = self.position_manager.get_position_by_symbol(symbol)
 
                 if not position:
-                    # 새 자산 발견!
-                    logger.info(f"🆕 신규 보유 코인 감지 (WebSocket): {symbol}")
+                    # 🆕 봇 주문인지 확인 (pending_initial_buys)
+                    is_bot_order = any(
+                        pending_data.get('symbol') == symbol
+                        for pending_data in self.pending_initial_buys.values()
+                    )
+
+                    if is_bot_order:
+                        # 봇 주문 → MyOrder WebSocket이 처리할 예정
+                        logger.debug(f"⏭️ {symbol} 봇 주문 진행 중 (MyOrder WebSocket에서 처리 예정, MyAsset 스킵)")
+                        continue
+
+                    # 외부 매수 감지 (Upbit 앱/웹에서 직접 매수)
+                    logger.info(f"🆕 외부 매수 감지 (Upbit 앱/웹): {symbol}")
 
                     # avg_buy_price 조회 (WebSocket에 없으므로 REST API 사용)
                     avg_buy_price = 0.0
@@ -662,7 +673,7 @@ class V4TradingEngine:
                                 quantity=total,
                                 force_create_for_sync=True
                             )
-                            logger.info(f"✅ group_null 포지션 생성: {symbol}")
+                            logger.info(f"✅ [외부] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
 
                             # BalancePollingManager의 known_symbols에도 추가
                             if self.balance_polling_manager:
