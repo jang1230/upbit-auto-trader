@@ -2,7 +2,7 @@
 
 **브랜치**: `claude/backup-copy-v3-01QmgKR2fszfXZydjPANfZWJ`
 **테스트 범위**: 2025-11-18 + 2025-11-19 작업분
-**커밋 범위**: `e1dbdc5..5c83050` (총 9개 커밋)
+**커밋 범위**: `e1dbdc5..a3fd1c9` (총 11개 커밋)
 **테스터**: _________
 **테스트 일시**: _________
 
@@ -22,12 +22,14 @@
 | 6 | ea04c82 | 텔레그램 알림 전송 기능 활성화 | 06:32 |
 | 7 | 8325b2b | 작업 세션 요약 (문서) | 06:44 |
 
-### 2025-11-19 작업분 (2개 커밋) ⭐ 신규
+### 2025-11-19 작업분 (4개 커밋) ⭐ 신규
 
 | # | 커밋 | 제목 | 시간 |
 |---|------|------|------|
 | 8 | 82d965f | 신규 매수 중복 방지 (pending 체크) | - |
 | 9 | 5c83050 | 최대 포지션 개수 체크 (pending 포함) | - |
+| 10 | f316b90 | 그룹 생성 시 스키마 검증 통과를 위한 기본값 추가 | - |
+| 11 | a3fd1c9 | 그룹 생성 기본값 스키마 검증 오류 수정 | - |
 
 ---
 
@@ -213,9 +215,82 @@
 
 ---
 
+### [ ] 6. ⭐ 그룹 생성 기본값 검증 (커밋: f316b90, a3fd1c9) - 신규
+
+**테스트 목적**: 그룹 생성 시 스키마 검증 통과 및 올바른 기본값 설정 확인
+
+**문제 상황**:
+- 그룹 생성 시 스키마 검증 실패: `'period' is a required property`
+- Volume 지표에 period 필드 누락
+- Balanced 프리셋에 불필요한 필드 포함
+
+**테스트 절차**:
+1. GUI에서 "그룹 추가" 버튼 클릭
+2. 그룹 이름 입력 (예: "테스트 그룹")
+3. 생성 버튼 클릭
+4. `config/trading_config.json` 파일 확인
+
+**체크 항목**:
+- [ ] 스키마 검증 오류 **없음** (그룹 정상 생성)
+- [ ] 기본값 확인 (config.json):
+  ```json
+  {
+    "buy_settings": {
+      "mode": "auto",
+      "buy_amount_krw": 10000,
+      "auto_config": {
+        "strategy": "v4_auto_buy",
+        "investment_style": "balanced",
+        "candle_unit": "60",
+        "indicators": {
+          "rsi": {"enabled": true, "period": 14, "oversold": 30, "overbought": 70},
+          "macd": {"enabled": true, "fast": 12, "slow": 26, "signal": 9},
+          "volume": {"enabled": true, "period": 20, "threshold": 1.5}
+        }
+      }
+    },
+    "dca_settings": {
+      "mode": "auto",
+      "levels": [{"price_ratio": -5.0, "quantity_ratio": 100}]
+    },
+    "profit_settings": {
+      "mode": "auto",
+      "levels": [
+        {"price_ratio": 3.0, "quantity_ratio": 50},
+        {"price_ratio": 6.0, "quantity_ratio": 100}
+      ]
+    },
+    "loss_settings": {
+      "mode": "auto",
+      "levels": [{"price_ratio": -10.0, "quantity_ratio": 100}]
+    }
+  }
+  ```
+- [ ] **Volume에 `period: 20` 필드 존재** ✅
+- [ ] **`signal_mode`, `min_signals_required` 필드 없음** (Balanced 프리셋) ✅
+- [ ] 생성 후 그룹 목록에 표시됨
+- [ ] 코인 추가 테스트 (예: KRW-BTC 추가)
+- [ ] 설정 변경 테스트 (상세 설정 다이얼로그 열기)
+
+**실패 시 증상**:
+- ❌ "스키마 검증 실패: 'period' is a required property" 오류
+- ❌ Volume에 period 필드 없음
+- ❌ signal_mode, min_signals_required가 Balanced에 포함됨
+- ❌ 기본값이 다르게 설정됨
+
+**메모**:
+```
+
+
+
+
+```
+
+---
+
 ## ✅ Priority 2: 사용자 경험 (중요)
 
-### [ ] 6. 실시간 가격 업데이트 (커밋: e1dbdc5)
+### [ ] 7. 실시간 가격 업데이트 (커밋: e1dbdc5)
 
 **테스트 목적**: 시작 전/후 모두 실시간 가격 표시
 
@@ -266,11 +341,11 @@
 
 ---
 
-### [ ] 7. 소액 익절/손절 알림 (커밋: 8ccf15d)
+### [ ] 8. 소액 익절/손절 알림 (커밋: 8ccf15d)
 
 **테스트 목적**: 5,000원 미만 부분 매도 시 텔레그램 알림
 
-#### 7-1. 부분 → 전량 매도 변경 알림
+#### 8-1. 부분 → 전량 매도 변경 알림
 
 **테스트 절차**:
 1. 소액 코인 보유 (예: KRW-LA 8개, 6,000원)
@@ -302,7 +377,7 @@
 
 ```
 
-#### 7-2. 매도 불가 알림
+#### 8-2. 매도 불가 알림
 
 **테스트 절차**:
 1. 극소액 코인 보유 (전량 < 5,000원)
@@ -333,7 +408,7 @@
 
 ```
 
-#### 7-3. 정상 부분 익절 (5,000원 이상)
+#### 8-3. 정상 부분 익절 (5,000원 이상)
 
 **테스트 절차**:
 1. 일반 코인 익절 (부분 매도 금액 > 5,000원)
@@ -355,7 +430,7 @@
 
 ---
 
-### [ ] 8. 텔레그램 메시지 수신 (커밋: ea04c82)
+### [ ] 9. 텔레그램 메시지 수신 (커밋: ea04c82)
 
 **테스트 목적**: 텔레그램 알림 시스템 정상 작동 확인
 
@@ -409,7 +484,7 @@
 
 ## ✅ Priority 3: 기술적 검증 (선택)
 
-### [ ] 9. REST API 호출 최소화
+### [ ] 10. REST API 호출 최소화
 
 **테스트 목적**: 불필요한 REST API 호출 제거 확인
 
@@ -433,7 +508,7 @@
 
 ---
 
-### [ ] 10. 0.11초 간격 확인
+### [ ] 11. 0.11초 간격 확인
 
 **테스트 목적**: 초기 캔들 로드 간격 측정
 
@@ -545,15 +620,16 @@
 ## 📊 테스트 결과
 
 ### 통계
-- **총 테스트 항목**: 10개
-- **통과**: _____ / 10
-- **실패**: _____ / 10
-- **스킵**: _____ / 10
+- **총 테스트 항목**: 11개
+- **통과**: _____ / 11
+- **실패**: _____ / 11
+- **스킵**: _____ / 11
 
 ### Priority별 결과
-- **Priority 1 (핵심)**: _____ / 5 통과
+- **Priority 1 (핵심)**: _____ / 6 통과
   - ⭐ 신규 매수 중복 방지: [ ] 통과
   - ⭐ 최대 포지션 개수 준수: [ ] 통과
+  - ⭐ 그룹 생성 기본값 검증: [ ] 통과
   - 초기 매수 포지션 생성: [ ] 통과
   - DCA 평균가 정확성: [ ] 통과
   - 시작 시 429 에러 없음: [ ] 통과
@@ -643,18 +719,19 @@
 Priority 1 (필수):
 [ ] 1. ⭐ 신규 매수 중복 방지 (같은 코인 1회만 매수)
 [ ] 2. ⭐ 최대 포지션 10개 정확히 준수 (11개 안 됨)
-[ ] 3. 초기 매수 포지션 생성 (수량 > 0)
-[ ] 4. DCA 평균가 = 업비트 평균가
-[ ] 5. 시작 시 429 에러 없음
+[ ] 3. ⭐ 그룹 생성 기본값 검증 (스키마 오류 없음)
+[ ] 4. 초기 매수 포지션 생성 (수량 > 0)
+[ ] 5. DCA 평균가 = 업비트 평균가
+[ ] 6. 시작 시 429 에러 없음
 
 Priority 2 (중요):
-[ ] 6. 시작 전/후 실시간 가격 표시
-[ ] 7. 소액 익절 텔레그램 알림
-[ ] 8. 텔레그램 메시지 수신 확인
+[ ] 7. 시작 전/후 실시간 가격 표시
+[ ] 8. 소액 익절 텔레그램 알림
+[ ] 9. 텔레그램 메시지 수신 확인
 
 Priority 3 (선택):
-[ ] 9. REST API 호출 최소화
-[ ] 10. 0.11초 간격 WebSocket 초기화
+[ ] 10. REST API 호출 최소화
+[ ] 11. 0.11초 간격 WebSocket 초기화
 ```
 
 ---
@@ -671,6 +748,10 @@ grep "pending 초기 매수 대기 중" logs/trading_*.log
 grep "최대 포지션 개수 도달" logs/trading_*.log
 grep "현재 포지션.*pending" logs/trading_*.log
 
+# 그룹 생성 확인
+grep "스키마 검증 실패" logs/trading_*.log
+grep "✅ 그룹 생성" logs/trading_*.log
+
 # 텔레그램 메시지 확인
 grep "📱 \[Telegram\]" logs/trading_*.log
 
@@ -680,6 +761,19 @@ grep "초기 매수 체결 완료" logs/trading_*.log
 # Rate Limit 확인
 grep "429" logs/trading_*.log
 grep "⚠️ Rate Limit 초과" logs/trading_*.log
+```
+
+### Config 파일 확인
+
+```bash
+# 그룹 생성 후 config 확인
+cat config/trading_config.json | jq '.groups'
+
+# 특정 그룹의 Volume 설정 확인 (period 필드 존재 여부)
+cat config/trading_config.json | jq '.groups.group_id.buy_settings.auto_config.indicators.volume'
+
+# signal_mode, min_signals_required 존재 여부 확인
+cat config/trading_config.json | jq '.groups.group_id.buy_settings.auto_config | has("signal_mode")'
 ```
 
 ---
@@ -726,7 +820,13 @@ grep "⚠️ Rate Limit 초과" logs/trading_*.log
 - pending 주문도 카운트되는지 확인
 - 11개째 매수 시도 시 차단 로그 확인
 
-### 3. 기존 기능 정상 작동
+### 3. 그룹 생성 기본값 검증 (최우선)
+- 새 그룹 생성 시 스키마 오류 없이 생성
+- Volume 지표에 period 필드 존재 확인
+- Balanced 프리셋에서 signal_mode 없음 확인
+- 기본값이 정확히 설정되는지 확인 (10,000원, -5% DCA, +3%/+6% 익절 등)
+
+### 4. 기존 기능 정상 작동
 - 텔레그램 알림 수신
 - DCA 평균가 정확성
 - 익절/손절 정상 작동
