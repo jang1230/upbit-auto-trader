@@ -105,8 +105,6 @@ class GroupManager:
                     "strategy": "v4_auto_buy",
                     "investment_style": "balanced",
                     "candle_unit": "60",
-                    "signal_mode": "partial",
-                    "min_signals_required": 2,
                     "indicators": {
                         "rsi": {
                             "enabled": True,
@@ -122,6 +120,7 @@ class GroupManager:
                         },
                         "volume": {
                             "enabled": True,
+                            "period": 20,
                             "threshold": 1.5
                         }
                     },
