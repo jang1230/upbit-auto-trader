@@ -162,6 +162,9 @@ class V4TradingEngine:
         # 초기 매수 주문 추적 (MyOrder WebSocket에서 포지션 생성용)
         self.pending_initial_buys: Dict[str, Dict[str, Any]] = {}  # {order_uuid: {symbol, group_id, buy_amount_krw, ...}}
 
+        # 최대 포지션 경고 플래그 (로그 스팸 방지)
+        self.max_position_warning_shown = False
+
         # 캔들 데이터 캐시
         self.candles_cache: Dict[str, Dict[str, Any]] = {}  # {symbol: {candle_unit: candles}}
 
@@ -2007,8 +2010,20 @@ class V4TradingEngine:
 
             if active_positions >= max_limit:
                 position_count = len(all_positions)
-                logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 (포지션: {position_count}개 + pending: {pending_count}개 = 총 {active_positions}개 >= 최대: {max_limit}개)")
+
+                # 최초 도달 시에만 경고 출력 (로그 스팸 방지)
+                if not self.max_position_warning_shown:
+                    logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 (포지션: {position_count}개 + pending: {pending_count}개 = 총 {active_positions}개 >= 최대: {max_limit}개)")
+                    logger.info(f"ℹ️  이 경고는 포지션이 감소할 때까지 다시 표시되지 않습니다.")
+                    self.max_position_warning_shown = True
+
                 return False
+
+            # 최대 포지션 미만이면 플래그 해제
+            else:
+                if self.max_position_warning_shown:
+                    logger.info(f"✅ 최대 포지션 해제 (현재: {active_positions}개 < 최대: {max_limit}개) - 신규 매수 가능")
+                    self.max_position_warning_shown = False
 
         if verbose:
             logger.info(f"         ✅ 전역 제약 모두 통과")
