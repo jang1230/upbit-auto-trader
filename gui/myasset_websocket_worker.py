@@ -55,6 +55,7 @@ class MyAssetWebSocketWorker(QThread):
         config: Dict[str, Any],
         balance_polling_manager=None,  # BalancePollingManager (optional)
         upbit_api=None,  # UpbitAPI (avg_buy_price 조회용, optional)
+        pending_initial_buys=None,  # 🆕 봇 주문 추적용 (V4TradingEngine.pending_initial_buys 참조)
         parent=None
     ):
         super().__init__(parent)
@@ -64,6 +65,7 @@ class MyAssetWebSocketWorker(QThread):
         self.config = config  # trading_config.json
         self.balance_polling_manager = balance_polling_manager
         self.upbit_api = upbit_api
+        self.pending_initial_buys = pending_initial_buys  # 🆕 봇 주문/외부 매수 구분용
         self.websocket: Optional[MyAssetWebSocket] = None
         self.is_running = False
         self.loop: Optional[asyncio.AbstractEventLoop] = None  # asyncio 이벤트 루프 저장
@@ -225,8 +227,21 @@ class MyAssetWebSocketWorker(QThread):
                 position = self.position_manager.get_position_by_symbol(symbol)
 
                 if not position:
-                    # 새 자산 발견!
-                    logger.info(f"   🆕 신규 보유 코인 감지 (WebSocket): {symbol}")
+                    # 🆕 봇 주문인지 확인 (pending_initial_buys)
+                    is_bot_order = False
+                    if self.pending_initial_buys is not None:
+                        is_bot_order = any(
+                            pending_data.get('symbol') == symbol
+                            for pending_data in self.pending_initial_buys.values()
+                        )
+
+                    if is_bot_order:
+                        # 봇 주문 → MyOrder WebSocket이 처리할 예정
+                        logger.debug(f"   ⏭️ {symbol} 봇 주문 진행 중 (MyOrder WebSocket에서 처리 예정, GUI MyAsset 스킵)")
+                        continue
+
+                    # 외부 매수 감지 (Upbit 앱/웹에서 직접 매수)
+                    logger.info(f"   🆕 외부 매수 감지 (Upbit 앱/웹): {symbol}")
 
                     # WebSocket 데이터에서 먼저 avg_buy_price 확인
                     avg_buy_price = ws_avg_buy_price
@@ -261,7 +276,7 @@ class MyAssetWebSocketWorker(QThread):
                                 force_create_for_sync=True
                             )
 
-                            logger.info(f"✅ group_null 포지션 생성: {symbol}")
+                            logger.info(f"   ✅ [외부] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
 
                             # BalancePollingManager의 known_symbols에도 추가
                             if self.balance_polling_manager:

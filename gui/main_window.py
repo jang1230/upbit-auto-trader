@@ -2501,11 +2501,17 @@ class MainWindow(QMainWindow):
             # 새 워커 생성
             from gui.myasset_websocket_worker import MyAssetWebSocketWorker
 
+            # 🆕 V4 엔진의 pending_initial_buys 참조 가져오기 (봇 주문/외부 매수 구분용)
+            pending_initial_buys = None
+            if hasattr(self, 'v4_engine') and self.v4_engine:
+                pending_initial_buys = self.v4_engine.pending_initial_buys
+
             self.myasset_websocket_worker = MyAssetWebSocketWorker(
                 access_key,
                 secret_key,
                 self.v4_position_manager,
                 config,
+                pending_initial_buys=pending_initial_buys,  # 🆕 봇 주문 추적용
                 parent=self
             )
 
