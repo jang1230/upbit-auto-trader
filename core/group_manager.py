@@ -121,7 +121,7 @@ class GroupManager:
                         "volume": {
                             "enabled": True,
                             "period": 20,
-                            "threshold": 1.5
+                            "threshold": 2.0
                         }
                     },
                     "buy_amount_krw": 10000

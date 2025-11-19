@@ -245,7 +245,7 @@
         "indicators": {
           "rsi": {"enabled": true, "period": 14, "oversold": 30, "overbought": 70},
           "macd": {"enabled": true, "fast": 12, "slow": 26, "signal": 9},
-          "volume": {"enabled": true, "period": 20, "threshold": 1.5}
+          "volume": {"enabled": true, "period": 20, "threshold": 2.0}
         }
       }
     },
