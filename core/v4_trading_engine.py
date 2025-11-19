@@ -1983,6 +1983,7 @@ class V4TradingEngine:
             all_positions = self.position_manager.get_all_positions()
             active_positions = 0
 
+            # 1. 기존 포지션 카운트
             for symbol, position in all_positions.items():
                 group_id = position.get("group_id")
                 if group_id and group_id in self.config.get("groups", {}):
@@ -1991,12 +1992,22 @@ class V4TradingEngine:
                     if not group.get("observation_only", False):
                         active_positions += 1
 
+            # 2. pending 초기 매수 주문도 카운트 (observation_only 그룹 제외)
+            pending_count = 0
+            for pending in self.pending_initial_buys.values():
+                pending_group_id = pending.get('group_id')
+                if pending_group_id and pending_group_id in self.config.get("groups", {}):
+                    pending_group = self.config["groups"][pending_group_id]
+                    if not pending_group.get("observation_only", False):
+                        active_positions += 1
+                        pending_count += 1
+
             if verbose:
-                logger.info(f"         🔍 현재 포지션: {active_positions}개 / 최대: {max_limit}개")
+                logger.info(f"         🔍 현재 포지션: {active_positions}개 (포지션: {len(all_positions)}개 + pending: {pending_count}개) / 최대: {max_limit}개")
 
             if active_positions >= max_limit:
-                if verbose:
-                    logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 ({active_positions}개 >= {max_limit}개)")
+                position_count = len(all_positions)
+                logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 (포지션: {position_count}개 + pending: {pending_count}개 = 총 {active_positions}개 >= 최대: {max_limit}개)")
                 return False
 
         if verbose:
