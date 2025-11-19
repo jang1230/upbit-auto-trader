@@ -766,9 +766,11 @@ class PositionManager:
                                 updates['total_invested_krw'] = existing_avg_price * balance
                         else:
                             # 🆕 최근 DCA 발생 확인 (10초 이내)
+                            # 최신 포지션 정보 다시 읽기 (add_dca() 반영 확인)
+                            current_position = self.get_position(symbol)
                             recent_dca = False
-                            if position.get('dca_history'):
-                                last_dca = position['dca_history'][-1]
+                            if current_position and current_position.get('dca_history'):
+                                last_dca = current_position['dca_history'][-1]
                                 last_dca_time = datetime.fromisoformat(last_dca['timestamp'])
                                 if (datetime.now() - last_dca_time).total_seconds() < 10:
                                     recent_dca = True
