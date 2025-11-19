@@ -98,19 +98,54 @@ class GroupManager:
             "observation_only": observation_only,
             "coins": coins,
             "buy_settings": buy_settings or {
-                "mode": "manual"
+                "mode": "auto",
+                "buy_amount_krw": 10000,
+                "auto_config": {
+                    "enabled": True,
+                    "strategy": "v4_auto_buy",
+                    "investment_style": "balanced",
+                    "candle_unit": "60",
+                    "signal_mode": "partial",
+                    "min_signals_required": 2,
+                    "indicators": {
+                        "rsi": {
+                            "enabled": True,
+                            "period": 14,
+                            "oversold": 30,
+                            "overbought": 70
+                        },
+                        "macd": {
+                            "enabled": True,
+                            "fast": 12,
+                            "slow": 26,
+                            "signal": 9
+                        },
+                        "volume": {
+                            "enabled": True,
+                            "threshold": 1.5
+                        }
+                    },
+                    "buy_amount_krw": 10000
+                }
             },
             "dca_settings": dca_settings or {
-                "mode": "disabled",
-                "levels": []
+                "mode": "auto",
+                "levels": [
+                    {"price_ratio": -5.0, "quantity_ratio": 100}
+                ]
             },
             "profit_settings": profit_settings or {
-                "mode": "alert",
-                "levels": [{"price_ratio": 5.0, "quantity_ratio": 100}]
+                "mode": "auto",
+                "levels": [
+                    {"price_ratio": 3.0, "quantity_ratio": 50},
+                    {"price_ratio": 6.0, "quantity_ratio": 100}
+                ]
             },
             "loss_settings": loss_settings or {
-                "mode": "alert",
-                "levels": [{"price_ratio": -15.0, "quantity_ratio": 100}]
+                "mode": "auto",
+                "levels": [
+                    {"price_ratio": -10.0, "quantity_ratio": 100}
+                ]
             }
         }
 
