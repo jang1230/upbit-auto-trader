@@ -883,7 +883,7 @@ class V4TradingEngine:
 
             if buy_signal:
                 # 매수 신호는 항상 로깅 (중요 이벤트)
-                logger.info(f"🔔 {symbol}: 매수 신호 발생!")
+                logger.info(f"🔔 [봇] {symbol}: 매수 신호 발생!")
 
                 # 지표 값 출력
                 indicators = strategy.get_indicator_values(candles)
@@ -918,7 +918,7 @@ class V4TradingEngine:
             logger.warning(f"⚠️ {symbol} 매수 취소: 잔고 부족")
             return
 
-        logger.info(f"💰 {symbol} 매수 실행 중... (금액: {buy_amount:,}원)")
+        logger.info(f"💰 [봇] {symbol} 매수 실행 중... (금액: {buy_amount:,}원)")
 
         try:
             if self.dry_run or not self.upbit_api:
@@ -962,7 +962,7 @@ class V4TradingEngine:
                     'buy_amount_krw': buy_amount
                 }
 
-                logger.info(f"✅ {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
+                logger.info(f"✅ [봇] {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
                 return  # 포지션은 MyOrder WebSocket에서 생성
 
             # Dry-run 모드에만 거래 기록 및 알림
@@ -1745,7 +1745,7 @@ class V4TradingEngine:
 
                 # state='done'일 때만 포지션 생성 (전체 체결 완료)
                 if state == 'done':
-                    logger.info(f"   ✅ {symbol} 초기 매수 체결 완료 (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
+                    logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
 
                     # 포지션 생성
                     position = self.position_manager.create_position(
@@ -1771,7 +1771,7 @@ class V4TradingEngine:
 
                     # 텔레그램 알림
                     self._send_telegram_alert(
-                        f"✅ 매수 완료\n"
+                        f"✅ [봇] 매수 완료\n"
                         f"그룹: {pending_buy['group_name']}\n"
                         f"코인: {symbol}\n"
                         f"금액: {pending_buy['buy_amount_krw']:,}원\n"
