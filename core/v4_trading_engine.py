@@ -1951,6 +1951,21 @@ class V4TradingEngine:
                         dca_level=level_index + 1
                     )
 
+                    # 텔레그램 알림
+                    self._send_telegram_alert(
+                        f"🔄 DCA 추가 매수 완료\n"
+                        f"그룹: {group_name}\n"
+                        f"코인: {symbol}\n"
+                        f"레벨: {level_index + 1}\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"추가 금액: {dca_value_krw:,.0f}원\n"
+                        f"추가 수량: {dca_amount:.8f}개\n"
+                        f"체결 가격: {dca_price:,.0f}원\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"평균 매수가: {updated_position.get('avg_buy_price', 0):,.0f}원\n"
+                        f"총 보유량: {updated_position.get('total_amount', 0):.8f}개"
+                    )
+
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
@@ -2081,6 +2096,21 @@ class V4TradingEngine:
                     total_krw=dca_value_krw,
                     dry_run=False,  # Live 모드
                     dca_level=level_index + 1  # 1-based for display
+                )
+
+                # 텔레그램 알림
+                self._send_telegram_alert(
+                    f"🔄 DCA 추가 매수 완료\n"
+                    f"그룹: {group_name}\n"
+                    f"코인: {symbol}\n"
+                    f"레벨: {level_index + 1}\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"추가 금액: {dca_value_krw:,.0f}원\n"
+                    f"추가 수량: {dca_amount:.8f}개\n"
+                    f"체결 가격: {dca_price:,.0f}원\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"평균 매수가: {updated_position.get('avg_buy_price', 0):,.0f}원\n"
+                    f"총 보유량: {updated_position.get('total_amount', 0):.8f}개"
                 )
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
