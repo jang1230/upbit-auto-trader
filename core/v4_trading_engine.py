@@ -1119,6 +1119,7 @@ class V4TradingEngine:
 
         dca_levels = dca_settings.get("levels", [])
         dca_count = position.get("dca_count", 0)
+        dca_levels_executed = position.get("dca_levels_executed", [])
 
         # 모든 DCA 레벨 소진
         if dca_count >= len(dca_levels):
@@ -1126,7 +1127,8 @@ class V4TradingEngine:
 
         # 다음 DCA 레벨 확인
         for i, level in enumerate(dca_levels):
-            if i < dca_count:
+            # 🔧 Phase D: dca_levels_executed 배열 체크로 변경 (익절/손절과 동일 패턴)
+            if i in dca_levels_executed:
                 continue  # 이미 실행된 레벨
 
             price_ratio = level.get("price_ratio", -5.0)
