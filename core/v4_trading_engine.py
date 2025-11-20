@@ -1866,7 +1866,9 @@ class V4TradingEngine:
                 logger.debug(f"   ⏳ state=done 대기 중 (정확한 평균가 계산 위해)")
                 return  # state='trade'는 로그만 출력, 실제 처리는 state='done'에서
 
-            # 취소/방지된 주문 처리 (시장가 주문은 금액 소진 시 state=cancel로 완료됨)
+            # 체결 후 미세 잔량 발생 처리 (state=cancel)
+            # Upbit: 체결 후 소수점 단위 등으로 미세 잔량 발생 시 계좌 반환 + state=cancel
+            # (시장가/지정가 모두 발생 가능, done과 동일하게 처리)
             if state in ['cancel', 'prevented']:
                 logger.warning(f"   ⚠️ 주문 {order_uuid[:8]}... 취소/방지됨 (state={state})")
 
@@ -1885,7 +1887,8 @@ class V4TradingEngine:
                 level_index = pending_order.get('level')
 
                 # 🔧 Phase D 버그 수정: cancel/done 모두 동일하게 처리
-                # 시장가 주문은 금액 소진 완료 시 state=cancel로 완료됨 (정상 동작)
+                # state=cancel: 체결 후 미세 잔량 발생 (잔량은 계좌 반환, 정상 완료)
+                # state=done: 완전 체결 (잔량 없음)
 
                 if order_type == 'dca':
                     # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
@@ -1918,7 +1921,7 @@ class V4TradingEngine:
                         level=level_index
                     )
 
-                    logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 시장가 체결 완료 (state=cancel) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
+                    logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, 미세 잔량 반환) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
 
                     # 거래 기록
                     updated_position = self.position_manager.get_position(symbol)
@@ -1959,7 +1962,7 @@ class V4TradingEngine:
 
                     # 레벨 기록
                     levels_executed.append(level_index)
-                    logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 시장가 체결 완료 (state=cancel) → {key}에 기록")
+                    logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 체결 완료 (state=cancel, 미세 잔량 반환) → {key}에 기록")
 
                     self.position_manager.update_position(symbol, {
                         key: levels_executed,
@@ -1976,7 +1979,8 @@ class V4TradingEngine:
 
                 return
 
-            # 전체 체결 완료 처리 (state == 'done')
+            # 완전 체결 처리 (state=done, 잔량 없음)
+            # Upbit: 주문 잔량 없이 완전히 체결된 경우 (시장가/지정가 모두 발생 가능)
             position = self.position_manager.get_position(symbol)
             if not position:
                 logger.warning(f"   ⚠️ {symbol} 포지션 없음 (주문 {order_uuid[:8]}...)")
@@ -2049,7 +2053,7 @@ class V4TradingEngine:
                     level=level_index
                 )
 
-                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 지정가 체결 완료 (state=done) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
+                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, 완전 체결) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
 
                 # 거래 기록 (Live 모드에서만, Dry-run은 _execute_dca에서 이미 기록)
                 updated_position = self.position_manager.get_position(symbol)
