@@ -1870,12 +1870,56 @@ class V4TradingEngine:
             if state in ['cancel', 'prevented']:
                 logger.warning(f"   ⚠️ 주문 {order_uuid[:8]}... 취소/방지됨 (state={state})")
 
-                # pending_order 정리 (trade에서 이미 제거했으면 없음)
+                # pending_order 정리
                 position = self.position_manager.get_position(symbol)
                 if position:
                     pending_order = position.get('pending_order')
                     if pending_order and pending_order.get('order_id') == order_uuid:
-                        self.position_manager.update_position(symbol, {'pending_order': None})
+                        order_type = pending_order.get('type')
+                        level_index = pending_order.get('level')
+
+                        # 🔧 Phase D 버그 수정: 부분 체결 후 취소된 경우 레벨 기록
+                        # (시장가 주문은 부분 체결 후 잔액 부족으로 자동 취소됨)
+                        if order_type == 'dca':
+                            # DCA 레벨 실행 완료로 기록 (재실행 방지)
+                            dca_levels_executed = position.get('dca_levels_executed', [])
+                            if level_index not in dca_levels_executed:
+                                dca_levels_executed.append(level_index)
+                                logger.info(f"   📝 {symbol} DCA 레벨 {level_index+1} 부분 체결 후 취소 → dca_levels_executed에 기록 (재실행 방지)")
+                                self.position_manager.update_position(symbol, {
+                                    'dca_levels_executed': dca_levels_executed,
+                                    'pending_order': None
+                                })
+                            else:
+                                self.position_manager.update_position(symbol, {'pending_order': None})
+
+                            # MyAsset이 이미 수량 변동 감지해서 REST API로 평균가 업데이트할 것
+                            # 마킹하지 않음 → MyAsset 백업 처리 허용
+                            logger.info(f"   ⏳ {symbol} MyAsset 백업 처리 대기 중...")
+
+                        elif order_type in ['profit', 'loss']:
+                            # Profit/Loss 주문 취소 시 레벨 기록
+                            if order_type == 'profit':
+                                levels_executed = position.get('profit_levels_executed', [])
+                                key = 'profit_levels_executed'
+                            else:
+                                levels_executed = position.get('loss_levels_executed', [])
+                                key = 'loss_levels_executed'
+
+                            if level_index not in levels_executed:
+                                levels_executed.append(level_index)
+                                logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 부분 체결 후 취소 → {key}에 기록")
+                                self.position_manager.update_position(symbol, {
+                                    key: levels_executed,
+                                    'pending_order': None
+                                })
+                            else:
+                                self.position_manager.update_position(symbol, {'pending_order': None})
+
+                        else:
+                            # 기타 주문 타입
+                            self.position_manager.update_position(symbol, {'pending_order': None})
+
                         logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
 
                 return
