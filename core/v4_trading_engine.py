@@ -1628,7 +1628,11 @@ class V4TradingEngine:
                         "level": level_index,
                         "timestamp": datetime.now().isoformat(),
                         "status": "preparing",  # 주문 준비 중
-                        "quantity_ratio": quantity_ratio
+                        "quantity_ratio": quantity_ratio,
+                        "group_id": group_id,
+                        "group_name": group.get('name', 'Unknown'),
+                        "sell_amount_krw": sell_value_krw,
+                        "sell_amount": sell_amount
                     }
                 })
                 logger.info(f"   📝 {symbol} {reason} 레벨 {level_index} pending_order 사전 저장 완료")
@@ -1667,7 +1671,11 @@ class V4TradingEngine:
                             "level": level_index,
                             "timestamp": datetime.now().isoformat(),
                             "status": "waiting",  # 체결 대기
-                            "quantity_ratio": quantity_ratio
+                            "quantity_ratio": quantity_ratio,
+                            "group_id": group_id,
+                            "group_name": group.get('name', 'Unknown'),
+                            "sell_amount_krw": sell_value_krw,
+                            "sell_amount": sell_amount
                         }
                     })
 
@@ -1992,10 +2000,104 @@ class V4TradingEngine:
                     levels_executed.append(level_index)
                     logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 체결 완료 (state=cancel, 미세 잔량 반환) → {key}에 기록")
 
-                    self.position_manager.update_position(symbol, {
-                        key: levels_executed,
-                        'pending_order': None
-                    })
+                    # 🔧 Phase D 버그 수정: 포지션 수량 감소 처리 (state=done과 동일)
+                    group_id = pending_order.get('group_id', 'unknown')
+                    group_name = pending_order.get('group_name', 'Unknown')
+
+                    # 남은 수량 계산
+                    total_amount = position.get('total_amount', 0)
+                    remaining_amount = total_amount - executed_volume
+
+                    action_type = "익절" if order_type == 'profit' else "손절"
+                    logger.info(f"   📊 {symbol} {action_type} 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
+
+                    # 현재가 조회 (최소 주문 금액 체크용)
+                    current_price = self._get_current_price_safe(symbol)
+                    if current_price:
+                        remaining_value = remaining_amount * current_price
+                        MIN_ORDER_KRW = 5000
+
+                        if remaining_value < MIN_ORDER_KRW:
+                            # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
+                            logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                            self.position_manager.close_position(symbol)
+
+                            # 거래 기록
+                            trade_params = {
+                                "group_id": group_id,
+                                "group_name": group_name,
+                                "symbol": symbol,
+                                "action": "sell",
+                                "trade_type": order_type,
+                                "price": avg_price,
+                                "amount": executed_volume,
+                                "total_krw": pending_order.get('sell_amount_krw', 0),
+                                "dry_run": False
+                            }
+                            if order_type == 'profit':
+                                trade_params['profit_level'] = level_index + 1
+                            else:
+                                trade_params['loss_level'] = level_index + 1
+
+                            self.trade_history.add_trade(**trade_params)
+
+                            # 텔레그램 알림
+                            emoji = "✅" if order_type == 'profit' else "❌"
+                            self._send_telegram_alert(
+                                f"{emoji} {action_type} 매도 완료 (포지션 종료)\n"
+                                f"그룹: {group_name}\n"
+                                f"코인: {symbol}\n"
+                                f"레벨: {level_index + 1}\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                                f"매도 수량: {executed_volume:.8f}개\n"
+                                f"체결 가격: {avg_price:,.0f}원\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"포지션 전체 종료됨"
+                            )
+                        else:
+                            # 남은 금액 충분 → 수량만 감소
+                            logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                            self.position_manager.update_position(symbol, {
+                                key: levels_executed,
+                                'pending_order': None,
+                                'total_amount': remaining_amount
+                            })
+
+                            # 거래 기록
+                            trade_params = {
+                                "group_id": group_id,
+                                "group_name": group_name,
+                                "symbol": symbol,
+                                "action": "sell",
+                                "trade_type": order_type,
+                                "price": avg_price,
+                                "amount": executed_volume,
+                                "total_krw": pending_order.get('sell_amount_krw', 0),
+                                "dry_run": False
+                            }
+                            if order_type == 'profit':
+                                trade_params['profit_level'] = level_index + 1
+                            else:
+                                trade_params['loss_level'] = level_index + 1
+
+                            self.trade_history.add_trade(**trade_params)
+
+                            # 텔레그램 알림
+                            emoji = "✅" if order_type == 'profit' else "❌"
+                            self._send_telegram_alert(
+                                f"{emoji} {action_type} 부분 매도 완료\n"
+                                f"그룹: {group_name}\n"
+                                f"코인: {symbol}\n"
+                                f"레벨: {level_index + 1}\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                                f"매도 수량: {executed_volume:.8f}개\n"
+                                f"체결 가격: {avg_price:,.0f}원\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"남은 수량: {remaining_amount:.8f}개\n"
+                                f"남은 금액: {remaining_value:,.0f}원"
+                            )
 
                     # MyOrder 처리 완료 마킹
                     self._mark_processed_by_myorder(symbol)
@@ -2030,21 +2132,187 @@ class V4TradingEngine:
             updates = {'pending_order': None}
 
             if order_type == 'profit':
+                # 레벨 기록
                 profit_levels_executed = position.get('profit_levels_executed', [])
                 if level_index not in profit_levels_executed:
                     profit_levels_executed.append(level_index)
                     updates['profit_levels_executed'] = profit_levels_executed
                     logger.info(f"   📝 {symbol} profit_levels_executed 업데이트: {profit_levels_executed}")
 
+                # 🔧 Phase D 버그 수정: 포지션 수량 감소 처리
+                group_id = pending_order.get('group_id', 'unknown')
+                group_name = pending_order.get('group_name', 'Unknown')
+
+                # 남은 수량 계산
+                total_amount = position.get('total_amount', 0)
+                remaining_amount = total_amount - executed_volume
+
+                logger.info(f"   📊 {symbol} 익절 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
+
+                # 현재가 조회 (최소 주문 금액 체크용)
+                current_price = self._get_current_price_safe(symbol)
+                if current_price:
+                    remaining_value = remaining_amount * current_price
+                    MIN_ORDER_KRW = 5000
+
+                    if remaining_value < MIN_ORDER_KRW:
+                        # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
+                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                        self.position_manager.close_position(symbol)
+
+                        # 거래 기록
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="sell",
+                            trade_type="profit",
+                            price=avg_price,
+                            amount=executed_volume,
+                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            dry_run=False,
+                            profit_level=level_index + 1
+                        )
+
+                        # 텔레그램 알림
+                        self._send_telegram_alert(
+                            f"✅ 익절 매도 완료 (포지션 종료)\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"레벨: {level_index + 1}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 수량: {executed_volume:.8f}개\n"
+                            f"체결 가격: {avg_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"포지션 전체 종료됨"
+                        )
+                    else:
+                        # 남은 금액 충분 → 수량만 감소
+                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                        updates['total_amount'] = remaining_amount
+
+                        # 거래 기록
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="sell",
+                            trade_type="profit",
+                            price=avg_price,
+                            amount=executed_volume,
+                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            dry_run=False,
+                            profit_level=level_index + 1
+                        )
+
+                        # 텔레그램 알림
+                        self._send_telegram_alert(
+                            f"✅ 익절 부분 매도 완료\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"레벨: {level_index + 1}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 수량: {executed_volume:.8f}개\n"
+                            f"체결 가격: {avg_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"남은 수량: {remaining_amount:.8f}개\n"
+                            f"남은 금액: {remaining_value:,.0f}원"
+                        )
+
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                 self._mark_processed_by_myorder(symbol)
 
             elif order_type == 'loss':
+                # 레벨 기록
                 loss_levels_executed = position.get('loss_levels_executed', [])
                 if level_index not in loss_levels_executed:
                     loss_levels_executed.append(level_index)
                     updates['loss_levels_executed'] = loss_levels_executed
                     logger.info(f"   📝 {symbol} loss_levels_executed 업데이트: {loss_levels_executed}")
+
+                # 🔧 Phase D 버그 수정: 포지션 수량 감소 처리
+                group_id = pending_order.get('group_id', 'unknown')
+                group_name = pending_order.get('group_name', 'Unknown')
+
+                # 남은 수량 계산
+                total_amount = position.get('total_amount', 0)
+                remaining_amount = total_amount - executed_volume
+
+                logger.info(f"   📊 {symbol} 손절 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
+
+                # 현재가 조회 (최소 주문 금액 체크용)
+                current_price = self._get_current_price_safe(symbol)
+                if current_price:
+                    remaining_value = remaining_amount * current_price
+                    MIN_ORDER_KRW = 5000
+
+                    if remaining_value < MIN_ORDER_KRW:
+                        # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
+                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                        self.position_manager.close_position(symbol)
+
+                        # 거래 기록
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="sell",
+                            trade_type="loss",
+                            price=avg_price,
+                            amount=executed_volume,
+                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            dry_run=False,
+                            loss_level=level_index + 1
+                        )
+
+                        # 텔레그램 알림
+                        self._send_telegram_alert(
+                            f"❌ 손절 매도 완료 (포지션 종료)\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"레벨: {level_index + 1}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 수량: {executed_volume:.8f}개\n"
+                            f"체결 가격: {avg_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"포지션 전체 종료됨"
+                        )
+                    else:
+                        # 남은 금액 충분 → 수량만 감소
+                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                        updates['total_amount'] = remaining_amount
+
+                        # 거래 기록
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="sell",
+                            trade_type="loss",
+                            price=avg_price,
+                            amount=executed_volume,
+                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            dry_run=False,
+                            loss_level=level_index + 1
+                        )
+
+                        # 텔레그램 알림
+                        self._send_telegram_alert(
+                            f"❌ 손절 부분 매도 완료\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"레벨: {level_index + 1}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 수량: {executed_volume:.8f}개\n"
+                            f"체결 가격: {avg_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"남은 수량: {remaining_amount:.8f}개\n"
+                            f"남은 금액: {remaining_value:,.0f}원"
+                        )
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                 self._mark_processed_by_myorder(symbol)
