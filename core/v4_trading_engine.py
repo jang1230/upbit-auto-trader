@@ -1862,70 +1862,9 @@ class V4TradingEngine:
 
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
-                logger.info(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f})")
-
-                # executed_volume > 0이면 DCA 처리
-                if executed_volume > 0:
-                    position = self.position_manager.get_position(symbol)
-                    if not position:
-                        logger.warning(f"   ⚠️ {symbol} 포지션 없음")
-                        return
-
-                    pending_order = position.get('pending_order')
-                    if not pending_order or pending_order.get('order_id') != order_uuid:
-                        logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
-                        return
-
-                    order_type = pending_order.get('type')
-                    level_index = pending_order.get('level', 0)
-
-                    # DCA 주문이면 add_dca() 호출
-                    if order_type == 'dca':
-                        # ✅ 실제 체결가 사용 (MyOrder WebSocket의 price 필드)
-                        # trade_price가 없으면 avg_price, 그것도 없으면 예상가 사용
-                        dca_price = trade_price if trade_price > 0 else (avg_price if avg_price > 0 else pending_order.get('dca_price', 0))
-                        dca_amount = executed_volume  # 실제 체결 수량
-                        dca_value_krw = pending_order.get('dca_value_krw', 0)
-                        group_id = pending_order.get('group_id', 'unknown')
-                        group_name = pending_order.get('group_name', 'Unknown')
-
-                        # 예상가와 실제 체결가 비교 로그
-                        expected_price = pending_order.get('dca_price', 0)
-                        if expected_price > 0 and dca_price > 0:
-                            price_diff = dca_price - expected_price
-                            price_diff_pct = (price_diff / expected_price) * 100
-                            logger.info(f"   📊 {symbol} 체결가: {dca_price:,.0f}원 (예상: {expected_price:,.0f}원, 차이: {price_diff:+,.0f}원 / {price_diff_pct:+.3f}%)")
-
-                        # 포지션 DCA 추가
-                        self.position_manager.add_dca(
-                            symbol=symbol,
-                            dca_price=dca_price,
-                            dca_amount=dca_amount,
-                            dca_krw=dca_value_krw,
-                            level=level_index
-                        )
-
-                        logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 부분 체결 완료 → add_dca() 호출 (실제 체결가: {dca_price:,.0f}원)")
-
-                        # 거래 기록 추가
-                        updated_position = self.position_manager.get_position(symbol)
-                        self.trade_history.add_trade(
-                            group_id=group_id,
-                            group_name=group_name,
-                            symbol=symbol,
-                            action="buy",
-                            trade_type="dca",
-                            price=updated_position.get("avg_buy_price"),
-                            amount=updated_position.get("total_amount"),
-                            total_krw=dca_value_krw,
-                            dry_run=False,
-                            dca_level=level_index + 1
-                        )
-
-                        # pending_order 제거
-                        self.position_manager.update_position(symbol, {'pending_order': None})
-
-                return  # state='trade' 처리 완료
+                logger.info(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f}, 가격: {trade_price:,.0f}원)")
+                logger.debug(f"   ⏳ state=done 대기 중 (정확한 평균가 계산 위해)")
+                return  # state='trade'는 로그만 출력, 실제 처리는 state='done'에서
 
             # 취소/방지된 주문 처리
             if state in ['cancel', 'prevented']:
@@ -1969,6 +1908,9 @@ class V4TradingEngine:
                     updates['profit_levels_executed'] = profit_levels_executed
                     logger.info(f"   📝 {symbol} profit_levels_executed 업데이트: {profit_levels_executed}")
 
+                # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
+                self._mark_processed_by_myorder(symbol)
+
             elif order_type == 'loss':
                 loss_levels_executed = position.get('loss_levels_executed', [])
                 if level_index not in loss_levels_executed:
@@ -1976,13 +1918,24 @@ class V4TradingEngine:
                     updates['loss_levels_executed'] = loss_levels_executed
                     logger.info(f"   📝 {symbol} loss_levels_executed 업데이트: {loss_levels_executed}")
 
+                # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
+                self._mark_processed_by_myorder(symbol)
+
             elif order_type == 'dca':
+                # 🔧 Phase D 버그 수정: state=done에서 정확한 최종 평균가 사용
                 # DCA 주문 체결 완료 → add_dca() 호출
-                dca_price = pending_order.get('dca_price', avg_price)
-                dca_amount = pending_order.get('dca_amount', executed_volume)
+                dca_price = avg_price  # ✅ MyOrder WebSocket의 최종 평균가 (여러 부분 체결의 가중 평균)
+                dca_amount = executed_volume  # ✅ 실제 체결 수량
                 dca_value_krw = pending_order.get('dca_value_krw', 0)
                 group_id = pending_order.get('group_id', 'unknown')
                 group_name = pending_order.get('group_name', 'Unknown')
+
+                # 예상가와 실제 체결가 비교 로그
+                expected_price = pending_order.get('dca_price', 0)
+                if expected_price > 0 and dca_price > 0:
+                    price_diff = dca_price - expected_price
+                    price_diff_pct = (price_diff / expected_price) * 100
+                    logger.info(f"   📊 {symbol} DCA 최종 평균가: {dca_price:,.0f}원 (예상: {expected_price:,.0f}원, 차이: {price_diff:+,.0f}원 / {price_diff_pct:+.3f}%)")
 
                 # 포지션 DCA 추가 (체결 확인 후)
                 self.position_manager.add_dca(
@@ -1993,7 +1946,7 @@ class V4TradingEngine:
                     level=level_index
                 )
 
-                logger.info(f"   📝 {symbol} DCA 레벨 {level_index} 체결 완료 → add_dca() 호출 완료")
+                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
 
                 # 거래 기록 (Live 모드에서만, Dry-run은 _execute_dca에서 이미 기록)
                 updated_position = self.position_manager.get_position(symbol)
@@ -2009,6 +1962,9 @@ class V4TradingEngine:
                     dry_run=False,  # Live 모드
                     dca_level=level_index + 1  # 1-based for display
                 )
+
+                # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
+                self._mark_processed_by_myorder(symbol)
 
             # 포지션 업데이트 (pending_order 제거)
             self.position_manager.update_position(symbol, updates)
