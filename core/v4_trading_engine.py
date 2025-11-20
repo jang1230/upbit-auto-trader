@@ -1866,61 +1866,113 @@ class V4TradingEngine:
                 logger.debug(f"   ⏳ state=done 대기 중 (정확한 평균가 계산 위해)")
                 return  # state='trade'는 로그만 출력, 실제 처리는 state='done'에서
 
-            # 취소/방지된 주문 처리
+            # 취소/방지된 주문 처리 (시장가 주문은 금액 소진 시 state=cancel로 완료됨)
             if state in ['cancel', 'prevented']:
                 logger.warning(f"   ⚠️ 주문 {order_uuid[:8]}... 취소/방지됨 (state={state})")
 
                 # pending_order 정리
                 position = self.position_manager.get_position(symbol)
-                if position:
-                    pending_order = position.get('pending_order')
-                    if pending_order and pending_order.get('order_id') == order_uuid:
-                        order_type = pending_order.get('type')
-                        level_index = pending_order.get('level')
+                if not position:
+                    logger.warning(f"   ⚠️ {symbol} 포지션 없음")
+                    return
 
-                        # 🔧 Phase D 버그 수정: 부분 체결 후 취소된 경우 레벨 기록
-                        # (시장가 주문은 부분 체결 후 잔액 부족으로 자동 취소됨)
-                        if order_type == 'dca':
-                            # DCA 레벨 실행 완료로 기록 (재실행 방지)
-                            dca_levels_executed = position.get('dca_levels_executed', [])
-                            if level_index not in dca_levels_executed:
-                                dca_levels_executed.append(level_index)
-                                logger.info(f"   📝 {symbol} DCA 레벨 {level_index+1} 부분 체결 후 취소 → dca_levels_executed에 기록 (재실행 방지)")
-                                self.position_manager.update_position(symbol, {
-                                    'dca_levels_executed': dca_levels_executed,
-                                    'pending_order': None
-                                })
-                            else:
-                                self.position_manager.update_position(symbol, {'pending_order': None})
+                pending_order = position.get('pending_order')
+                if not pending_order or pending_order.get('order_id') != order_uuid:
+                    logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
+                    return
 
-                            # MyAsset이 이미 수량 변동 감지해서 REST API로 평균가 업데이트할 것
-                            # 마킹하지 않음 → MyAsset 백업 처리 허용
-                            logger.info(f"   ⏳ {symbol} MyAsset 백업 처리 대기 중...")
+                order_type = pending_order.get('type')
+                level_index = pending_order.get('level')
 
-                        elif order_type in ['profit', 'loss']:
-                            # Profit/Loss 주문 취소 시 레벨 기록
-                            if order_type == 'profit':
-                                levels_executed = position.get('profit_levels_executed', [])
-                                key = 'profit_levels_executed'
-                            else:
-                                levels_executed = position.get('loss_levels_executed', [])
-                                key = 'loss_levels_executed'
+                # 🔧 Phase D 버그 수정: cancel/done 모두 동일하게 처리
+                # 시장가 주문은 금액 소진 완료 시 state=cancel로 완료됨 (정상 동작)
 
-                            if level_index not in levels_executed:
-                                levels_executed.append(level_index)
-                                logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 부분 체결 후 취소 → {key}에 기록")
-                                self.position_manager.update_position(symbol, {
-                                    key: levels_executed,
-                                    'pending_order': None
-                                })
-                            else:
-                                self.position_manager.update_position(symbol, {'pending_order': None})
+                if order_type == 'dca':
+                    # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
+                    dca_levels_executed = position.get('dca_levels_executed', [])
+                    if level_index in dca_levels_executed:
+                        logger.warning(f"   ⚠️ {symbol} DCA 레벨 {level_index+1} 이미 실행됨 → 중복 스킵")
+                        self.position_manager.update_position(symbol, {'pending_order': None})
+                        return
 
-                        else:
-                            # 기타 주문 타입
-                            self.position_manager.update_position(symbol, {'pending_order': None})
+                    # DCA 처리 (done과 동일)
+                    dca_price = avg_price  # ✅ MyOrder WebSocket의 최종 평균가
+                    dca_amount = executed_volume  # ✅ 실제 체결 수량
+                    dca_value_krw = pending_order.get('dca_value_krw', 0)
+                    group_id = pending_order.get('group_id', 'unknown')
+                    group_name = pending_order.get('group_name', 'Unknown')
 
-                        logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
+                    # 예상가와 실제 체결가 비교 로그
+                    expected_price = pending_order.get('dca_price', 0)
+                    if expected_price > 0 and dca_price > 0:
+                        price_diff = dca_price - expected_price
+                        price_diff_pct = (price_diff / expected_price) * 100
+                        logger.info(f"   📊 {symbol} DCA 최종 평균가: {dca_price:,.0f}원 (예상: {expected_price:,.0f}원, 차이: {price_diff:+,.0f}원 / {price_diff_pct:+.3f}%)")
+
+                    # 포지션 DCA 추가
+                    self.position_manager.add_dca(
+                        symbol=symbol,
+                        dca_price=dca_price,
+                        dca_amount=dca_amount,
+                        dca_krw=dca_value_krw,
+                        level=level_index
+                    )
+
+                    logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 시장가 체결 완료 (state=cancel) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
+
+                    # 거래 기록
+                    updated_position = self.position_manager.get_position(symbol)
+                    self.trade_history.add_trade(
+                        group_id=group_id,
+                        group_name=group_name,
+                        symbol=symbol,
+                        action="buy",
+                        trade_type="dca",
+                        price=updated_position.get("avg_buy_price"),
+                        amount=updated_position.get("total_amount"),
+                        total_krw=dca_value_krw,
+                        dry_run=False,
+                        dca_level=level_index + 1
+                    )
+
+                    # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
+                    self._mark_processed_by_myorder(symbol)
+
+                    # pending_order 제거
+                    self.position_manager.update_position(symbol, {'pending_order': None})
+
+                    logger.info(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
+
+                elif order_type in ['profit', 'loss']:
+                    # ✅ 중복 체크
+                    if order_type == 'profit':
+                        levels_executed = position.get('profit_levels_executed', [])
+                        key = 'profit_levels_executed'
+                    else:
+                        levels_executed = position.get('loss_levels_executed', [])
+                        key = 'loss_levels_executed'
+
+                    if level_index in levels_executed:
+                        logger.warning(f"   ⚠️ {symbol} {order_type} 레벨 {level_index} 이미 실행됨 → 중복 스킵")
+                        self.position_manager.update_position(symbol, {'pending_order': None})
+                        return
+
+                    # 레벨 기록
+                    levels_executed.append(level_index)
+                    logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 시장가 체결 완료 (state=cancel) → {key}에 기록")
+
+                    self.position_manager.update_position(symbol, {
+                        key: levels_executed,
+                        'pending_order': None
+                    })
+
+                    # MyOrder 처리 완료 마킹
+                    self._mark_processed_by_myorder(symbol)
+
+                else:
+                    # 기타 주문 타입
+                    self.position_manager.update_position(symbol, {'pending_order': None})
+                    logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
 
                 return
 
@@ -1966,6 +2018,13 @@ class V4TradingEngine:
                 self._mark_processed_by_myorder(symbol)
 
             elif order_type == 'dca':
+                # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
+                dca_levels_executed = position.get('dca_levels_executed', [])
+                if level_index in dca_levels_executed:
+                    logger.warning(f"   ⚠️ {symbol} DCA 레벨 {level_index+1} 이미 실행됨 (state=done) → 중복 스킵")
+                    self.position_manager.update_position(symbol, {'pending_order': None})
+                    return
+
                 # 🔧 Phase D 버그 수정: state=done에서 정확한 최종 평균가 사용
                 # DCA 주문 체결 완료 → add_dca() 호출
                 dca_price = avg_price  # ✅ MyOrder WebSocket의 최종 평균가 (여러 부분 체결의 가중 평균)
@@ -1990,7 +2049,7 @@ class V4TradingEngine:
                     level=level_index
                 )
 
-                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
+                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 지정가 체결 완료 (state=done) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
 
                 # 거래 기록 (Live 모드에서만, Dry-run은 _execute_dca에서 이미 기록)
                 updated_position = self.position_manager.get_position(symbol)
