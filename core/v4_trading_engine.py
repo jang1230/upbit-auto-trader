@@ -1754,15 +1754,26 @@ class V4TradingEngine:
             if order_uuid in self.pending_initial_buys:
                 pending_buy = self.pending_initial_buys[order_uuid]
 
-                # state='done'일 때만 포지션 생성 (전체 체결 완료)
-                if state == 'done':
-                    logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
+                # 🔧 Phase D: state='done' or 'cancel' 모두 처리 (DCA와 동일 패턴)
+                if state in ['done', 'cancel']:
+                    # ✅ 중복 체크: 이미 포지션이 있으면 스킵
+                    existing_position = self.position_manager.get_position(symbol)
+                    if existing_position:
+                        logger.warning(f"   ⚠️ [봇] {symbol} 초기 매수 중복 감지 (포지션 이미 존재) → 스킵")
+                        del self.pending_initial_buys[order_uuid]
+                        return
+
+                    # state 구분 로그
+                    if state == 'done':
+                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
+                    else:
+                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
 
                     # 포지션 생성
                     position = self.position_manager.create_position(
                         group_id=pending_buy['group_id'],
                         symbol=symbol,
-                        buy_price=avg_price,
+                        buy_price=avg_price,  # ✅ MyOrder WebSocket의 최종 평균가
                         quantity=executed_volume,
                         buy_amount_krw=pending_buy['buy_amount_krw']
                     )
@@ -1796,6 +1807,8 @@ class V4TradingEngine:
 
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
+
+                    logger.info(f"   🎉 [봇] {symbol} 초기 매수 처리 완료")
 
                 return  # 초기 매수는 여기서 종료
 
