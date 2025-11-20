@@ -1942,6 +1942,10 @@ class V4TradingEngine:
                         level=level_index
                     )
 
+                    # 🔧 DCA 레벨 기록 (중복 방지)
+                    dca_levels_executed.append(level_index)
+                    logger.info(f"   📝 {symbol} dca_levels_executed 업데이트: {dca_levels_executed}")
+
                     logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, 미세 잔량 반환) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
 
                     # 거래 기록
@@ -1977,8 +1981,11 @@ class V4TradingEngine:
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
-                    # pending_order 제거
-                    self.position_manager.update_position(symbol, {'pending_order': None})
+                    # pending_order 제거 + dca_levels_executed 저장
+                    self.position_manager.update_position(symbol, {
+                        'pending_order': None,
+                        'dca_levels_executed': dca_levels_executed
+                    })
 
                     logger.info(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
 
@@ -2348,6 +2355,11 @@ class V4TradingEngine:
                     dca_krw=dca_value_krw,
                     level=level_index
                 )
+
+                # 🔧 DCA 레벨 기록 (중복 방지)
+                dca_levels_executed.append(level_index)
+                updates['dca_levels_executed'] = dca_levels_executed
+                logger.info(f"   📝 {symbol} dca_levels_executed 업데이트: {dca_levels_executed}")
 
                 logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, 완전 체결) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
 
