@@ -973,6 +973,13 @@ class V4TradingEngine:
                     'buy_amount_krw': buy_amount
                 }
 
+                # 🔧 Phase D: MyOrder WebSocket 콜백 등록 (DCA/익절/손절과 동일)
+                if self.myorder_ws:
+                    self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
+                    logger.info(f"   📡 [봇] {symbol} 주문 {order_uuid[:8]}... MyOrder WebSocket 콜백 등록 완료")
+                else:
+                    logger.warning(f"   ⚠️ [봇] {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+
                 logger.info(f"✅ [봇] {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
                 return  # 포지션은 MyOrder WebSocket에서 생성
 
