@@ -162,6 +162,9 @@ class V4TradingEngine:
         # 초기 매수 주문 추적 (MyOrder WebSocket에서 포지션 생성용)
         self.pending_initial_buys: Dict[str, Dict[str, Any]] = {}  # {order_uuid: {symbol, group_id, buy_amount_krw, ...}}
 
+        # 🆕 Phase B-C: MyOrder 처리 완료 추적 (MyAsset 백업용)
+        self._myorder_processed_symbols: Dict[str, datetime] = {}  # {symbol: timestamp}
+
         # 최대 포지션 경고 플래그 (로그 스팸 방지)
         self.max_position_warning_shown = False
 
@@ -646,6 +649,14 @@ class V4TradingEngine:
                         # 봇 주문 → MyOrder WebSocket이 처리할 예정
                         logger.debug(f"⏭️ {symbol} 봇 주문 진행 중 (MyOrder WebSocket에서 처리 예정, MyAsset 스킵)")
                         continue
+
+                    # 🔧 Phase C: MyOrder가 이미 처리했는지 확인 (5초 윈도우)
+                    if self._was_recently_processed_by_myorder(symbol):
+                        logger.debug(f"   ⏭️ {symbol} MyOrder에서 최근 처리됨 (5초 이내), MyAsset 스킵")
+                        continue
+
+                    # MyOrder가 누락했을 가능성 → 백업 처리
+                    logger.warning(f"   ⚠️ {symbol} MyOrder 누락 감지, MyAsset 백업 처리")
 
                     # 외부 매수 감지 (Upbit 앱/웹에서 직접 매수)
                     logger.info(f"🆕 외부 매수 감지 (Upbit 앱/웹): {symbol}")
@@ -1783,7 +1794,71 @@ class V4TradingEngine:
                     del self.pending_initial_buys[order_uuid]
                     logger.info(f"   🗑️ {symbol} pending_initial_buys 제거 완료")
 
+                    # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
+                    self._mark_processed_by_myorder(symbol)
+
                 return  # 초기 매수는 여기서 종료
+
+            # 🆕 Phase B: 외부 매수 처리 (state='done' and side='bid')
+            if state == 'done' and ask_bid == 'BID':
+                position = self.position_manager.get_position(symbol)
+
+                if not position:
+                    # 🆕 Phase B-1: 외부 신규 매수 처리
+                    group_id = self._find_group_for_symbol(symbol)
+
+                    if group_id:
+                        logger.info(f"🆕 [외부] {symbol} 신규 매수 감지 (그룹: {group_id})")
+                    else:
+                        logger.info(f"🆕 [외부] {symbol} 신규 매수 감지 (그룹 없음 → group_null)")
+                        group_id = "group_null"
+
+                    # 포지션 생성
+                    position = self.position_manager.create_position(
+                        group_id=group_id,
+                        symbol=symbol,
+                        buy_price=avg_price,
+                        quantity=executed_volume,
+                        force_create_for_sync=(group_id == "group_null")
+                    )
+
+                    logger.info(f"   ✅ [외부] {group_id} 포지션 생성: {symbol}")
+
+                    # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
+                    self._mark_processed_by_myorder(symbol)
+                    return
+
+                # 🆕 Phase B-2: 외부 추가 매수 처리
+                pending_order = position.get('pending_order')
+
+                if not pending_order:
+                    logger.info(f"🆕 [외부] {symbol} 추가 매수 감지 (수량: {executed_volume:.8f})")
+
+                    # REST API로 최신 평균가 조회
+                    if self.upbit_api:
+                        try:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                currency = symbol.replace('KRW-', '')
+                                if acc['currency'] == currency:
+                                    new_avg_price = float(acc.get('avg_buy_price', 0))
+                                    new_balance = float(acc.get('balance', 0))
+
+                                    # 포지션 업데이트
+                                    self.position_manager.update_position(symbol, {
+                                        'total_amount': new_balance,
+                                        'avg_buy_price': new_avg_price,
+                                        'total_invested_krw': new_avg_price * new_balance
+                                    })
+
+                                    logger.info(f"   ✅ [외부] {symbol} 추가 매수 반영 (새 평균가: {new_avg_price:,.0f}원)")
+                                    break
+                        except Exception as e:
+                            logger.error(f"❌ [외부] {symbol} 평균가 조회 실패: {e}")
+
+                    # MyOrder 처리 완료 마킹
+                    self._mark_processed_by_myorder(symbol)
+                    return
 
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
@@ -1942,6 +2017,57 @@ class V4TradingEngine:
 
         except Exception as e:
             logger.error(f"❌ 주문 체결 콜백 처리 오류: {e}", exc_info=True)
+
+    def _find_group_for_symbol(self, symbol: str) -> Optional[str]:
+        """
+        config.groups를 검색하여 symbol이 속한 그룹 ID 반환
+
+        Args:
+            symbol: "KRW-BTC" 형식의 심볼
+
+        Returns:
+            그룹 ID (예: "group_1") 또는 None
+        """
+        config = self.config_manager.get_config()
+
+        for group_id, group_data in config.get('groups', {}).items():
+            coins = group_data.get('coins', [])
+            if symbol in coins:
+                logger.debug(f"   🔍 {symbol} → 그룹 매칭: {group_id}")
+                return group_id
+
+        logger.debug(f"   🔍 {symbol} → 그룹 없음")
+        return None
+
+    def _mark_processed_by_myorder(self, symbol: str):
+        """
+        MyOrder에서 symbol 처리했음을 기록
+
+        Args:
+            symbol: "KRW-BTC" 형식
+        """
+        self._myorder_processed_symbols[symbol] = datetime.now()
+        logger.debug(f"   📝 {symbol} MyOrder 처리 기록")
+
+    def _was_recently_processed_by_myorder(self, symbol: str, window_seconds: int = 5) -> bool:
+        """
+        최근 N초 이내 MyOrder에서 해당 symbol 처리했는지 확인
+
+        Args:
+            symbol: "KRW-BTC" 형식
+            window_seconds: 윈도우 시간 (기본 5초)
+
+        Returns:
+            True if 최근 처리됨, False otherwise
+        """
+        last_time = self._myorder_processed_symbols.get(symbol)
+        if last_time:
+            elapsed = (datetime.now() - last_time).total_seconds()
+            if elapsed < window_seconds:
+                logger.debug(f"   ⏭️ {symbol} MyOrder에서 {elapsed:.1f}초 전 처리됨")
+                return True
+
+        return False
 
     def _check_global_constraints(self, verbose: bool = False) -> bool:
         """
