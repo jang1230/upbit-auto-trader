@@ -302,8 +302,6 @@ class V4TradingEngine:
 
         # 텔레그램 시작 알림
         mode_text = "Live (실거래)" if not self.dry_run else "Dry-run (가상)"
-        if self.observation_mode:
-            mode_text += " [관찰 전용]"
 
         self._send_telegram_alert(
             f"🚀 프로그램 시작\n"
