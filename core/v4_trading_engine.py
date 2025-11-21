@@ -300,6 +300,17 @@ class V4TradingEngine:
 
         logger.info("✅ V4 거래 엔진 시작 완료")
 
+        # 텔레그램 시작 알림
+        mode_text = "Live (실거래)" if not self.dry_run else "Dry-run (가상)"
+        if self.observation_mode:
+            mode_text += " [관찰 전용]"
+
+        self._send_telegram_alert(
+            f"🚀 프로그램 시작\n"
+            f"모드: {mode_text}\n"
+            f"시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
     def stop(self):
         """거래 중지"""
         if not self.is_running:
@@ -352,6 +363,12 @@ class V4TradingEngine:
             self.scheduler_thread.join(timeout=5)
 
         logger.info("✅ V4 거래 엔진 중지 완료")
+
+        # 텔레그램 종료 알림
+        self._send_telegram_alert(
+            f"🛑 프로그램 종료\n"
+            f"시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
     def reload_config_and_update_groups(self):
         """
