@@ -98,6 +98,9 @@ class TelegramBot:
             # 이벤트 루프 체크 및 재생성
             try:
                 loop = asyncio.get_running_loop()
+                # 루프가 닫혀있으면 새로 생성
+                if loop.is_closed():
+                    raise RuntimeError("Loop is closed")
             except RuntimeError:
                 # 이벤트 루프가 없거나 닫혔으면 새로 생성
                 loop = asyncio.new_event_loop()
