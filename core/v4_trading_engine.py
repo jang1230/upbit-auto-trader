@@ -1606,7 +1606,7 @@ class V4TradingEngine:
 
                 # 포지션 업데이트 (executed_levels 추가)
                 if quantity_ratio >= 0.99:  # 거의 전량 매도
-                    self.position_manager.close_position(symbol)
+                    self.position_manager.close_position(symbol, close_price=current_price, close_reason=reason)
                     logger.info(f"✅ [Dry-run] {symbol} 전량 매도 완료: {sell_amount:.8f}개 @ {current_price:,}원 (수익: {profit:+,.0f}원)")
                 else:
                     # 부분 매도: executed_levels 업데이트
@@ -2036,7 +2036,7 @@ class V4TradingEngine:
                         if remaining_value < MIN_ORDER_KRW:
                             # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
                             logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
-                            self.position_manager.close_position(symbol)
+                            self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
 
                             # 거래 기록
                             trade_params = {
@@ -2174,7 +2174,7 @@ class V4TradingEngine:
                     if remaining_value < MIN_ORDER_KRW:
                         # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
                         logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
-                        self.position_manager.close_position(symbol)
+                        self.position_manager.close_position(symbol, close_price=avg_price, close_reason="profit")
 
                         # 거래 기록
                         self.trade_history.add_trade(
@@ -2267,7 +2267,7 @@ class V4TradingEngine:
                     if remaining_value < MIN_ORDER_KRW:
                         # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
                         logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
-                        self.position_manager.close_position(symbol)
+                        self.position_manager.close_position(symbol, close_price=avg_price, close_reason="loss")
 
                         # 거래 기록
                         self.trade_history.add_trade(

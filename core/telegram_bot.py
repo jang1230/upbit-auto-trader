@@ -89,12 +89,21 @@ class TelegramBot:
     async def send_message(self, text: str, parse_mode: str = "Markdown"):
         """
         메시지 전송
-        
+
         Args:
             text: 메시지 내용
             parse_mode: 파싱 모드 (Markdown, HTML)
         """
         try:
+            # 이벤트 루프 체크 및 재생성
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # 이벤트 루프가 없거나 닫혔으면 새로 생성
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                logger.info("🔄 텔레그램 봇: 새로운 이벤트 루프 생성")
+
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=text,

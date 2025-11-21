@@ -765,34 +765,54 @@ class PositionManager:
                             if existing_avg_price > 0:
                                 updates['total_invested_krw'] = existing_avg_price * balance
                         else:
-                            # 🆕 최근 DCA 발생 확인 (10초 이내)
+                            # 🆕 최근 DCA 발생 확인 (20초 이내로 증가 - MyOrder 처리 완료 대기)
                             # 최신 포지션 정보 다시 읽기 (add_dca() 반영 확인)
                             current_position = self.get_position(symbol)
                             recent_dca = False
                             if current_position and current_position.get('dca_history'):
                                 last_dca = current_position['dca_history'][-1]
                                 last_dca_time = datetime.fromisoformat(last_dca['timestamp'])
-                                if (datetime.now() - last_dca_time).total_seconds() < 10:
+                                if (datetime.now() - last_dca_time).total_seconds() < 20:
                                     recent_dca = True
 
                             if recent_dca:
                                 # 봇 DCA → MyOrder 처리 완료 → skip
-                                logger.info(f"   ⏭️ [봇] {symbol} 최근 DCA 발생 (10초 이내) → MyOrder에서 평균가 계산 완료, MyAsset skip")
+                                logger.info(f"   ⏭️ [봇] {symbol} 최근 DCA 발생 (20초 이내) → MyOrder에서 평균가 계산 완료, MyAsset skip")
                                 existing_avg_price = position.get('avg_buy_price', 0)
                                 if existing_avg_price > 0:
                                     updates['total_invested_krw'] = existing_avg_price * balance
                             else:
                                 # 외부 추가매수 → REST API로 평균가 조회
-                                logger.warning(f"   ⚠️ [외부] {symbol} 수량 변동 감지 (기존: {existing_amount:.8f} → 신규: {balance:.8f}), REST API로 평균가 조회")
-                                if self.upbit_api:
-                                    accounts = self.upbit_api.get_accounts()
-                                    for acc in accounts:
-                                        if f"KRW-{acc['currency']}" == symbol:
-                                            fetched_avg_price = float(acc.get('avg_buy_price', 0))
-                                            updates['avg_buy_price'] = fetched_avg_price
-                                            updates['total_invested_krw'] = fetched_avg_price * balance
-                                            logger.info(f"   📊 REST API 평균가 조회: {symbol} = {fetched_avg_price:.0f}원")
-                                            break
+                                # MyOrder 처리 완료 대기 (3초 지연)
+                                logger.warning(f"   ⚠️ [외부] {symbol} 수량 변동 감지 (기존: {existing_amount:.8f} → 신규: {balance:.8f}), 3초 대기 후 REST API로 평균가 조회")
+                                time.sleep(3)
+
+                                # 대기 후 다시 체크 (MyOrder 처리가 완료되었을 수 있음)
+                                current_position_after_wait = self.get_position(symbol)
+                                recent_dca_after_wait = False
+                                if current_position_after_wait and current_position_after_wait.get('dca_history'):
+                                    last_dca_after = current_position_after_wait['dca_history'][-1]
+                                    last_dca_time_after = datetime.fromisoformat(last_dca_after['timestamp'])
+                                    if (datetime.now() - last_dca_time_after).total_seconds() < 5:
+                                        recent_dca_after_wait = True
+
+                                if recent_dca_after_wait:
+                                    # 대기 중 MyOrder 처리 완료됨
+                                    logger.info(f"   ✅ {symbol} 3초 대기 후 MyOrder 처리 완료 감지 → REST API skip")
+                                    existing_avg_price = current_position_after_wait.get('avg_buy_price', 0)
+                                    if existing_avg_price > 0:
+                                        updates['total_invested_krw'] = existing_avg_price * balance
+                                else:
+                                    # 진짜 외부 추가매수
+                                    if self.upbit_api:
+                                        accounts = self.upbit_api.get_accounts()
+                                        for acc in accounts:
+                                            if f"KRW-{acc['currency']}" == symbol:
+                                                fetched_avg_price = float(acc.get('avg_buy_price', 0))
+                                                updates['avg_buy_price'] = fetched_avg_price
+                                                updates['total_invested_krw'] = fetched_avg_price * balance
+                                                logger.info(f"   📊 REST API 평균가 조회: {symbol} = {fetched_avg_price:.0f}원")
+                                                break
                     else:
                         # 수량 변화 없으면 기존 평균가 재사용 (단순 locked 변동 등)
                         existing_avg_price = position.get('avg_buy_price', 0)
