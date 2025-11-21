@@ -1782,16 +1782,33 @@ class V4TradingEngine:
 
                     # state 구분 로그
                     if state == 'done':
-                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
+                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
                     else:
-                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, 평균가: {avg_price:,.0f}원)")
+                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
+
+                    # 🆕 REST API로 정확한 평균가 조회
+                    final_avg_price = avg_price  # fallback
+                    final_balance = executed_volume  # fallback
+
+                    if self.upbit_api:
+                        try:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                currency = symbol.replace('KRW-', '')
+                                if acc['currency'] == currency:
+                                    final_avg_price = float(acc.get('avg_buy_price', 0))
+                                    final_balance = float(acc.get('balance', 0))
+                                    logger.info(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
+                                    break
+                        except Exception as e:
+                            logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
 
                     # 포지션 생성
                     position = self.position_manager.create_position(
                         group_id=pending_buy['group_id'],
                         symbol=symbol,
-                        buy_price=avg_price,  # ✅ MyOrder WebSocket의 최종 평균가
-                        quantity=executed_volume,
+                        buy_price=final_avg_price,  # ✅ REST API 최종 평균가
+                        quantity=final_balance,
                         buy_amount_krw=pending_buy['buy_amount_krw']
                     )
 
@@ -1802,8 +1819,8 @@ class V4TradingEngine:
                         symbol=symbol,
                         action="buy",
                         trade_type="initial",
-                        price=avg_price,
-                        amount=executed_volume,
+                        price=final_avg_price,
+                        amount=final_balance,
                         total_krw=pending_buy['buy_amount_krw'],
                         dry_run=False
                     )
@@ -1814,8 +1831,8 @@ class V4TradingEngine:
                         f"그룹: {pending_buy['group_name']}\n"
                         f"코인: {symbol}\n"
                         f"금액: {pending_buy['buy_amount_krw']:,}원\n"
-                        f"수량: {executed_volume:.8f}개\n"
-                        f"가격: {avg_price:,}원"
+                        f"수량: {final_balance:.8f}개\n"
+                        f"가격: {final_avg_price:,}원"
                     )
 
                     # pending_initial_buys에서 제거
@@ -1893,8 +1910,31 @@ class V4TradingEngine:
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
                 logger.info(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f}, 가격: {trade_price:,.0f}원)")
-                logger.debug(f"   ⏳ state=done 대기 중 (정확한 평균가 계산 위해)")
-                return  # state='trade'는 로그만 출력, 실제 처리는 state='done'에서
+
+                # 🆕 실시간 평균가 업데이트 (REST API 조회)
+                position = self.position_manager.get_position(symbol)
+                if position and self.upbit_api:
+                    try:
+                        accounts = self.upbit_api.get_accounts()
+                        for acc in accounts:
+                            currency = symbol.replace('KRW-', '')
+                            if acc['currency'] == currency:
+                                new_avg_price = float(acc.get('avg_buy_price', 0))
+                                new_balance = float(acc.get('balance', 0))
+
+                                # 포지션 업데이트 (실시간)
+                                self.position_manager.update_position(symbol, {
+                                    'total_amount': new_balance,
+                                    'avg_buy_price': new_avg_price,
+                                    'total_invested_krw': new_avg_price * new_balance
+                                })
+
+                                logger.info(f"   📊 [실시간] {symbol} 평균가 업데이트: {new_avg_price:,.0f}원 (수량: {new_balance:.8f}개)")
+                                break
+                    except Exception as e:
+                        logger.error(f"❌ [실시간] {symbol} 평균가 조회 실패: {e}")
+
+                return  # 최종 처리는 state='done'에서
 
             # 체결 후 미세 잔량 발생 처리 (state=cancel)
             # Upbit: 체결 후 소수점 단위 등으로 미세 잔량 발생 시 계좌 반환 + state=cancel
@@ -1929,33 +1969,55 @@ class V4TradingEngine:
                         return
 
                     # DCA 처리 (done과 동일)
-                    dca_price = avg_price  # ✅ MyOrder WebSocket의 최종 평균가
-                    dca_amount = executed_volume  # ✅ 실제 체결 수량
                     dca_value_krw = pending_order.get('dca_value_krw', 0)
                     group_id = pending_order.get('group_id', 'unknown')
                     group_name = pending_order.get('group_name', 'Unknown')
 
-                    # 예상가와 실제 체결가 비교 로그
-                    expected_price = pending_order.get('dca_price', 0)
-                    if expected_price > 0 and dca_price > 0:
-                        price_diff = dca_price - expected_price
-                        price_diff_pct = (price_diff / expected_price) * 100
-                        logger.info(f"   📊 {symbol} DCA 최종 평균가: {dca_price:,.0f}원 (예상: {expected_price:,.0f}원, 차이: {price_diff:+,.0f}원 / {price_diff_pct:+.3f}%)")
+                    logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
 
-                    # 포지션 DCA 추가
-                    self.position_manager.add_dca(
-                        symbol=symbol,
-                        dca_price=dca_price,
-                        dca_amount=dca_amount,
-                        dca_krw=dca_value_krw,
-                        level=level_index
-                    )
+                    # 🆕 REST API로 정확한 평균가 조회
+                    final_avg_price = avg_price  # fallback
+                    final_balance = 0  # fallback
+
+                    if self.upbit_api:
+                        try:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                currency = symbol.replace('KRW-', '')
+                                if acc['currency'] == currency:
+                                    final_avg_price = float(acc.get('avg_buy_price', 0))
+                                    final_balance = float(acc.get('balance', 0))
+                                    logger.info(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
+                                    break
+                        except Exception as e:
+                            logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
+
+                    # DCA 히스토리 기록
+                    dca_history = position.get('dca_history', [])
+                    dca_record = {
+                        "level": level_index,
+                        "price": avg_price,  # 체결가 기록
+                        "amount": executed_volume,
+                        "krw": dca_value_krw,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    dca_history.append(dca_record)
 
                     # 🔧 DCA 레벨 기록 (중복 방지)
                     dca_levels_executed.append(level_index)
-                    logger.info(f"   📝 {symbol} dca_levels_executed 업데이트: {dca_levels_executed}")
 
-                    logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, 미세 잔량 반환) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
+                    # 포지션 업데이트
+                    self.position_manager.update_position(symbol, {
+                        'total_amount': final_balance,
+                        'avg_buy_price': final_avg_price,
+                        'total_invested_krw': final_avg_price * final_balance,
+                        'dca_count': position.get('dca_count', 0) + 1,
+                        'dca_history': dca_history,
+                        'dca_levels_executed': dca_levels_executed,
+                        'pending_order': None
+                    })
+
+                    logger.info(f"   📝 {symbol} DCA 레벨 {level_index+1} 완료 - dca_levels_executed: {dca_levels_executed}")
 
                     # 거래 기록
                     updated_position = self.position_manager.get_position(symbol)
@@ -1980,21 +2042,15 @@ class V4TradingEngine:
                         f"레벨: {level_index + 1}\n"
                         f"━━━━━━━━━━━━━━\n"
                         f"추가 금액: {dca_value_krw:,.0f}원\n"
-                        f"추가 수량: {dca_amount:.8f}개\n"
-                        f"체결 가격: {dca_price:,.0f}원\n"
+                        f"추가 수량: {executed_volume:.8f}개\n"
+                        f"체결 가격: {avg_price:,.0f}원\n"
                         f"━━━━━━━━━━━━━━\n"
-                        f"평균 매수가: {updated_position.get('avg_buy_price', 0):,.0f}원\n"
-                        f"총 보유량: {updated_position.get('total_amount', 0):.8f}개"
+                        f"평균 매수가: {final_avg_price:,.0f}원\n"
+                        f"총 보유량: {final_balance:.8f}개"
                     )
 
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
-
-                    # pending_order 제거 + dca_levels_executed 저장
-                    self.position_manager.update_position(symbol, {
-                        'pending_order': None,
-                        'dca_levels_executed': dca_levels_executed
-                    })
 
                     logger.info(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
 
@@ -2342,46 +2398,63 @@ class V4TradingEngine:
                     return
 
                 # 🔧 Phase D 버그 수정: state=done에서 정확한 최종 평균가 사용
-                # DCA 주문 체결 완료 → add_dca() 호출
-                dca_price = avg_price  # ✅ MyOrder WebSocket의 최종 평균가 (여러 부분 체결의 가중 평균)
-                dca_amount = executed_volume  # ✅ 실제 체결 수량
+                # DCA 주문 체결 완료 → REST API 조회
                 dca_value_krw = pending_order.get('dca_value_krw', 0)
                 group_id = pending_order.get('group_id', 'unknown')
                 group_name = pending_order.get('group_name', 'Unknown')
 
-                # 예상가와 실제 체결가 비교 로그
-                expected_price = pending_order.get('dca_price', 0)
-                if expected_price > 0 and dca_price > 0:
-                    price_diff = dca_price - expected_price
-                    price_diff_pct = (price_diff / expected_price) * 100
-                    logger.info(f"   📊 {symbol} DCA 최종 평균가: {dca_price:,.0f}원 (예상: {expected_price:,.0f}원, 차이: {price_diff:+,.0f}원 / {price_diff_pct:+.3f}%)")
+                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
 
-                # 포지션 DCA 추가 (체결 확인 후)
-                self.position_manager.add_dca(
-                    symbol=symbol,
-                    dca_price=dca_price,
-                    dca_amount=dca_amount,
-                    dca_krw=dca_value_krw,
-                    level=level_index
-                )
+                # 🆕 REST API로 정확한 평균가 조회
+                final_avg_price = avg_price  # fallback
+                final_balance = 0  # fallback
+
+                if self.upbit_api:
+                    try:
+                        accounts = self.upbit_api.get_accounts()
+                        for acc in accounts:
+                            currency = symbol.replace('KRW-', '')
+                            if acc['currency'] == currency:
+                                final_avg_price = float(acc.get('avg_buy_price', 0))
+                                final_balance = float(acc.get('balance', 0))
+                                logger.info(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
+                                break
+                    except Exception as e:
+                        logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
+
+                # DCA 히스토리 기록
+                dca_history = position.get('dca_history', [])
+                dca_record = {
+                    "level": level_index,
+                    "price": avg_price,  # 체결가 기록
+                    "amount": executed_volume,
+                    "krw": dca_value_krw,
+                    "timestamp": datetime.now().isoformat()
+                }
+                dca_history.append(dca_record)
 
                 # 🔧 DCA 레벨 기록 (중복 방지)
                 dca_levels_executed.append(level_index)
-                updates['dca_levels_executed'] = dca_levels_executed
-                logger.info(f"   📝 {symbol} dca_levels_executed 업데이트: {dca_levels_executed}")
 
-                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, 완전 체결) → add_dca() 호출 완료 (최종 평균가: {dca_price:,.0f}원)")
+                # 포지션 업데이트
+                updates['total_amount'] = final_balance
+                updates['avg_buy_price'] = final_avg_price
+                updates['total_invested_krw'] = final_avg_price * final_balance
+                updates['dca_count'] = position.get('dca_count', 0) + 1
+                updates['dca_history'] = dca_history
+                updates['dca_levels_executed'] = dca_levels_executed
+
+                logger.info(f"   📝 {symbol} DCA 레벨 {level_index+1} 완료 - dca_levels_executed: {dca_levels_executed}")
 
                 # 거래 기록 (Live 모드에서만, Dry-run은 _execute_dca에서 이미 기록)
-                updated_position = self.position_manager.get_position(symbol)
                 self.trade_history.add_trade(
                     group_id=group_id,
                     group_name=group_name,
                     symbol=symbol,
                     action="buy",
                     trade_type="dca",
-                    price=updated_position.get("avg_buy_price"),
-                    amount=updated_position.get("total_amount"),
+                    price=final_avg_price,
+                    amount=final_balance,
                     total_krw=dca_value_krw,
                     dry_run=False,  # Live 모드
                     dca_level=level_index + 1  # 1-based for display
@@ -2395,11 +2468,11 @@ class V4TradingEngine:
                     f"레벨: {level_index + 1}\n"
                     f"━━━━━━━━━━━━━━\n"
                     f"추가 금액: {dca_value_krw:,.0f}원\n"
-                    f"추가 수량: {dca_amount:.8f}개\n"
-                    f"체결 가격: {dca_price:,.0f}원\n"
+                    f"추가 수량: {executed_volume:.8f}개\n"
+                    f"체결 가격: {avg_price:,.0f}원\n"
                     f"━━━━━━━━━━━━━━\n"
-                    f"평균 매수가: {updated_position.get('avg_buy_price', 0):,.0f}원\n"
-                    f"총 보유량: {updated_position.get('total_amount', 0):.8f}개"
+                    f"평균 매수가: {final_avg_price:,.0f}원\n"
+                    f"총 보유량: {final_balance:.8f}개"
                 )
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
