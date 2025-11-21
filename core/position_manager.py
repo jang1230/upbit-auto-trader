@@ -219,6 +219,7 @@ class PositionManager:
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
             # V4 다중 레벨 익절/손절 추적 (11/12 추가)
+            "dca_levels_executed": [],     # 실행된 DCA 레벨 인덱스 [0, 1, 2, ...]
             "profit_levels_executed": [],  # 실행된 익절 레벨 인덱스 [0, 1, 2, ...]
             "loss_levels_executed": [],    # 실행된 손절 레벨 인덱스 [0, 1, ...]
             "pending_order": None,         # 진행 중인 주문 {order_id, type, level, timestamp}
