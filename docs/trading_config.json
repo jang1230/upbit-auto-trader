@@ -1,0 +1,322 @@
+{
+  "version": "4.0.0",
+  "global_settings": {
+    "trading_day_reset_hour": 9,
+    "max_positions": {
+      "enabled": true,
+      "limit": 9
+    },
+    "min_krw_balance": {
+      "enabled": false,
+      "amount": 100000
+    },
+    "daily_loss_limit": {
+      "enabled": false,
+      "loss_pct": 20.0,
+      "calculation_method": "total_account",
+      "action": "liquidate"
+    },
+    "telegram": {
+      "enabled": true,
+      "token": "8491103895:AAFLxuW38Wjoi7vgzuu5PAib7AuL_rHldTM",
+      "chat_id": "8461158159"
+    },
+    "dry_run": false,
+    "position_loss_limit": {
+      "enabled": true,
+      "limit_pct": -10.0,
+      "action": "alert",
+      "exclude_observation_groups": true
+    }
+  },
+  "groups": {
+    "group_1": {
+      "name": "1번 그룹",
+      "observation_only": false,
+      "coins": [
+        "KRW-BTC",
+        "KRW-ETH",
+        "KRW-XRP",
+        "KRW-SOL"
+      ],
+      "buy_settings": {
+        "mode": "auto",
+        "buy_amount_krw": 6000,
+        "auto_config": {
+          "enabled": true,
+          "strategy": "v4_auto_buy",
+          "investment_style": "custom",
+          "candle_unit": "5",
+          "signal_mode": "partial",
+          "min_signals_required": 2,
+          "indicators": {
+            "rsi": {
+              "enabled": true,
+              "period": 14,
+              "oversold": 37,
+              "overbought": 70
+            },
+            "macd": {
+              "enabled": true,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9
+            },
+            "volume": {
+              "enabled": true,
+              "period": 20,
+              "threshold": 1.7
+            }
+          },
+          "buy_amount_krw": 6000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -2.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": 2.0,
+            "quantity_ratio": 50
+          },
+          {
+            "price_ratio": 4.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -15.0,
+            "quantity_ratio": 100
+          }
+        ]
+      }
+    },
+    "group_2": {
+      "name": "2번 그룹",
+      "observation_only": false,
+      "coins": [
+        "KRW-USDT",
+        "KRW-GRS",
+        "KRW-LSK",
+        "KRW-VIRTUAL",
+        "KRW-AWE",
+        "KRW-ERA"
+      ],
+      "buy_settings": {
+        "mode": "auto",
+        "buy_amount_krw": 6000,
+        "auto_config": {
+          "enabled": true,
+          "strategy": "v4_auto_buy",
+          "investment_style": "custom",
+          "candle_unit": "5",
+          "signal_mode": "partial",
+          "min_signals_required": 2,
+          "indicators": {
+            "rsi": {
+              "enabled": true,
+              "period": 14,
+              "oversold": 32,
+              "overbought": 70
+            },
+            "macd": {
+              "enabled": true,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9
+            },
+            "volume": {
+              "enabled": true,
+              "period": 20,
+              "threshold": 1.8
+            }
+          },
+          "buy_amount_krw": 6000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -2.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": 2.0,
+            "quantity_ratio": 50
+          },
+          {
+            "price_ratio": 4.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -15.0,
+            "quantity_ratio": 100
+          }
+        ]
+      }
+    },
+    "group_3": {
+      "name": "3번 그룹",
+      "observation_only": false,
+      "coins": [
+        "KRW-0G",
+        "KRW-DOGE",
+        "KRW-LA",
+        "KRW-WCT"
+      ],
+      "buy_settings": {
+        "mode": "auto",
+        "buy_amount_krw": 6000,
+        "auto_config": {
+          "enabled": true,
+          "strategy": "v4_auto_buy",
+          "investment_style": "custom",
+          "candle_unit": "5",
+          "signal_mode": "partial",
+          "min_signals_required": 2,
+          "indicators": {
+            "rsi": {
+              "enabled": true,
+              "period": 14,
+              "oversold": 32,
+              "overbought": 70
+            },
+            "macd": {
+              "enabled": true,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9
+            },
+            "volume": {
+              "enabled": true,
+              "period": 20,
+              "threshold": 1.8
+            }
+          },
+          "buy_amount_krw": 6000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -2.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": 2.0,
+            "quantity_ratio": 50
+          },
+          {
+            "price_ratio": 4.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "loss_settings": {
+        "mode": "disabled",
+        "levels": []
+      }
+    },
+    "group_4": {
+      "name": "4번 그룹",
+      "observation_only": false,
+      "coins": [
+        "KRW-ENA",
+        "KRW-MET2",
+        "KRW-XPL"
+      ],
+      "buy_settings": {
+        "mode": "auto",
+        "buy_amount_krw": 6000,
+        "auto_config": {
+          "enabled": true,
+          "strategy": "v4_auto_buy",
+          "investment_style": "custom",
+          "candle_unit": "10",
+          "signal_mode": "partial",
+          "min_signals_required": 2,
+          "indicators": {
+            "rsi": {
+              "enabled": true,
+              "period": 14,
+              "oversold": 32,
+              "overbought": 70
+            },
+            "macd": {
+              "enabled": true,
+              "fast": 12,
+              "slow": 26,
+              "signal": 9
+            },
+            "volume": {
+              "enabled": true,
+              "period": 20,
+              "threshold": 1.8
+            }
+          },
+          "buy_amount_krw": 6000
+        }
+      },
+      "dca_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -5.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "profit_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": 2.0,
+            "quantity_ratio": 50
+          },
+          {
+            "price_ratio": 4.0,
+            "quantity_ratio": 100
+          }
+        ]
+      },
+      "loss_settings": {
+        "mode": "auto",
+        "levels": [
+          {
+            "price_ratio": -10.0,
+            "quantity_ratio": 100
+          }
+        ]
+      }
+    }
+  }
+}
