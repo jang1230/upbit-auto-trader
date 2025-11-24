@@ -3429,6 +3429,11 @@ class V4TradingEngine:
                 # 외부 매수 발견!
                 avg_buy_price = float(account.get('avg_buy_price', 0))
 
+                # 에어드랍 코인 스킵 (평단가 0원)
+                if avg_buy_price <= 0:
+                    logger.info(f"  ⏭️ {symbol}: 에어드랍 코인 (평단가 0원) - 스킵")
+                    continue
+
                 logger.info(
                     f"  ℹ️ {symbol}: 재시작 시 외부 매수 감지 "
                     f"(평단가={avg_buy_price:,.0f}원, 수량={balance:.8f}개)"
@@ -3450,7 +3455,7 @@ class V4TradingEngine:
                         group_id=group_id,
                         symbol=symbol,
                         buy_price=avg_buy_price,
-                        amount=balance,
+                        entry_amount=balance,
                         source="external"
                     )
                     external_count += 1
