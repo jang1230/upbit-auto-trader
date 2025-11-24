@@ -42,6 +42,7 @@ from gui.dca_config import DcaConfigManager
 from gui.coin_selection_dialog import CoinSelectionDialog  # 🔧 코인 선택 다이얼로그
 from gui.auto_trading_config import AutoTradingConfig  # 🔧 완전 자동 모드 설정
 from gui.group_management_dialog import GroupManagementDialog  # 🔧 V4 그룹 관리 다이얼로그
+from gui.logging_handler import GuiLogHandler  # 🔧 백엔드 로그 필터링 핸들러
 from core.utils import format_price  # 🔧 가격 포맷팅 유틸리티
 
 # 🔧 V4 매니저 import
@@ -254,6 +255,9 @@ class MainWindow(QMainWindow):
         self._update_status()
 
         # 🔧 V4: 포지션은 Step 2에서 로드됨 (중복 방지)
+
+        # 🔧 백엔드 로그 필터링 핸들러 초기화
+        self._setup_backend_logging()
 
         # 🔧 순차적 초기화 시작 (500ms 후)
         QTimer.singleShot(500, self._start_sequential_initialization)
@@ -1948,6 +1952,67 @@ class MainWindow(QMainWindow):
                 cursor.deleteChar()  # 줄바꿈 문자 삭제
 
         # 자동 스크롤 (최신 로그로)
+        scrollbar = self.log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _setup_backend_logging(self):
+        """
+        백엔드 로그 필터링 핸들러 설정
+
+        백엔드(core 모듈)의 로그를 필터링하여 중요한 정보만 GUI에 표시
+        """
+        try:
+            # GuiLogHandler 생성
+            self.gui_log_handler = GuiLogHandler()
+
+            # Signal 연결: 백엔드 로그 → GUI
+            self.gui_log_handler.log_signal.connect(self._on_backend_log)
+
+            # 백엔드 로거에 핸들러 등록
+            backend_loggers = [
+                "core.v4_trading_engine",
+                "core.order_manager",
+                "core.position_manager",
+                "core.risk_manager",
+                "core.daily_loss_tracker",
+                "core.strategies",
+                "core.upbit_api",
+            ]
+
+            for logger_name in backend_loggers:
+                backend_logger = logging.getLogger(logger_name)
+                backend_logger.addHandler(self.gui_log_handler)
+
+            logger.info("✅ GUI 로그 핸들러 초기화 완료")
+
+        except Exception as e:
+            logger.error(f"❌ GUI 로그 핸들러 초기화 실패: {e}")
+
+    def _on_backend_log(self, level: str, formatted_message: str):
+        """
+        백엔드 로그 수신 핸들러
+
+        GuiLogHandler에서 필터링된 로그를 GUI에 표시
+        (타임스탬프는 이미 포함되어 있음)
+
+        Args:
+            level: 로그 레벨 (INFO/WARNING/ERROR/CRITICAL)
+            formatted_message: 이미 포맷팅된 메시지 (예: "[10:30:45] ℹ️ 매수 체결...")
+        """
+        # 타임스탬프가 이미 포함되어 있으므로 그대로 추가
+        self.log_text.append(formatted_message)
+
+        # 로그 자동 정리 (최대 1000줄)
+        document = self.log_text.document()
+        if document.lineCount() > 1000:
+            cursor = self.log_text.textCursor()
+            cursor.movePosition(cursor.Start)
+            for _ in range(100):
+                cursor.select(cursor.LineUnderCursor)
+                cursor.removeSelectedText()
+                cursor.deleteChar()
+
+        # 자동 스크롤
         scrollbar = self.log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 

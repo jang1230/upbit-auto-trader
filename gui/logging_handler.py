@@ -1,0 +1,210 @@
+"""
+GUI Logging Handler - 사용자 중심 로그 필터링
+중요한 거래 정보(매수/매도/익절/손절/에러)만 GUI에 표시
+"""
+
+import logging
+from datetime import datetime
+from PySide6.QtCore import QObject, Signal
+
+
+class GuiLogHandler(logging.Handler, QObject):
+    """
+    GUI용 스마트 로깅 핸들러
+
+    기능:
+    - 중요한 로그만 GUI에 표시 (매수/매도/익절/손절/에러)
+    - 반복적인 시스템 로그 필터링 (캔들 완성, 체크 완료 등)
+    - 사용자 친화적인 포맷팅
+
+    사용법:
+        gui_handler = GuiLogHandler()
+        gui_handler.log_signal.connect(main_window.on_backend_log)
+        logging.getLogger("core").addHandler(gui_handler)
+    """
+
+    # Signal: (level: str, formatted_message: str)
+    log_signal = Signal(str, str)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🎯 GUI 표시 대상: 사용자가 관심 있는 거래 결과
+    # ═══════════════════════════════════════════════════════════
+    IMPORTANT_KEYWORDS = [
+        # 💰 거래 체결
+        "매수", "매도", "체결", "주문", "취소",
+
+        # 📈 수익/손실
+        "익절", "손절", "청산", "수익", "손실",
+
+        # 📊 포지션 관리
+        "포지션 생성", "포지션 종료", "DCA 트리거", "DCA 매수",
+
+        # ⚠️ 중요 알림
+        "일일 손실 한도", "한도 도달", "거래 중지", "거래 재개",
+
+        # 🔴 에러
+        "에러", "오류", "실패", "시간 초과", "API 오류",
+
+        # 🟡 경고 (Rate limit 등)
+        "경고", "Rate limit 근접", "재시도",
+
+        # ✅ 시작/종료
+        "엔진 시작", "엔진 중지", "거래 시작", "거래 중지"
+    ]
+
+    # ═══════════════════════════════════════════════════════════
+    # ❌ GUI 제외 대상: 개발자용 디버깅 정보
+    # ═══════════════════════════════════════════════════════════
+    EXCLUDED_KEYWORDS = [
+        # 🔄 반복 로그
+        "캔들 완성", "거래 체크 완료", "체크 완료", "폴링 중", "대기 중",
+        "모니터링 중", "확인 중", "조회 중",
+
+        # 📡 WebSocket 상세
+        "WebSocket 메시지", "WebSocket 연결 시작", "WebSocket 재연결",
+        "ping", "pong", "heartbeat",
+
+        # 🔧 Rate Limit 정상 범위
+        "Remaining-Req: 3", "Remaining-Req: 4", "Remaining-Req: 5",
+        "Rate limit: 3", "Rate limit: 4", "Rate limit: 5",
+        "초 대기", "ms 대기",
+
+        # 🧪 내부 처리
+        "버퍼 업데이트", "캐시 갱신", "상태 동기화", "헬스체크",
+        "데이터 수집", "지표 계산"
+    ]
+
+    # ═══════════════════════════════════════════════════════════
+    # 🚫 제외할 Logger (너무 verbose한 모듈)
+    # ═══════════════════════════════════════════════════════════
+    EXCLUDED_LOGGERS = [
+        "core.candle_aggregator",      # 1분마다 캔들 완성 로그
+        "core.upbit_websocket",         # WebSocket 상세 로그
+        "core.websocket_manager",       # WebSocket 관리 로그
+        "urllib3.connectionpool",       # HTTP 연결 로그
+        "asyncio",                      # 비동기 이벤트 루프 로그
+    ]
+
+    def __init__(self):
+        """핸들러 초기화"""
+        logging.Handler.__init__(self)
+        QObject.__init__(self)
+
+        # 기본 레벨: INFO 이상만 처리
+        self.setLevel(logging.INFO)
+
+    def emit(self, record: logging.LogRecord):
+        """
+        로그 레코드 처리 및 필터링
+
+        필터링 순서:
+        1. DEBUG 레벨 제외
+        2. 제외 대상 Logger 필터링
+        3. 제외 키워드 체크
+        4. 중요 키워드 또는 WARNING 이상만 통과
+        5. GUI로 전송
+        """
+        try:
+            # ─────────────────────────────────────────────────
+            # 1️⃣ 레벨 필터: DEBUG는 무조건 제외
+            # ─────────────────────────────────────────────────
+            if record.levelno < logging.INFO:
+                return
+
+            # ─────────────────────────────────────────────────
+            # 2️⃣ Logger 필터: 특정 모듈 제외
+            # ─────────────────────────────────────────────────
+            if any(record.name.startswith(excluded) for excluded in self.EXCLUDED_LOGGERS):
+                return
+
+            # ─────────────────────────────────────────────────
+            # 3️⃣ 메시지 추출
+            # ─────────────────────────────────────────────────
+            message = record.getMessage()
+
+            # ─────────────────────────────────────────────────
+            # 4️⃣ 제외 키워드 체크
+            # ─────────────────────────────────────────────────
+            if any(keyword in message for keyword in self.EXCLUDED_KEYWORDS):
+                return
+
+            # ─────────────────────────────────────────────────
+            # 5️⃣ 중요도 체크
+            # ─────────────────────────────────────────────────
+            is_important = (
+                record.levelno >= logging.WARNING or  # WARNING/ERROR는 무조건 표시
+                any(keyword in message for keyword in self.IMPORTANT_KEYWORDS)
+            )
+
+            if not is_important:
+                return  # 중요하지 않으면 GUI에 표시 안 함
+
+            # ─────────────────────────────────────────────────
+            # 6️⃣ GUI 포맷팅 및 전송
+            # ─────────────────────────────────────────────────
+            timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+
+            # 레벨별 이모지 (사용자 친화적)
+            level_emoji = {
+                'INFO': 'ℹ️',
+                'WARNING': '⚠️',
+                'ERROR': '❌',
+                'CRITICAL': '🚨'
+            }
+            emoji = level_emoji.get(record.levelname, 'ℹ️')
+
+            # 최종 메시지 포맷: [시간] 이모지 메시지
+            formatted = f"[{timestamp}] {emoji} {message}"
+
+            # Qt Signal로 GUI 스레드에 전송
+            self.log_signal.emit(record.levelname, formatted)
+
+        except Exception as e:
+            # 핸들러 내부 에러는 표준 에러 처리로 넘김
+            self.handleError(record)
+
+    def filter_example_logs(self):
+        """
+        예시 로그 필터링 테스트
+        (개발자용 참고 자료)
+        """
+        test_logs = [
+            ("INFO", "🔄 캔들 완성: KRW-BTC 1분봉"),  # ❌ 제외
+            ("INFO", "거래 체크 완료 - 신호 없음"),     # ❌ 제외
+            ("INFO", "💰 매수 주문 체결: KRW-BTC"),   # ✅ 표시
+            ("INFO", "Rate limit: 380/400"),          # ❌ 제외
+            ("WARNING", "⚠️ Rate limit 근접: 398/400"),  # ✅ 표시
+            ("INFO", "💵 익절 매도 체결: +5.2%"),      # ✅ 표시
+            ("ERROR", "❌ API 오류: HTTP 500"),        # ✅ 표시
+            ("INFO", "WebSocket 메시지 수신"),         # ❌ 제외
+            ("INFO", "📉 DCA 트리거: -3.2% 하락"),     # ✅ 표시
+        ]
+
+        results = []
+        for level, message in test_logs:
+            # 제외 키워드 체크
+            is_excluded = any(kw in message for kw in self.EXCLUDED_KEYWORDS)
+
+            # 중요 키워드 체크
+            is_important = (
+                level in ["WARNING", "ERROR", "CRITICAL"] or
+                any(kw in message for kw in self.IMPORTANT_KEYWORDS)
+            )
+
+            display = "✅ 표시" if (not is_excluded and is_important) else "❌ 제외"
+            results.append(f"{display} | {level:8s} | {message}")
+
+        return "\n".join(results)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 💡 사용 예시
+# ═══════════════════════════════════════════════════════════════
+if __name__ == "__main__":
+    """테스트 코드"""
+    handler = GuiLogHandler()
+    print("=" * 60)
+    print("GuiLogHandler 필터링 예시")
+    print("=" * 60)
+    print(handler.filter_example_logs())
+    print("=" * 60)
