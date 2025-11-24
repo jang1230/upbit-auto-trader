@@ -3232,9 +3232,15 @@ class V4TradingEngine:
         # 텔레그램 봇 전송
         if self.telegram_bot:
             def send_async():
-                """비동기 메시지 전송 (별도 스레드에서 asyncio.run 실행)"""
+                """비동기 메시지 전송 (별도 스레드에서 새 이벤트 루프 생성)"""
                 try:
-                    asyncio.run(self.telegram_bot.send_message(message))
+                    # 새로운 이벤트 루프 생성 (기존 루프와 독립적)
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self.telegram_bot.send_message(message))
+                    finally:
+                        loop.close()
                 except Exception as e:
                     logger.error(f"❌ 텔레그램 메시지 전송 실패: {e}")
 
