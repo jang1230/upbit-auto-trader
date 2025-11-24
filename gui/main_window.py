@@ -2894,6 +2894,8 @@ class MainWindow(QMainWindow):
                     'executed_volume': str(total_amount),
                     'price': str(current_price)
                 }
+                actual_sell_price = current_price
+                actual_sell_amount = total_amount
             else:
                 # 실제 매도 실행
                 sell_result = self.upbit_api.sell_market_order(symbol, total_amount)
@@ -2901,19 +2903,46 @@ class MainWindow(QMainWindow):
                 if not sell_result or 'uuid' not in sell_result:
                     raise ValueError("매도 주문 실패: 결과에 UUID가 없습니다.")
 
-            # 6. 성공 처리
+                # 실제 체결 가격 조회
+                import time
+                time.sleep(0.5)  # 체결 완료 대기 (시장가는 보통 즉시 체결)
+
+                order_detail = self.upbit_api.get_order(sell_result['uuid'])
+
+                if order_detail.get('state') == 'done' and order_detail.get('trades'):
+                    # trades 배열에서 가중 평균 체결 가격 계산
+                    trades = order_detail['trades']
+                    total_funds = sum(float(t['funds']) for t in trades)
+                    total_volume = sum(float(t['volume']) for t in trades)
+
+                    actual_sell_price = total_funds / total_volume if total_volume > 0 else current_price
+                    actual_sell_amount = total_volume
+
+                    logger.info(f"💰 실제 체결가: {actual_sell_price:,.2f} 원 (예상: {current_price:,.2f} 원, 차이: {actual_sell_price - current_price:+.2f} 원)")
+                else:
+                    # 체결이 완료되지 않았거나 정보가 없는 경우 WebSocket 현재가 사용 (fallback)
+                    actual_sell_price = current_price
+                    actual_sell_amount = total_amount
+                    logger.warning(f"⚠️ 체결 정보 조회 실패, WebSocket 현재가 사용: {current_price:,.2f} 원")
+
+            # 6. 성공 처리 (실제 체결 가격으로 재계산)
+            actual_sell_value = actual_sell_amount * actual_sell_price
+            actual_profit_krw = actual_sell_value - (avg_buy_price * actual_sell_amount)
+            actual_profit_pct = (actual_profit_krw / (avg_buy_price * actual_sell_amount)) * 100 if avg_buy_price > 0 else 0
+
             logger.info(f"✅ 즉시매도 성공: {symbol}, UUID: {sell_result.get('uuid', 'N/A')}")
             self._add_log(f"✅ 즉시매도 성공: {symbol}")
             self._add_log(f"   주문 UUID: {sell_result.get('uuid', 'N/A')}")
-            self._add_log(f"   매도 수량: {total_amount:.8f}")
-            self._add_log(f"   예상 금액: {estimated_value:,.0f} 원")
-            self._add_log(f"   예상 손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)")
+            self._add_log(f"   매도 수량: {actual_sell_amount:.8f}")
+            self._add_log(f"   실제 체결가: {actual_sell_price:,.2f} 원")
+            self._add_log(f"   체결 금액: {actual_sell_value:,.0f} 원")
+            self._add_log(f"   실제 손익: {actual_profit_krw:+,.0f} 원 ({actual_profit_pct:+.2f}%)")
 
-            # 7. 포지션 제거
+            # 7. 포지션 제거 (실제 체결 가격으로)
             close_reason = "즉시매도"
             self.v4_position_manager.close_position(
                 symbol=symbol,
-                close_price=current_price,
+                close_price=actual_sell_price,
                 close_reason=close_reason
             )
 
@@ -2922,7 +2951,7 @@ class MainWindow(QMainWindow):
             self.recent_immediate_sells[symbol] = time.time()
             logger.info(f"📝 즉시매도 기록: {symbol} (10초간 수동매도 알림 억제)")
 
-            # 8. 거래 내역 기록 (TradeHistoryManager가 있으면)
+            # 8. 거래 내역 기록 (TradeHistoryManager가 있으면, 실제 체결 가격으로)
             if hasattr(self, 'v4_trade_history_manager'):
                 try:
                     from core.trade_history_manager import TradeHistoryManager
@@ -2931,9 +2960,9 @@ class MainWindow(QMainWindow):
                         group_id=group_id,
                         symbol=symbol,
                         trade_type='sell',
-                        price=current_price,
-                        amount=total_amount,
-                        profit_loss=profit_krw,
+                        price=actual_sell_price,
+                        amount=actual_sell_amount,
+                        profit_loss=actual_profit_krw,
                         reason=close_reason
                     )
                 except Exception as e:
@@ -2942,13 +2971,13 @@ class MainWindow(QMainWindow):
             # 9. 포지션 테이블 새로고침
             self._load_v4_positions()
 
-            # 10. 텔레그램 알림 (항상 전송, V4 엔진 무관)
+            # 10. 텔레그램 알림 (항상 전송, V4 엔진 무관, 실제 체결 가격으로)
             telegram_msg = (
                 f"🔴 즉시매도 완료\n\n"
                 f"심볼: {symbol}\n"
-                f"수량: {total_amount:.8f}\n"
-                f"가격: {current_price:,.0f} 원\n"
-                f"손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
+                f"수량: {actual_sell_amount:.8f}\n"
+                f"체결가: {actual_sell_price:,.0f} 원\n"
+                f"손익: {actual_profit_krw:+,.0f} 원 ({actual_profit_pct:+.2f}%)"
             )
 
             # 방법 1: V4 엔진이 실행 중이면 엔진의 메서드 사용
@@ -2988,14 +3017,15 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.warning(f"텔레그램 알림 실패: {e}")
 
-            # 성공 메시지
+            # 성공 메시지 (실제 체결 가격으로)
             QMessageBox.information(
                 self,
                 "즉시매도 완료",
                 f"{symbol} 즉시매도가 완료되었습니다.\n\n"
-                f"• 매도 수량: {total_amount:.8f}\n"
-                f"• 예상 금액: {estimated_value:,.0f} 원\n"
-                f"• 예상 손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
+                f"• 매도 수량: {actual_sell_amount:.8f}\n"
+                f"• 실제 체결가: {actual_sell_price:,.2f} 원\n"
+                f"• 체결 금액: {actual_sell_value:,.0f} 원\n"
+                f"• 실제 손익: {actual_profit_krw:+,.0f} 원 ({actual_profit_pct:+.2f}%)"
             )
 
         except Exception as e:
