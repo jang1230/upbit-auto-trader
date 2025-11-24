@@ -1923,8 +1923,9 @@ class V4TradingEngine:
 
                 return  # 초기 매수는 여기서 종료
 
-            # 🆕 Phase B: 외부 매수 처리 (state='done' and side='bid')
-            if state == 'done' and ask_bid == 'BID':
+            # 🆕 Phase B: 외부 매수 처리 (state='done' or 'cancel' and side='bid')
+            # 시장가 주문은 부분 체결 후 state=cancel로 완료될 수 있음
+            if state in ['done', 'cancel'] and ask_bid == 'BID':
                 position = self.position_manager.get_position(symbol)
 
                 if not position:
