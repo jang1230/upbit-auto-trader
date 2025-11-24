@@ -577,7 +577,11 @@ class V4TradingEngine:
                 connected = await self.myorder_ws.connect()
                 if connected:
                     await self.myorder_ws.subscribe_myorder()  # 전체 마켓 구독
-                    logger.info("✅ MyOrder WebSocket 연결 및 구독 완료")
+
+                    # 🆕 기본 콜백 설정 (외부 매수 감지용)
+                    self.myorder_ws.set_default_callback(self._on_order_completed)
+
+                    logger.info("✅ MyOrder WebSocket 연결 및 구독 완료 (외부 매수 감지 활성화)")
                 else:
                     logger.warning("⚠️ MyOrder WebSocket 연결 실패 (REST API 폴백)")
                     self.myorder_ws = None

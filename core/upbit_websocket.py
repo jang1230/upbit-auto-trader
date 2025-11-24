@@ -890,6 +890,10 @@ class MyOrderWebSocket:
         # {uuid: callback_function}
         self.order_callbacks = {}
 
+        # 기본 콜백 (외부 매수용)
+        # 등록되지 않은 주문은 이 콜백으로 처리
+        self.default_callback = None
+
         logger.info("✅ MyOrderWebSocket 초기화 완료")
 
     def _generate_jwt_token(self) -> str:
@@ -974,6 +978,13 @@ class MyOrderWebSocket:
 
             except Exception as e:
                 logger.error(f"❌ 주문 콜백 오류 (uuid={order_uuid}): {e}", exc_info=True)
+        elif self.default_callback:
+            # 등록되지 않은 주문 → 기본 콜백 호출 (외부 매수)
+            try:
+                logger.debug(f"🔄 외부 주문 감지 (기본 콜백 호출): {code} | uuid={order_uuid[:8]}...")
+                self.default_callback(data)
+            except Exception as e:
+                logger.error(f"❌ 기본 콜백 오류 (uuid={order_uuid}): {e}", exc_info=True)
 
     def _on_error(self, ws, error):
         """
@@ -1145,6 +1156,19 @@ class MyOrderWebSocket:
         """
         self.order_callbacks[order_uuid] = callback
         logger.debug(f"📌 주문 콜백 등록: {order_uuid[:8]}...")
+
+    def set_default_callback(self, callback: Callable[[Dict], None]):
+        """
+        기본 콜백 설정 (외부 매수용)
+
+        등록되지 않은 주문(외부 매수)도 이 콜백으로 처리됩니다.
+
+        Args:
+            callback: 콜백 함수 (order_data를 인자로 받음)
+                      signature: def callback(order_data: Dict) -> None
+        """
+        self.default_callback = callback
+        logger.info(f"📌 MyOrder 기본 콜백 설정 완료 (외부 매수 감지 활성화)")
 
     def unregister_order_callback(self, order_uuid: str):
         """
