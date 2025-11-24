@@ -197,6 +197,9 @@ class V4TradingEngine:
         self.is_running = False
         self.stop_event = threading.Event()
 
+        # 🔧 GUI 콜백 (중복 알림 방지용)
+        self.on_auto_sell_callback = None  # 자동 매도 실행 시 호출 (익절/손절/DCA 매도)
+
         # 스레드
         self.main_thread = None
         self.scheduler_thread = None
@@ -2410,6 +2413,10 @@ class V4TradingEngine:
                             f"━━━━━━━━━━━━━━\n"
                             f"포지션 전체 종료됨"
                         )
+
+                        # 🔧 GUI 콜백 호출 (중복 알림 방지)
+                        if self.on_auto_sell_callback:
+                            self.on_auto_sell_callback(symbol, executed_volume)
                     else:
                         # 남은 금액 충분 → 수량만 감소
                         logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
@@ -2443,6 +2450,10 @@ class V4TradingEngine:
                             f"남은 수량: {remaining_amount:.8f}개\n"
                             f"남은 금액: {remaining_value:,.0f}원"
                         )
+
+                        # 🔧 GUI 콜백 호출 (중복 알림 방지)
+                        if self.on_auto_sell_callback:
+                            self.on_auto_sell_callback(symbol, executed_volume)
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                 self._mark_processed_by_myorder(symbol)
@@ -2503,6 +2514,10 @@ class V4TradingEngine:
                             f"━━━━━━━━━━━━━━\n"
                             f"포지션 전체 종료됨"
                         )
+
+                        # 🔧 GUI 콜백 호출 (중복 알림 방지)
+                        if self.on_auto_sell_callback:
+                            self.on_auto_sell_callback(symbol, executed_volume)
                     else:
                         # 남은 금액 충분 → 수량만 감소
                         logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
@@ -2536,6 +2551,10 @@ class V4TradingEngine:
                             f"남은 수량: {remaining_amount:.8f}개\n"
                             f"남은 금액: {remaining_value:,.0f}원"
                         )
+
+                        # 🔧 GUI 콜백 호출 (중복 알림 방지)
+                        if self.on_auto_sell_callback:
+                            self.on_auto_sell_callback(symbol, executed_volume)
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                 self._mark_processed_by_myorder(symbol)

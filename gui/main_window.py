@@ -237,8 +237,8 @@ class MainWindow(QMainWindow):
         # 🔧 거래 내역 저장
         self.trade_history = []  # Trade 객체 리스트
 
-        # 🔧 즉시매도 중복 알림 방지
-        self.recent_immediate_sells = {}  # {symbol: timestamp} - 즉시매도한 코인 추적
+        # 🔧 자동 매도 중복 알림 방지 (즉시매도 + 익절 + 손절)
+        self.recent_immediate_sells = {}  # {symbol: timestamp} - 봇이 자동으로 매도한 코인 추적 (10초간 수동매도 알림 차단)
 
         # 리스크 관리 파라미터 (고급 DCA 설정에서 관리)
         # 🔧 모든 DCA 관련 설정은 self.dca_config에서 가져옴
@@ -1000,6 +1000,10 @@ class MainWindow(QMainWindow):
                 config_path="config/trading_config.json",
                 upbit_api=self.upbit_api
             )
+
+            # 🔧 2-1단계: 자동 매도 콜백 등록 (중복 알림 방지)
+            self.v4_engine.on_auto_sell_callback = self._on_auto_sell_executed
+            logger.info("✅ 자동 매도 콜백 등록 완료")
 
             # 엔진을 백그라운드 스레드에서 시작 (GUI 블로킹 방지)
             def run_engine():
@@ -1987,6 +1991,21 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             logger.error(f"❌ GUI 로그 핸들러 초기화 실패: {e}")
+
+    def _on_auto_sell_executed(self, symbol: str, quantity: float):
+        """
+        자동 매도 실행 시 호출되는 콜백 (중복 알림 방지)
+
+        V4TradingEngine에서 익절/손절 매도 실행 시 호출되어,
+        MyAsset WebSocket의 "수동 매도" 알림을 방지합니다.
+
+        Args:
+            symbol: 매도한 코인 심볼 (예: KRW-BTC)
+            quantity: 매도한 수량 (사용하지 않음, 로깅용)
+        """
+        import time
+        self.recent_immediate_sells[symbol] = time.time()
+        logger.info(f"🔖 자동 매도 추적 등록: {symbol} (수량: {quantity:.8f}) - 10초간 수동매도 알림 차단")
 
     def _on_backend_log(self, level: str, formatted_message: str):
         """
