@@ -735,17 +735,29 @@ class V4TradingEngine:
                     logger.info(f"🆕 외부 매수 감지 (Upbit 앱/웹): {symbol}")
 
                     # avg_buy_price 조회 (WebSocket에 없으므로 REST API 사용)
+                    # 최대 6번 재시도 (0.5초 간격, 총 3초) - position_manager와 동일한 로직
                     avg_buy_price = 0.0
                     if self.upbit_api:
-                        try:
-                            accounts = self.upbit_api.get_accounts()
-                            for acc in accounts:
-                                if acc['currency'] == currency:
-                                    avg_buy_price = float(acc.get('avg_buy_price', 0))
-                                    break
-                            logger.debug(f"   - REST API로 평균가 조회: {avg_buy_price:,.0f}원")
-                        except Exception as e:
-                            logger.error(f"❌ avg_buy_price 조회 실패 ({symbol}): {e}")
+                        for retry in range(6):
+                            try:
+                                accounts = self.upbit_api.get_accounts()
+                                for acc in accounts:
+                                    if acc['currency'] == currency:
+                                        avg_buy_price = float(acc.get('avg_buy_price', 0))
+                                        if avg_buy_price > 0:
+                                            logger.info(f"   - REST API 평균가 조회: {symbol} = {avg_buy_price:,.0f}원 (재시도 {retry+1}회)")
+                                            break
+
+                                if avg_buy_price > 0:
+                                    break  # 성공하면 루프 종료
+
+                                if retry < 5:  # 마지막 시도가 아니면
+                                    time.sleep(0.5)  # 0.5초 대기 후 재시도
+                                    logger.debug(f"   🔄 {symbol} 평균가 재조회 대기 중... ({retry+1}/6)")
+
+                            except Exception as e:
+                                if retry == 5:  # 마지막 시도에서만 에러 로그
+                                    logger.error(f"❌ avg_buy_price 조회 실패 ({symbol}): {e}")
 
                     # avg_buy_price > 0인 경우에만 포지션 생성
                     if avg_buy_price > 0:
@@ -758,6 +770,18 @@ class V4TradingEngine:
                                 force_create_for_sync=True
                             )
                             logger.info(f"✅ [외부] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
+
+                            # 텔레그램 알림 전송
+                            if self.telegram_bot:
+                                total_krw = avg_buy_price * total
+                                self.telegram_bot.send_message(
+                                    f"🆕 **외부 매수 감지** (Upbit 앱/웹)\n\n"
+                                    f"코인: {symbol}\n"
+                                    f"평단가: {avg_buy_price:,.0f}원\n"
+                                    f"수량: {total:.8f}개\n"
+                                    f"투자금: {total_krw:,.0f}원\n"
+                                    f"그룹: group_null (자동 할당)"
+                                )
 
                             # BalancePollingManager의 known_symbols에도 추가
                             if self.balance_polling_manager:
@@ -3362,13 +3386,13 @@ class V4TradingEngine:
 
                 # 그룹 결정 (첫 번째 활성화된 그룹에 추가)
                 groups = self.group_manager.get_all_groups()
-                active_groups = [g for g in groups.values() if g.get('enabled', True)]
+                active_group_ids = [gid for gid, g in groups.items() if g.get('enabled', True)]
 
-                if not active_groups:
+                if not active_group_ids:
                     logger.warning(f"  ⚠️ {symbol}: 활성화된 그룹 없음, 포지션 생성 불가")
                     continue
 
-                group_id = active_groups[0]['group_id']
+                group_id = active_group_ids[0]
 
                 # 포지션 생성 (source=external)
                 try:
