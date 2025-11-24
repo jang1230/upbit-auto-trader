@@ -3226,26 +3226,29 @@ class V4TradingEngine:
         logger.warning(f"✅ 모든 포지션 청산 완료")
 
     def _send_telegram_alert(self, message: str):
-        """텔레그램 알림 전송"""
+        """텔레그램 알림 전송 (동기 방식)"""
         logger.info(f"📱 [Telegram] {message}")
 
         # 텔레그램 봇 전송
         if self.telegram_bot:
-            def send_async():
-                """비동기 메시지 전송 (별도 스레드에서 새 이벤트 루프 생성)"""
+            def send_sync():
+                """동기 메시지 전송 (requests 라이브러리 사용, async 회피)"""
                 try:
-                    # 새로운 이벤트 루프 생성 (기존 루프와 독립적)
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self.telegram_bot.send_message(message))
-                    finally:
-                        loop.close()
+                    import requests
+                    url = f"https://api.telegram.org/bot{self.telegram_bot.token}/sendMessage"
+                    payload = {
+                        "chat_id": self.telegram_bot.chat_id,
+                        "text": message,
+                        "parse_mode": "Markdown"
+                    }
+                    response = requests.post(url, json=payload, timeout=10)
+                    response.raise_for_status()
+                    logger.info(f"📤 메시지 전송 완료: {message[:50]}...")
                 except Exception as e:
                     logger.error(f"❌ 텔레그램 메시지 전송 실패: {e}")
 
-            # 별도 스레드에서 비동기 전송 (메인 루프 블로킹 방지)
-            thread = threading.Thread(target=send_async, daemon=True)
+            # 별도 스레드에서 동기 전송 (메인 루프 블로킹 방지)
+            thread = threading.Thread(target=send_sync, daemon=True)
             thread.start()
 
     def _run_scheduler(self):
