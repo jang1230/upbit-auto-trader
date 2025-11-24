@@ -236,6 +236,9 @@ class MainWindow(QMainWindow):
         # 🔧 거래 내역 저장
         self.trade_history = []  # Trade 객체 리스트
 
+        # 🔧 즉시매도 중복 알림 방지
+        self.recent_immediate_sells = {}  # {symbol: timestamp} - 즉시매도한 코인 추적
+
         # 리스크 관리 파라미터 (고급 DCA 설정에서 관리)
         # 🔧 모든 DCA 관련 설정은 self.dca_config에서 가져옴
         self.stop_loss_pct = self.dca_config.stop_loss_pct
@@ -2699,6 +2702,20 @@ class MainWindow(QMainWindow):
                         # removed_pos가 딕셔너리인지 확인 (이전 버전 호환성)
                         if isinstance(removed_pos, dict):
                             symbol = removed_pos['symbol']
+
+                            # 🔧 즉시매도 직후인지 체크 (중복 알림 방지)
+                            if symbol in self.recent_immediate_sells:
+                                import time
+                                elapsed = time.time() - self.recent_immediate_sells[symbol]
+
+                                if elapsed < 10:  # 10초 이내
+                                    logger.info(f"⏭️ 즉시매도 직후이므로 수동매도 알림 건너뜀: {symbol} (경과: {elapsed:.1f}초)")
+                                    continue  # 텔레그램 알림 건너뛰기
+                                else:
+                                    # 10초 경과 시 리스트에서 제거
+                                    del self.recent_immediate_sells[symbol]
+                                    logger.info(f"🗑️ 즉시매도 기록 만료 제거: {symbol}")
+
                             avg_buy_price = removed_pos.get('avg_buy_price', 0)
                             total_amount = removed_pos.get('total_amount', 0)
                             current_price = removed_pos.get('current_price', avg_buy_price)
@@ -2899,6 +2916,11 @@ class MainWindow(QMainWindow):
                 close_price=current_price,
                 close_reason=close_reason
             )
+
+            # 7-1. 즉시매도 기록 (중복 알림 방지용)
+            import time
+            self.recent_immediate_sells[symbol] = time.time()
+            logger.info(f"📝 즉시매도 기록: {symbol} (10초간 수동매도 알림 억제)")
 
             # 8. 거래 내역 기록 (TradeHistoryManager가 있으면)
             if hasattr(self, 'v4_trade_history_manager'):
