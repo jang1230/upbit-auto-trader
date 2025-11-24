@@ -449,11 +449,11 @@ class MainWindow(QMainWindow):
         position_layout = QVBoxLayout(position_widget)
         position_layout.setContentsMargins(5, 5, 5, 5)
 
-        # 🔧 V4: 포지션 테이블 생성 (11개 컬럼)
+        # 🔧 V4: 포지션 테이블 생성 (12개 컬럼 - 즉시매도 버튼 추가)
         self.position_table = QTableWidget()
-        self.position_table.setColumnCount(11)
+        self.position_table.setColumnCount(12)
         self.position_table.setHorizontalHeaderLabels([
-            "그룹", "심볼", "매수", "DCA", "익절", "손절", "평균가", "현재가", "수량", "평가손익", "수익률(%)"
+            "그룹", "심볼", "매수", "DCA", "익절", "손절", "평균가", "현재가", "수량", "평가손익", "수익률(%)", "즉시매도"
         ])
 
         # 테이블 스타일 설정
@@ -2400,6 +2400,26 @@ class MainWindow(QMainWindow):
                     items[9].setForeground(QColor("blue"))
                     items[10].setForeground(QColor("blue"))
 
+                # 🔧 즉시매도 버튼 추가 (11번째 컬럼)
+                # 중요: 시작/중지 상태와 무관하게 항상 활성화
+                sell_btn = QPushButton("매도")
+                sell_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #f44336;
+                        color: white;
+                        padding: 5px;
+                        border-radius: 3px;
+                        font-weight: bold;
+                        font-size: 9px;
+                    }
+                    QPushButton:hover {
+                        background-color: #d32f2f;
+                    }
+                """)
+                # 람다로 symbol, group_id 전달
+                sell_btn.clicked.connect(lambda checked, s=symbol, g=group_id: self._execute_immediate_sell(s, g))
+                self.position_table.setCellWidget(row_idx, 11, sell_btn)
+
                 row_idx += 1
 
             logger.info(f"✅ V4 포지션 로드 완료: {row_idx}개")
@@ -2697,6 +2717,179 @@ class MainWindow(QMainWindow):
         """MyAsset WebSocket 에러 핸들러"""
         logger.error(f"❌ MyAsset WebSocket 에러: {error_msg}")
         self._add_log(f"⚠️ 실시간 잔고 감지 오류: {error_msg}")
+
+    def _execute_immediate_sell(self, symbol: str, group_id: str):
+        """
+        즉시매도 실행
+
+        ⚠️ 중요: 시작/중지 상태와 무관하게 항상 실행 가능
+
+        Args:
+            symbol: 매도할 심볼 (예: 'KRW-BTC')
+            group_id: 그룹 ID
+        """
+        try:
+            # 1. API 키 확인
+            if not self.upbit_api:
+                QMessageBox.warning(
+                    self,
+                    "API 없음",
+                    "Upbit API가 설정되지 않았습니다.\n"
+                    "설정 메뉴에서 API 키를 등록해주세요."
+                )
+                return
+
+            # 2. 설정 로드
+            if not self.v4_config_manager or not self.v4_position_manager:
+                QMessageBox.warning(
+                    self,
+                    "V4 미지원",
+                    "V4 시스템이 로드되지 않았습니다."
+                )
+                return
+
+            config = self.v4_config_manager.load_config()
+            dry_run = config.get("global_settings", {}).get("dry_run", True)
+
+            # 3. 포지션 정보 조회
+            position = self.v4_position_manager.get_position(symbol)
+            if not position:
+                QMessageBox.warning(
+                    self,
+                    "포지션 없음",
+                    f"{symbol} 포지션을 찾을 수 없습니다."
+                )
+                return
+
+            total_amount = position.get("total_amount", 0)
+            avg_buy_price = position.get("avg_buy_price", 0)
+            current_price = position.get("current_price", avg_buy_price)
+            profit_krw = position.get("profit_krw", 0)
+            profit_pct = position.get("profit_pct", 0)
+
+            if total_amount <= 0:
+                QMessageBox.warning(
+                    self,
+                    "수량 없음",
+                    f"{symbol}의 보유 수량이 0입니다."
+                )
+                return
+
+            # 4. 확인 다이얼로그
+            estimated_value = total_amount * current_price
+
+            msg = (
+                f"<b>{symbol}</b>을(를) 즉시 전량 매도하시겠습니까?<br><br>"
+                f"• 보유 수량: {total_amount:.8f}<br>"
+                f"• 평균 매수가: {avg_buy_price:,.2f} 원<br>"
+                f"• 현재가: {current_price:,.2f} 원<br>"
+                f"• 예상 매도 금액: {estimated_value:,.0f} 원<br>"
+                f"• 예상 손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)<br><br>"
+            )
+
+            if dry_run:
+                msg += "⚠️ <b>Dry-run 모드</b>이므로 실제 주문이 실행되지 않습니다."
+            else:
+                msg += "⚠️ <b>실제 시장가 매도 주문이 실행됩니다!</b>"
+
+            reply = QMessageBox.question(
+                self,
+                "즉시매도 확인",
+                msg,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply != QMessageBox.Yes:
+                return
+
+            # 5. 매도 실행
+            self._add_log("=" * 50)
+            self._add_log(f"🔴 즉시매도 실행: {symbol}")
+
+            if dry_run:
+                # Dry-run 모드: 가상 매도
+                logger.info(f"[Dry-run] 즉시매도: {symbol}, 수량: {total_amount}")
+                sell_result = {
+                    'uuid': 'DRYRUN-' + symbol,
+                    'executed_volume': str(total_amount),
+                    'price': str(current_price)
+                }
+            else:
+                # 실제 매도 실행
+                sell_result = self.upbit_api.sell_market_order(symbol, total_amount)
+
+                if not sell_result or 'uuid' not in sell_result:
+                    raise ValueError("매도 주문 실패: 결과에 UUID가 없습니다.")
+
+            # 6. 성공 처리
+            logger.info(f"✅ 즉시매도 성공: {symbol}, UUID: {sell_result.get('uuid', 'N/A')}")
+            self._add_log(f"✅ 즉시매도 성공: {symbol}")
+            self._add_log(f"   주문 UUID: {sell_result.get('uuid', 'N/A')}")
+            self._add_log(f"   매도 수량: {total_amount:.8f}")
+            self._add_log(f"   예상 금액: {estimated_value:,.0f} 원")
+            self._add_log(f"   예상 손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)")
+
+            # 7. 포지션 제거
+            close_reason = "즉시매도"
+            self.v4_position_manager.close_position(
+                symbol=symbol,
+                close_price=current_price,
+                close_reason=close_reason
+            )
+
+            # 8. 거래 내역 기록 (TradeHistoryManager가 있으면)
+            if hasattr(self, 'v4_trade_history_manager'):
+                try:
+                    from core.trade_history_manager import TradeHistoryManager
+                    history_mgr = TradeHistoryManager()
+                    history_mgr.add_trade(
+                        group_id=group_id,
+                        symbol=symbol,
+                        trade_type='sell',
+                        price=current_price,
+                        amount=total_amount,
+                        profit_loss=profit_krw,
+                        reason=close_reason
+                    )
+                except Exception as e:
+                    logger.warning(f"거래 내역 기록 실패: {e}")
+
+            # 9. 포지션 테이블 새로고침
+            self._load_v4_positions()
+
+            # 10. 텔레그램 알림 (V4 엔진이 있으면)
+            if hasattr(self, 'v4_engine') and self.v4_engine and hasattr(self.v4_engine, 'telegram_bot'):
+                try:
+                    telegram_msg = (
+                        f"🔴 <b>즉시매도 완료</b>\n\n"
+                        f"심볼: {symbol}\n"
+                        f"수량: {total_amount:.8f}\n"
+                        f"가격: {current_price:,.0f} 원\n"
+                        f"손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
+                    )
+                    self.v4_engine.telegram_bot.send_message(telegram_msg)
+                except Exception as e:
+                    logger.warning(f"텔레그램 알림 실패: {e}")
+
+            # 성공 메시지
+            QMessageBox.information(
+                self,
+                "즉시매도 완료",
+                f"{symbol} 즉시매도가 완료되었습니다.\n\n"
+                f"• 매도 수량: {total_amount:.8f}\n"
+                f"• 예상 금액: {estimated_value:,.0f} 원\n"
+                f"• 예상 손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
+            )
+
+        except Exception as e:
+            logger.error(f"❌ 즉시매도 실패: {e}", exc_info=True)
+            self._add_log(f"❌ 즉시매도 실패: {symbol} - {e}")
+            QMessageBox.critical(
+                self,
+                "즉시매도 실패",
+                f"{symbol} 즉시매도 중 오류가 발생했습니다:\n\n{str(e)}"
+            )
 
     def _open_global_settings(self):
         """전역 설정 다이얼로그 열기"""
