@@ -127,23 +127,6 @@ class V4TradingEngine:
                 logger.warning(f"⚠️ MyAssetWebSocket/Polling 초기화 실패 (동기화 제한): {e}")
                 self.myasset_ws = None
                 self.balance_polling_manager = None
-
-        # 🔧 Private WebSocket (myOrder 실시간 수신 - 외부 매수 감지)
-        self.private_ws = None
-        self.private_ws_thread = None
-        if self.upbit_api and not self.dry_run:
-            try:
-                from core.upbit_private_websocket import UpbitPrivateWebSocket
-                self.private_ws = UpbitPrivateWebSocket(
-                    access_key=self.upbit_api.access_key,
-                    secret_key=self.upbit_api.secret_key,
-                    on_order_callback=self._handle_order_event
-                )
-                logger.info("✅ UpbitPrivateWebSocket 인스턴스 생성 완료")
-            except Exception as e:
-                logger.warning(f"⚠️ UpbitPrivateWebSocket 초기화 실패: {e}")
-                self.private_ws = None
-
         # 텔레그램 봇 초기화
         telegram_config = self.global_settings.get("telegram", {})
         if telegram_config.get("enabled", False):
@@ -328,25 +311,6 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ WebSocket 초기화 실패: {e}", exc_info=True)
             logger.warning("⚠️ REST API 폴백 모드로 계속 진행")
-
-        # 🔧 Private WebSocket 시작 (myOrder 실시간 수신 - 외부 매수 감지)
-        if self.private_ws:
-            logger.info("🌐 Private WebSocket 시작 중...")
-            try:
-                self.private_ws.start()
-
-                def run_private_ws():
-                    """Private WebSocket을 별도 스레드에서 실행"""
-                    try:
-                        asyncio.run(self.private_ws.connect())
-                    except Exception as e:
-                        logger.error(f"❌ Private WebSocket 실행 오류: {e}", exc_info=True)
-
-                self.private_ws_thread = threading.Thread(target=run_private_ws, daemon=True)
-                self.private_ws_thread.start()
-                logger.info("✅ Private WebSocket 백그라운드 스레드 시작")
-            except Exception as e:
-                logger.error(f"❌ Private WebSocket 시작 실패: {e}", exc_info=True)
 
         # 스케줄러 스레드 시작 (09:00 리셋 등)
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
