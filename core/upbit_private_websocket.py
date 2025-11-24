@@ -127,13 +127,28 @@ class UpbitPrivateWebSocket:
 
                 logger.info(f"🔌 Private WebSocket 연결 시도: {uri}")
 
-                # WebSocket 연결
-                async with websockets.connect(
-                    uri,
-                    extra_headers=headers,
-                    ping_interval=120,  # 120초마다 PING 전송
-                    ping_timeout=10
-                ) as ws:
+                # WebSocket 연결 (버전 호환성을 위한 파라미터 처리)
+                # websockets >= 10.0: extra_headers
+                # websockets < 10.0: additional_headers
+                connect_params = {
+                    "ping_interval": 120,  # 120초마다 PING 전송
+                    "ping_timeout": 10
+                }
+
+                # websockets 버전 확인
+                try:
+                    ws_version = tuple(map(int, websockets.__version__.split('.')[:2]))
+                    use_extra_headers = ws_version >= (10, 0)
+                except (ValueError, AttributeError):
+                    # 버전 파싱 실패 시 기본값 (최신 버전 가정)
+                    use_extra_headers = True
+
+                if use_extra_headers:
+                    connect_params["extra_headers"] = headers
+                else:
+                    connect_params["additional_headers"] = headers
+
+                async with websockets.connect(uri, **connect_params) as ws:
                     self.ws = ws
                     self.reconnect_attempts = 0  # 연결 성공 시 재시도 횟수 초기화
 

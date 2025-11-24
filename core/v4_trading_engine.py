@@ -3332,7 +3332,7 @@ class V4TradingEngine:
             current_positions = self.position_manager.get_all_positions()
 
             # 기존 포지션 심볼 목록
-            existing_symbols = {pos['symbol'] for pos in current_positions}
+            existing_symbols = {pos['symbol'] for pos in current_positions.values()}
 
             external_count = 0
 
