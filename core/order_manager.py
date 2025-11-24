@@ -20,6 +20,7 @@ from typing import Dict, Optional, Callable
 from datetime import datetime
 
 from core.upbit_api import UpbitAPI
+from core.pending_order_manager import PendingOrderManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,9 @@ class OrderManager:
         order_timeout: int = 30,
         dry_run: bool = False,
         balance_update_callback: Optional[Callable] = None,  # 🔧 잔고 갱신 콜백
-        trade_callback: Optional[Callable] = None  # 🔧 거래 내역 기록 콜백
+        trade_callback: Optional[Callable] = None,  # 🔧 거래 내역 기록 콜백
+        pending_order_manager: Optional[PendingOrderManager] = None,  # 🔧 pending_order 관리자
+        group_id: Optional[str] = None  # 🔧 V4 그룹 ID
     ):
         """
         주문 관리자 초기화
@@ -50,6 +53,8 @@ class OrderManager:
             dry_run: True이면 실제 주문 없이 시뮬레이션 (기본값)
             balance_update_callback: 주문 완료 시 호출할 잔고 갱신 콜백
             trade_callback: 거래 완료 시 호출할 거래 내역 기록 콜백
+            pending_order_manager: pending_order 관리자 (재시작 시 복구용)
+            group_id: V4 그룹 ID
         """
         self.api = upbit_api
         self.min_order_amount = min_order_amount
@@ -57,6 +62,8 @@ class OrderManager:
         self.dry_run = dry_run
         self.balance_update_callback = balance_update_callback  # 🔧 저장
         self.trade_callback = trade_callback  # 🔧 저장
+        self.pending_order_mgr = pending_order_manager  # 🔧 저장
+        self.group_id = group_id  # 🔧 저장
 
         # 주문 기록
         self.order_history = []
@@ -146,7 +153,20 @@ class OrderManager:
             # buy_market_order()는 동기 blocking 함수이므로 별도 스레드에서 실행
             order = await asyncio.to_thread(self.api.buy_market_order, symbol, amount)
             order_id = order['uuid']
-            
+
+            # 🔧 4-1. pending_order에 추가 (재시작 시 복구용)
+            if self.pending_order_mgr and order['state'] in ['wait', 'watch']:
+                self.pending_order_mgr.add_order(
+                    order_id=order_id,
+                    symbol=symbol,
+                    side='bid',
+                    price=0,  # 시장가 주문은 가격 없음
+                    amount=amount,
+                    group_id=self.group_id or 'unknown',
+                    order_type='market',
+                    created_by='auto'
+                )
+
             # 5. 주문 완료 대기
             final_order = await self.wait_for_order(order_id)
             
@@ -182,6 +202,10 @@ class OrderManager:
 
                 # 주문 기록 저장
                 self.order_history.append(result)
+
+                # 🔧 pending_order에서 제거 (체결 완료)
+                if self.pending_order_mgr:
+                    self.pending_order_mgr.remove_order(order_id)
 
                 # 🔧 잔고 갱신 콜백 호출 (매수 완료 시)
                 if self.balance_update_callback:

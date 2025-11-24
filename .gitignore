@@ -64,6 +64,7 @@ data/positions_dryrun.json
 data/virtual_balances.json
 data/trade_history.json
 data/daily_snapshot.json
+data/pending_orders.json
 
 # Historical data (large files)
 data/historical/*.csv
