@@ -3238,8 +3238,7 @@ class V4TradingEngine:
                     url = f"https://api.telegram.org/bot{self.telegram_bot.token}/sendMessage"
                     payload = {
                         "chat_id": self.telegram_bot.chat_id,
-                        "text": message,
-                        "parse_mode": "Markdown"
+                        "text": message
                     }
                     response = requests.post(url, json=payload, timeout=10)
                     response.raise_for_status()
