@@ -2689,8 +2689,70 @@ class MainWindow(QMainWindow):
 
                 # 사용자에게 알림
                 if sync_result['removed_positions']:
-                    removed_str = ', '.join(sync_result['removed_positions'])
+                    # 🆕 removed_positions는 이제 포지션 정보 딕셔너리 리스트
+                    removed_symbols = [pos['symbol'] if isinstance(pos, dict) else pos for pos in sync_result['removed_positions']]
+                    removed_str = ', '.join(removed_symbols)
                     self._add_log(f"🗑️ 매도 감지: {removed_str}")
+
+                    # 🆕 텔레그램 알림 전송 (각 매도 포지션마다)
+                    for removed_pos in sync_result['removed_positions']:
+                        # removed_pos가 딕셔너리인지 확인 (이전 버전 호환성)
+                        if isinstance(removed_pos, dict):
+                            symbol = removed_pos['symbol']
+                            avg_buy_price = removed_pos.get('avg_buy_price', 0)
+                            total_amount = removed_pos.get('total_amount', 0)
+                            current_price = removed_pos.get('current_price', avg_buy_price)
+                            profit_krw = removed_pos.get('profit_krw', 0)
+                            profit_pct = removed_pos.get('profit_pct', 0)
+
+                            telegram_msg = (
+                                f"🔴 수동매도 감지 (Upbit 앱/웹)\n\n"
+                                f"심볼: {symbol}\n"
+                                f"수량: {total_amount:.8f}\n"
+                                f"평균가: {avg_buy_price:,.0f} 원\n"
+                                f"현재가: {current_price:,.0f} 원\n"
+                                f"손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
+                            )
+
+                            # V4 엔진 실행 중이면 엔진의 메서드 사용
+                            if hasattr(self, 'v4_engine') and self.v4_engine:
+                                try:
+                                    self.v4_engine._send_telegram_alert(telegram_msg)
+                                except Exception as e:
+                                    logger.warning(f"V4 엔진 텔레그램 알림 실패: {e}")
+                            else:
+                                # V4 엔진 없으면 직접 전송
+                                try:
+                                    telegram_token = self.config_manager.get_telegram_bot_token()
+                                    telegram_chat_id = self.config_manager.get_telegram_chat_id()
+
+                                    if telegram_token and telegram_chat_id:
+                                        def send_telegram_sync():
+                                            """텔레그램 동기 전송"""
+                                            try:
+                                                import requests
+                                                url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+                                                payload = {
+                                                    "chat_id": telegram_chat_id,
+                                                    "text": telegram_msg
+                                                }
+                                                response = requests.post(url, json=payload, timeout=10)
+                                                response.raise_for_status()
+                                                logger.info(f"📤 텔레그램 메시지 전송 완료 (수동매도)")
+                                            except Exception as e:
+                                                logger.error(f"❌ 텔레그램 전송 실패: {e}")
+
+                                        # 별도 스레드에서 전송
+                                        import threading
+                                        thread = threading.Thread(target=send_telegram_sync, daemon=True)
+                                        thread.start()
+                                    else:
+                                        logger.debug("텔레그램 설정 없음 (알림 스킵)")
+                                except Exception as e:
+                                    logger.warning(f"텔레그램 알림 실패: {e}")
+                        else:
+                            # 이전 버전 호환성 (심볼만 있는 경우)
+                            logger.debug(f"매도 감지 (상세 정보 없음): {removed_pos}")
 
                 if sync_result['new_positions']:
                     new_str = ', '.join(sync_result['new_positions'])

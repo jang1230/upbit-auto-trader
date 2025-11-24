@@ -526,12 +526,21 @@ class PositionManager:
         Returns:
             동기화 결과 딕셔너리
                 {
-                    'synced_positions': List[str],  # 동기화된 심볼들
-                    'new_positions': List[str],     # 새로 생성된 포지션
-                    'removed_positions': List[str], # 제거된 포지션
-                    'skipped_positions': List[str], # 스킵된 포지션 (그룹 없음)
+                    'synced_positions': List[str],          # 동기화된 심볼들
+                    'new_positions': List[str],             # 새로 생성된 포지션
+                    'removed_positions': List[dict],        # 제거된 포지션 (포지션 정보 딕셔너리)
+                    'skipped_positions': List[str],         # 스킵된 포지션 (그룹 없음)
                     'krw_balance': float
                 }
+
+            removed_positions 포지션 정보 구조: {
+                'symbol': str,
+                'avg_buy_price': float,
+                'total_amount': float,
+                'current_price': float,
+                'profit_krw': float,
+                'profit_pct': float
+            }
 
         Raises:
             RuntimeError: Live 모드가 아니거나 upbit_api가 없을 때
@@ -642,8 +651,18 @@ class PositionManager:
 
             # 조건 1: Upbit에 없는 포지션 (완전 매도됨)
             if symbol not in upbit_symbols:
+                # 🆕 텔레그램 알림용 포지션 정보 저장
+                removed_position_info = {
+                    'symbol': symbol,
+                    'avg_buy_price': position.get('avg_buy_price', 0),
+                    'total_amount': position.get('total_amount', 0),
+                    'current_price': position.get('current_price', position.get('avg_buy_price', 0)),
+                    'profit_krw': position.get('profit_krw', 0),
+                    'profit_pct': position.get('profit_pct', 0),
+                }
+
                 self.delete_position(symbol)
-                removed_positions.append(symbol)
+                removed_positions.append(removed_position_info)
                 print(f"   🗑️ 자동 삭제: {symbol} (Upbit에 없음, 완전 매도된 것으로 간주)")
                 continue
 
@@ -653,8 +672,18 @@ class PositionManager:
 
             # group_null 포지션은 유지, 다른 그룹 포지션은 그룹이 없으면 삭제
             if not found_group_id and current_group_id != "group_null":
+                # 🆕 텔레그램 알림용 포지션 정보 저장
+                removed_position_info = {
+                    'symbol': symbol,
+                    'avg_buy_price': position.get('avg_buy_price', 0),
+                    'total_amount': position.get('total_amount', 0),
+                    'current_price': position.get('current_price', position.get('avg_buy_price', 0)),
+                    'profit_krw': position.get('profit_krw', 0),
+                    'profit_pct': position.get('profit_pct', 0),
+                }
+
                 self.delete_position(symbol)
-                removed_positions.append(symbol)
+                removed_positions.append(removed_position_info)
                 print(f"   🗑️ 자동 삭제: {symbol} (그룹에서 제외됨)")
 
         print(f"✅ Upbit 동기화 완료")
@@ -685,10 +714,19 @@ class PositionManager:
 
         Returns:
             딕셔너리 {
-                'synced_positions': [symbol, ...],  # 업데이트된 포지션
-                'new_positions': [symbol, ...],     # 새로 생성된 포지션
-                'removed_positions': [symbol, ...], # 삭제된 포지션
-                'skipped_positions': [symbol, ...]  # 스킵된 포지션 (그룹 없음)
+                'synced_positions': [symbol, ...],          # 업데이트된 포지션 (심볼)
+                'new_positions': [symbol, ...],             # 새로 생성된 포지션 (심볼)
+                'removed_positions': [{포지션정보}, ...],  # 삭제된 포지션 (포지션 정보 딕셔너리)
+                'skipped_positions': [symbol, ...]          # 스킵된 포지션 (심볼)
+            }
+
+            removed_positions 포지션 정보 구조: {
+                'symbol': str,
+                'avg_buy_price': float,
+                'total_amount': float,
+                'current_price': float,
+                'profit_krw': float,
+                'profit_pct': float
             }
         """
         synced_positions = []
@@ -727,8 +765,18 @@ class PositionManager:
                 # 명시적으로 0으로 업데이트된 경우 → 매도 완료
                 position = self.get_position(symbol)
                 if position:
+                    # 🆕 텔레그램 알림용 포지션 정보 저장
+                    removed_position_info = {
+                        'symbol': symbol,
+                        'avg_buy_price': position.get('avg_buy_price', 0),
+                        'total_amount': position.get('total_amount', 0),
+                        'current_price': position.get('current_price', position.get('avg_buy_price', 0)),
+                        'profit_krw': position.get('profit_krw', 0),
+                        'profit_pct': position.get('profit_pct', 0),
+                    }
+
                     self.delete_position(symbol)
-                    removed_positions.append(symbol)
+                    removed_positions.append(removed_position_info)
                     logger.info(f"   🗑️ 매도 감지: {symbol} (잔고 0)")
                 continue
 
