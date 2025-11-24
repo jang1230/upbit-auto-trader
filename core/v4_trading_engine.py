@@ -79,6 +79,13 @@ class V4TradingEngine:
         # Upbit API
         self.upbit_api = upbit_api
 
+        # 🔧 Pending Order Manager (재시작 시 주문 복구)
+        self.pending_order_mgr = None
+        if self.upbit_api and not self.dry_run:
+            from core.pending_order_manager import PendingOrderManager
+            self.pending_order_mgr = PendingOrderManager()
+            logger.info("✅ PendingOrderManager 초기화 완료")
+
         # MyOrder WebSocket (주문 체결 실시간 감지)
         self.myorder_ws = None
         if self.upbit_api and not self.dry_run:
@@ -120,6 +127,22 @@ class V4TradingEngine:
                 logger.warning(f"⚠️ MyAssetWebSocket/Polling 초기화 실패 (동기화 제한): {e}")
                 self.myasset_ws = None
                 self.balance_polling_manager = None
+
+        # 🔧 Private WebSocket (myOrder 실시간 수신 - 외부 매수 감지)
+        self.private_ws = None
+        self.private_ws_thread = None
+        if self.upbit_api and not self.dry_run:
+            try:
+                from core.upbit_private_websocket import UpbitPrivateWebSocket
+                self.private_ws = UpbitPrivateWebSocket(
+                    access_key=self.upbit_api.access_key,
+                    secret_key=self.upbit_api.secret_key,
+                    on_order_callback=self._handle_order_event
+                )
+                logger.info("✅ UpbitPrivateWebSocket 인스턴스 생성 완료")
+            except Exception as e:
+                logger.warning(f"⚠️ UpbitPrivateWebSocket 초기화 실패: {e}")
+                self.private_ws = None
 
         # 텔레그램 봇 초기화
         telegram_config = self.global_settings.get("telegram", {})
@@ -251,6 +274,22 @@ class V4TradingEngine:
             except Exception as e:
                 logger.error(f"❌ 동기화 실패: {e}")
 
+        # 🔧 Step 1: pending_order 복구 (재시작 시)
+        if self.pending_order_mgr:
+            logger.info("🔄 pending_order 복구 시작...")
+            try:
+                self._recover_pending_orders()
+            except Exception as e:
+                logger.error(f"❌ pending_order 복구 실패: {e}", exc_info=True)
+
+        # 🔧 Step 2: 재시작 시 외부 매수 조용히 추가 (알림 없음)
+        if self.upbit_api and not self.dry_run:
+            logger.info("🔄 재시작 시 외부 매수 확인 중...")
+            try:
+                self._sync_external_positions_on_startup()
+            except Exception as e:
+                logger.error(f"❌ 재시작 시 외부 매수 동기화 실패: {e}", exc_info=True)
+
         # 🆕 Adaptive Polling 시작 (MyAsset WebSocket + REST API 폴링)
         if self.balance_polling_manager and self.myasset_ws:
             logger.info("🔄 Adaptive Polling 시스템 시작 중...")
@@ -289,6 +328,25 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ WebSocket 초기화 실패: {e}", exc_info=True)
             logger.warning("⚠️ REST API 폴백 모드로 계속 진행")
+
+        # 🔧 Private WebSocket 시작 (myOrder 실시간 수신 - 외부 매수 감지)
+        if self.private_ws:
+            logger.info("🌐 Private WebSocket 시작 중...")
+            try:
+                self.private_ws.start()
+
+                def run_private_ws():
+                    """Private WebSocket을 별도 스레드에서 실행"""
+                    try:
+                        asyncio.run(self.private_ws.connect())
+                    except Exception as e:
+                        logger.error(f"❌ Private WebSocket 실행 오류: {e}", exc_info=True)
+
+                self.private_ws_thread = threading.Thread(target=run_private_ws, daemon=True)
+                self.private_ws_thread.start()
+                logger.info("✅ Private WebSocket 백그라운드 스레드 시작")
+            except Exception as e:
+                logger.error(f"❌ Private WebSocket 시작 실패: {e}", exc_info=True)
 
         # 스케줄러 스레드 시작 (09:00 리셋 등)
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
@@ -3131,6 +3189,324 @@ class V4TradingEngine:
             self.daily_loss_tracker.check_and_reset()
 
         logger.info("✅ 09:00 일일 리셋 완료")
+
+    # ========================================
+    # 🔧 Pending Order 복구 & 외부 매수 감지
+    # ========================================
+
+    def _recover_pending_orders(self):
+        """
+        재시작 시 pending_order 복구
+
+        프로그램이 종료되기 전에 보낸 주문이 있으면
+        Upbit API로 주문 상태를 확인하고 체결 완료된 주문은
+        포지션으로 복구합니다.
+
+        Note:
+            - order_id로 정확히 "내 주문"인지 확인 가능
+            - 복구된 주문은 텔레그램 알림 발송
+            - 체결 완료 or 취소된 주문은 pending_order에서 제거
+        """
+        if not self.pending_order_mgr:
+            return
+
+        pending_orders = self.pending_order_mgr.get_all_orders()
+
+        if not pending_orders:
+            logger.info("ℹ️ 복구할 pending_order 없음")
+            return
+
+        logger.info(f"📋 pending_order {len(pending_orders)}개 발견, 복구 시작...")
+
+        recovered_count = 0
+        removed_count = 0
+
+        for order in pending_orders:
+            order_id = order['order_id']
+            symbol = order['symbol']
+            group_id = order.get('group_id', 'unknown')
+
+            try:
+                # Upbit API로 주문 상태 조회
+                order_status = self.upbit_api.get_order(order_id)
+
+                state = order_status.get('state')
+                logger.info(f"  📝 {symbol}: order_id={order_id[:8]}... state={state}")
+
+                if state == 'done':
+                    # ✅ 체결 완료 → 포지션 생성
+                    self._create_position_from_recovered_order(order, order_status, group_id)
+                    self.pending_order_mgr.remove_order(order_id)
+                    recovered_count += 1
+
+                    # 텔레그램 알림
+                    if self.telegram_bot:
+                        trades = order_status.get('trades', [])
+                        executed_volume = sum(float(t['volume']) for t in trades)
+                        executed_funds = sum(float(t['funds']) for t in trades)
+                        avg_price = executed_funds / executed_volume if executed_volume > 0 else 0
+
+                        self.telegram_bot.send_message(
+                            f"✅ [{symbol}] 매수 완료 (복구됨)\n"
+                            f"평단가: {avg_price:,.0f}원\n"
+                            f"수량: {executed_volume:.8f}개\n"
+                            f"총액: {executed_funds:,.0f}원\n\n"
+                            f"프로그램 재시작 시 복구된 주문입니다."
+                        )
+
+                elif state in ['wait', 'watch']:
+                    # ⏳ 아직 대기 중 → 그대로 유지
+                    logger.info(f"  ⏳ {symbol}: 주문 대기 중, pending_order 유지")
+
+                else:
+                    # ❌ 취소됨 or 기타 → 제거
+                    logger.warning(f"  ❌ {symbol}: 주문 취소/실패 (state={state}), pending_order 제거")
+                    self.pending_order_mgr.remove_order(order_id)
+                    removed_count += 1
+
+            except Exception as e:
+                logger.error(f"  ❌ {symbol}: 주문 복구 실패 ({order_id[:8]}...) - {e}")
+                # 에러 발생 시 pending_order는 유지 (다음 재시작 시 재시도)
+
+        logger.info(
+            f"✅ pending_order 복구 완료: "
+            f"복구={recovered_count}, 제거={removed_count}, 대기={len(self.pending_order_mgr.get_all_orders())}"
+        )
+
+    def _create_position_from_recovered_order(self, order: dict, order_status: dict, group_id: str):
+        """
+        복구된 주문으로 포지션 생성
+
+        Args:
+            order: pending_order 데이터
+            order_status: Upbit API에서 조회한 주문 상태
+            group_id: V4 그룹 ID
+        """
+        symbol = order['symbol']
+        trades = order_status.get('trades', [])
+
+        if not trades:
+            logger.warning(f"⚠️ {symbol}: trades 없음, 포지션 생성 불가")
+            return
+
+        # 체결 내역에서 평단가 계산
+        executed_volume = sum(float(t['volume']) for t in trades)
+        executed_funds = sum(float(t['funds']) for t in trades)
+        avg_price = executed_funds / executed_volume if executed_volume > 0 else 0
+
+        # 포지션 생성
+        try:
+            position = self.position_manager.create_position(
+                group_id=group_id,
+                symbol=symbol,
+                buy_price=avg_price,
+                amount=executed_volume,
+                source="auto"  # 프로그램이 주문한 것
+            )
+            logger.info(
+                f"  ✅ {symbol}: 포지션 생성 완료 "
+                f"(평단가={avg_price:,.0f}원, 수량={executed_volume:.8f}개)"
+            )
+
+        except Exception as e:
+            logger.error(f"  ❌ {symbol}: 포지션 생성 실패 - {e}")
+
+    def _sync_external_positions_on_startup(self):
+        """
+        재시작 시 외부 매수 조용히 추가 (알림 없음)
+
+        프로그램이 꺼져있는 동안 사용자가 Upbit 앱에서 수동 매수한 코인을
+        포지션에 추가합니다.
+
+        Note:
+            - **알림을 보내지 않음** (재시작 시는 프로그램과 무관한 매수)
+            - Upbit 잔고와 positions를 비교하여 차이 발견
+            - source="external"로 포지션 생성
+        """
+        if not self.upbit_api:
+            return
+
+        try:
+            # Upbit 잔고 조회
+            accounts = self.upbit_api.get_accounts()
+            current_positions = self.position_manager.get_all_positions()
+
+            # 기존 포지션 심볼 목록
+            existing_symbols = {pos['symbol'] for pos in current_positions}
+
+            external_count = 0
+
+            for account in accounts:
+                currency = account.get('currency')
+                balance = float(account.get('balance', 0))
+
+                if currency == 'KRW':
+                    continue
+
+                if balance <= 0:
+                    continue
+
+                symbol = f"KRW-{currency}"
+
+                # 이미 포지션에 있으면 스킵
+                if symbol in existing_symbols:
+                    continue
+
+                # 외부 매수 발견!
+                avg_buy_price = float(account.get('avg_buy_price', 0))
+
+                logger.info(
+                    f"  ℹ️ {symbol}: 재시작 시 외부 매수 감지 "
+                    f"(평단가={avg_buy_price:,.0f}원, 수량={balance:.8f}개)"
+                )
+
+                # 그룹 결정 (첫 번째 활성화된 그룹에 추가)
+                groups = self.group_manager.get_all_groups()
+                active_groups = [g for g in groups.values() if g.get('enabled', True)]
+
+                if not active_groups:
+                    logger.warning(f"  ⚠️ {symbol}: 활성화된 그룹 없음, 포지션 생성 불가")
+                    continue
+
+                group_id = active_groups[0]['group_id']
+
+                # 포지션 생성 (source=external)
+                try:
+                    self.position_manager.create_position(
+                        group_id=group_id,
+                        symbol=symbol,
+                        buy_price=avg_buy_price,
+                        amount=balance,
+                        source="external"
+                    )
+                    external_count += 1
+
+                    # ⚠️ 알림 보내지 않음 (재시작 시)
+                    logger.info(f"  ✅ {symbol}: 외부 매수 포지션 추가 (알림 없음)")
+
+                except Exception as e:
+                    logger.error(f"  ❌ {symbol}: 외부 매수 포지션 생성 실패 - {e}")
+
+            if external_count > 0:
+                logger.info(f"✅ 재시작 시 외부 매수 {external_count}개 추가 완료 (알림 없음)")
+            else:
+                logger.info("ℹ️ 재시작 시 외부 매수 없음")
+
+        except Exception as e:
+            logger.error(f"❌ 재시작 시 외부 매수 동기화 실패: {e}", exc_info=True)
+
+    async def _handle_order_event(self, order_data: dict):
+        """
+        WebSocket myOrder 이벤트 처리 (실행 중 외부 매수 감지)
+
+        Args:
+            order_data: myOrder 데이터
+                {
+                    "type": "myOrder",
+                    "code": "KRW-VIRTUAL",
+                    "uuid": "xyz789",
+                    "ask_bid": "BID",
+                    "state": "done",
+                    "executed_volume": 20.0,
+                    "price": 5000.0
+                }
+
+        Note:
+            - pending_order에 있으면: 프로그램 주문 (알림 없음, OrderManager가 처리)
+            - pending_order에 없으면: 외부 매수 (즉시 알림!)
+        """
+        try:
+            # 매수만 처리
+            if order_data.get('ask_bid') != 'BID':
+                return
+
+            # 체결 완료만 처리
+            if order_data.get('state') != 'done':
+                return
+
+            order_id = order_data.get('uuid')
+            symbol = order_data.get('code')
+
+            # pending_order에 있는지 확인
+            pending_order = self.pending_order_mgr.get_order(order_id) if self.pending_order_mgr else None
+
+            if pending_order:
+                # ✅ 프로그램이 주문한 것
+                logger.info(
+                    f"📝 [{symbol}] 프로그램 주문 체결 감지 "
+                    f"(order_id={order_id[:8]}..., OrderManager에서 처리)"
+                )
+                # OrderManager에서 이미 처리하므로 여기서는 아무것도 안 함
+
+            else:
+                # ✅ 외부 매수! (Upbit 앱에서 수동 주문)
+                logger.info(
+                    f"🔔 [{symbol}] 외부 매수 감지! (실시간) "
+                    f"(order_id={order_id[:8]}...)"
+                )
+                await self._handle_external_buy_realtime(order_data)
+
+        except Exception as e:
+            logger.error(f"❌ myOrder 이벤트 처리 실패: {e}", exc_info=True)
+
+    async def _handle_external_buy_realtime(self, order_data: dict):
+        """
+        실행 중 외부 매수 처리 (실시간 알림)
+
+        Args:
+            order_data: myOrder 데이터
+
+        Note:
+            - 프로그램 실행 중 외부 매수만 알림
+            - 포지션 생성 + 텔레그램 즉시 알림
+        """
+        symbol = order_data.get('code')
+        price = float(order_data.get('price', 0))
+        executed_volume = float(order_data.get('executed_volume', 0))
+
+        logger.info(
+            f"🔔 [{symbol}] 외부 매수 처리: "
+            f"평단가={price:,.0f}원, 수량={executed_volume:.8f}개"
+        )
+
+        # 그룹 결정 (첫 번째 활성화된 그룹)
+        groups = self.group_manager.get_all_groups()
+        active_groups = [g for g in groups.values() if g.get('enabled', True)]
+
+        if not active_groups:
+            logger.warning(f"⚠️ [{symbol}] 활성화된 그룹 없음, 포지션 생성 불가")
+            return
+
+        group_id = active_groups[0]['group_id']
+
+        # 포지션 생성
+        try:
+            position = self.position_manager.create_position(
+                group_id=group_id,
+                symbol=symbol,
+                buy_price=price,
+                amount=executed_volume,
+                source="external"
+            )
+
+            logger.info(f"✅ [{symbol}] 외부 매수 포지션 생성 완료")
+
+            # 📱 텔레그램 즉시 알림! (실행 중 외부 매수)
+            if self.telegram_bot:
+                executed_funds = price * executed_volume
+
+                self.telegram_bot.send_message(
+                    f"ℹ️ [{symbol}] 외부 매수 감지! (실시간)\n\n"
+                    f"평단가: {price:,.0f}원\n"
+                    f"수량: {executed_volume:.8f}개\n"
+                    f"총액: {executed_funds:,.0f}원\n\n"
+                    f"⚠️ 이 포지션은 외부에서 매수되었습니다.\n"
+                    f"그룹: {group_id}\n"
+                    f"DCA/익절/손절이 적용됩니다."
+                )
+
+        except Exception as e:
+            logger.error(f"❌ [{symbol}] 외부 매수 포지션 생성 실패: {e}", exc_info=True)
 
 
 # 테스트 코드
