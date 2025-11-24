@@ -2858,17 +2858,49 @@ class MainWindow(QMainWindow):
             # 9. 포지션 테이블 새로고침
             self._load_v4_positions()
 
-            # 10. 텔레그램 알림 (V4 엔진이 있으면)
-            if hasattr(self, 'v4_engine') and self.v4_engine and hasattr(self.v4_engine, 'telegram_bot'):
+            # 10. 텔레그램 알림 (항상 전송, V4 엔진 무관)
+            telegram_msg = (
+                f"🔴 즉시매도 완료\n\n"
+                f"심볼: {symbol}\n"
+                f"수량: {total_amount:.8f}\n"
+                f"가격: {current_price:,.0f} 원\n"
+                f"손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
+            )
+
+            # 방법 1: V4 엔진이 실행 중이면 엔진의 메서드 사용
+            if hasattr(self, 'v4_engine') and self.v4_engine:
                 try:
-                    telegram_msg = (
-                        f"🔴 <b>즉시매도 완료</b>\n\n"
-                        f"심볼: {symbol}\n"
-                        f"수량: {total_amount:.8f}\n"
-                        f"가격: {current_price:,.0f} 원\n"
-                        f"손익: {profit_krw:+,.0f} 원 ({profit_pct:+.2f}%)"
-                    )
-                    self.v4_engine.telegram_bot.send_message(telegram_msg)
+                    self.v4_engine._send_telegram_alert(telegram_msg)
+                except Exception as e:
+                    logger.warning(f"V4 엔진 텔레그램 알림 실패: {e}")
+            else:
+                # 방법 2: V4 엔진이 없으면 직접 전송 (동기 방식)
+                try:
+                    telegram_token = self.config_manager.get_telegram_bot_token()
+                    telegram_chat_id = self.config_manager.get_telegram_chat_id()
+
+                    if telegram_token and telegram_chat_id:
+                        def send_telegram_sync():
+                            """텔레그램 동기 전송 (requests 사용, 별도 스레드)"""
+                            try:
+                                import requests
+                                url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+                                payload = {
+                                    "chat_id": telegram_chat_id,
+                                    "text": telegram_msg
+                                }
+                                response = requests.post(url, json=payload, timeout=10)
+                                response.raise_for_status()
+                                logger.info(f"📤 텔레그램 메시지 전송 완료 (즉시매도)")
+                            except Exception as e:
+                                logger.error(f"❌ 텔레그램 전송 실패: {e}")
+
+                        # 별도 스레드에서 전송 (GUI 블로킹 방지)
+                        import threading
+                        thread = threading.Thread(target=send_telegram_sync, daemon=True)
+                        thread.start()
+                    else:
+                        logger.debug("텔레그램 설정 없음 (알림 스킵)")
                 except Exception as e:
                     logger.warning(f"텔레그램 알림 실패: {e}")
 
