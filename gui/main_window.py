@@ -463,14 +463,14 @@ class MainWindow(QMainWindow):
         self.position_table.setFont(QFont("Consolas", 10))
         self.position_table.setAlternatingRowColors(False)  # 그룹별 배경색 사용으로 비활성화
         self.position_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 읽기 전용
-        self.position_table.setSelectionBehavior(QTableWidget.SelectRows)  # 행 단위 선택
+        self.position_table.setSelectionBehavior(QTableWidget.SelectItems)  # 개별 셀 선택
 
         # 컬럼 너비 자동 조정
         header = self.position_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
 
-        # 🔧 테이블 정렬 활성화 (컬럼 헤더 클릭 시 정렬)
-        self.position_table.setSortingEnabled(True)
+        # 🔧 테이블 정렬 비활성화 (컬럼 헤더 클릭 시 정렬 방지)
+        self.position_table.setSortingEnabled(False)
 
         position_layout.addWidget(self.position_table)
         
