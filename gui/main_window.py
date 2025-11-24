@@ -3101,16 +3101,7 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.warning(f"텔레그램 알림 실패: {e}")
 
-            # 성공 메시지 (실제 체결 가격으로)
-            QMessageBox.information(
-                self,
-                "즉시매도 완료",
-                f"{symbol} 즉시매도가 완료되었습니다.\n\n"
-                f"• 매도 수량: {actual_sell_amount:.8f}\n"
-                f"• 실제 체결가: {actual_sell_price:,.2f} 원\n"
-                f"• 체결 금액: {actual_sell_value:,.0f} 원\n"
-                f"• 실제 손익: {actual_profit_krw:+,.0f} 원 ({actual_profit_pct:+.2f}%)"
-            )
+            # 성공 메시지는 GUI 로그로만 출력 (결과창 제거 - 경고창만 유지)
 
         except Exception as e:
             logger.error(f"❌ 즉시매도 실패: {e}", exc_info=True)
