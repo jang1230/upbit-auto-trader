@@ -1874,6 +1874,18 @@ class V4TradingEngine:
                     existing_position = self.position_manager.get_position(symbol)
                     if existing_position:
                         logger.warning(f"   ⚠️ [봇] {symbol} 초기 매수 중복 감지 (포지션 이미 존재) → 스킵")
+
+                        # 텔레그램 알림 추가
+                        self._send_telegram_alert(
+                            f"⚠️ [봇] 초기 매수 중복 감지\n"
+                            f"코인: {symbol}\n"
+                            f"수량: {executed_volume:.8f}개\n"
+                            f"가격: {avg_price:,}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"포지션이 이미 존재하여 스킵됨\n"
+                            f"주문 ID: {order_uuid[:8]}..."
+                        )
+
                         del self.pending_initial_buys[order_uuid]
                         return
 
@@ -1968,6 +1980,20 @@ class V4TradingEngine:
 
                     logger.info(f"   ✅ [외부] {group_id} 포지션 생성: {symbol}")
 
+                    # 텔레그램 알림 추가
+                    total_krw = avg_price * executed_volume
+                    group_name = "그룹 없음" if group_id == "group_null" else group_id
+                    self._send_telegram_alert(
+                        f"🆕 [외부] 신규 매수 감지\n"
+                        f"그룹: {group_name}\n"
+                        f"코인: {symbol}\n"
+                        f"금액: {total_krw:,.0f}원\n"
+                        f"수량: {executed_volume:.8f}개\n"
+                        f"가격: {avg_price:,}원\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"포지션이 생성되었습니다"
+                    )
+
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
                     return
@@ -1996,6 +2022,23 @@ class V4TradingEngine:
                                     })
 
                                     logger.info(f"   ✅ [외부] {symbol} 추가 매수 반영 (새 평균가: {new_avg_price:,.0f}원)")
+
+                                    # 텔레그램 알림 추가
+                                    group_id = position.get('group_id', 'unknown')
+                                    group_name = position.get('group_name', 'Unknown')
+                                    additional_krw = avg_price * executed_volume
+                                    self._send_telegram_alert(
+                                        f"🔄 [외부] 추가 매수 감지\n"
+                                        f"그룹: {group_name}\n"
+                                        f"코인: {symbol}\n"
+                                        f"━━━━━━━━━━━━━━\n"
+                                        f"추가 금액: {additional_krw:,.0f}원\n"
+                                        f"추가 수량: {executed_volume:.8f}개\n"
+                                        f"체결 가격: {avg_price:,.0f}원\n"
+                                        f"━━━━━━━━━━━━━━\n"
+                                        f"평균 매수가: {new_avg_price:,.0f}원\n"
+                                        f"총 보유량: {new_balance:.8f}개"
+                                    )
                                     break
                         except Exception as e:
                             logger.error(f"❌ [외부] {symbol} 평균가 조회 실패: {e}")
@@ -2062,6 +2105,26 @@ class V4TradingEngine:
                     dca_levels_executed = position.get('dca_levels_executed', [])
                     if level_index in dca_levels_executed:
                         logger.warning(f"   ⚠️ {symbol} DCA 레벨 {level_index+1} 이미 실행됨 → 중복 스킵")
+                        logger.warning(f"   🔍 중복 원인 디버그: order_uuid={order_uuid[:8]}..., "
+                                     f"state={state}, dca_levels_executed={dca_levels_executed}")
+
+                        # 텔레그램 알림 추가
+                        group_id = pending_order.get('group_id', 'unknown')
+                        group_name = pending_order.get('group_name', 'Unknown')
+                        self._send_telegram_alert(
+                            f"⚠️ DCA 중복 감지 (로직 오류)\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"레벨: {level_index + 1}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"이미 실행된 레벨입니다\n"
+                            f"state: {state}\n"
+                            f"주문 ID: {order_uuid[:8]}...\n"
+                            f"실행된 레벨: {dca_levels_executed}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"이 알림이 반복되면 로그를 확인하세요"
+                        )
+
                         self.position_manager.update_position(symbol, {'pending_order': None})
                         return
 
@@ -2156,12 +2219,35 @@ class V4TradingEngine:
                     if order_type == 'profit':
                         levels_executed = position.get('profit_levels_executed', [])
                         key = 'profit_levels_executed'
+                        action_type = "익절"
                     else:
                         levels_executed = position.get('loss_levels_executed', [])
                         key = 'loss_levels_executed'
+                        action_type = "손절"
 
                     if level_index in levels_executed:
                         logger.warning(f"   ⚠️ {symbol} {order_type} 레벨 {level_index} 이미 실행됨 → 중복 스킵")
+                        logger.warning(f"   🔍 중복 원인 디버그: order_uuid={order_uuid[:8]}..., "
+                                     f"state={state}, {key}={levels_executed}")
+
+                        # 텔레그램 알림 추가
+                        group_id = pending_order.get('group_id', 'unknown')
+                        group_name = pending_order.get('group_name', 'Unknown')
+                        emoji = "✅" if order_type == 'profit' else "❌"
+                        self._send_telegram_alert(
+                            f"{emoji} {action_type} 중복 감지 (로직 오류)\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"레벨: {level_index}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"이미 실행된 레벨입니다\n"
+                            f"state: {state}\n"
+                            f"주문 ID: {order_uuid[:8]}...\n"
+                            f"실행된 레벨: {levels_executed}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"이 알림이 반복되면 로그를 확인하세요"
+                        )
+
                         self.position_manager.update_position(symbol, {'pending_order': None})
                         return
 
