@@ -740,16 +740,15 @@ class V4TradingEngine:
                             logger.info(f"✅ [외부] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
 
                             # 텔레그램 알림 전송
-                            if self.telegram_bot:
-                                total_krw = avg_buy_price * total
-                                self.telegram_bot.send_message(
-                                    f"🆕 **외부 매수 감지** (Upbit 앱/웹)\n\n"
-                                    f"코인: {symbol}\n"
-                                    f"평단가: {avg_buy_price:,.0f}원\n"
-                                    f"수량: {total:.8f}개\n"
-                                    f"투자금: {total_krw:,.0f}원\n"
-                                    f"그룹: group_null (자동 할당)"
-                                )
+                            total_krw = avg_buy_price * total
+                            self._send_telegram_alert(
+                                f"🆕 **외부 매수 감지** (Upbit 앱/웹)\n\n"
+                                f"코인: {symbol}\n"
+                                f"평단가: {avg_buy_price:,.0f}원\n"
+                                f"수량: {total:.8f}개\n"
+                                f"투자금: {total_krw:,.0f}원\n"
+                                f"그룹: group_null (자동 할당)"
+                            )
 
                             # BalancePollingManager의 known_symbols에도 추가
                             if self.balance_polling_manager:
@@ -2648,7 +2647,7 @@ class V4TradingEngine:
         Returns:
             그룹 ID (예: "group_1") 또는 None
         """
-        config = self.config_manager.get_config()
+        config = self.config
 
         for group_id, group_data in config.get('groups', {}).items():
             coins = group_data.get('coins', [])
