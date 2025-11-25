@@ -2105,12 +2105,14 @@ class V4TradingEngine:
 
                     logger.debug(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
 
-                    # 🆕 REST API로 정확한 평균가 조회
+                    # 🆕 REST API로 정확한 평균가 조회 (체결 반영 대기)
                     final_avg_price = avg_price  # fallback
                     final_balance = 0  # fallback
 
                     if self.upbit_api:
                         try:
+                            # 🔧 Upbit 시스템에 체결 반영될 때까지 대기
+                            time.sleep(1.5)
                             accounts = self.upbit_api.get_accounts()
                             for acc in accounts:
                                 currency = symbol.replace('KRW-', '')
@@ -2632,12 +2634,14 @@ class V4TradingEngine:
 
                 logger.debug(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
 
-                # 🆕 REST API로 정확한 평균가 조회
+                # 🆕 REST API로 정확한 평균가 조회 (체결 반영 대기)
                 final_avg_price = avg_price  # fallback
                 final_balance = 0  # fallback
 
                 if self.upbit_api:
                     try:
+                        # 🔧 Upbit 시스템에 체결 반영될 때까지 대기
+                        time.sleep(1.5)
                         accounts = self.upbit_api.get_accounts()
                         for acc in accounts:
                             currency = symbol.replace('KRW-', '')
