@@ -327,7 +327,11 @@ class GuiLogHandler(logging.Handler, QObject):
                     'CRITICAL': '🚨'
                 }
                 emoji = level_emoji.get(record.levelname, '')
-                formatted = f"[{timestamp}] {emoji} {message}"
+                # 메시지에 이미 해당 이모지가 있으면 중복 추가 안함
+                if emoji and emoji in message:
+                    formatted = f"[{timestamp}] {message}"
+                else:
+                    formatted = f"[{timestamp}] {emoji} {message}"
 
             # Qt Signal로 GUI 스레드에 전송
             self.log_signal.emit(record.levelname, formatted)
