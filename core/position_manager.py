@@ -814,6 +814,9 @@ class PositionManager:
                     logger.info(f"   ⏭️ {symbol} pending_order({order_type}) 진행 중 → MyAsset 업데이트 스킵 (MyOrder에서 처리 중)")
                     continue
 
+                # 🆕 기존 수량 저장 (변경 감지용)
+                existing_amount = position.get('total_amount', 0)
+
                 # 기존 포지션 업데이트
                 updates = {
                     'total_amount': balance,
@@ -828,7 +831,7 @@ class PositionManager:
                     logger.debug(f"   ✅ MyAsset 평균가 사용: {symbol} | avg_price={avg_buy_price:.0f}")
                 else:
                     # MyAsset에 avg_buy_price가 없는 경우
-                    existing_amount = position.get('total_amount', 0)
+                    # (existing_amount는 위에서 이미 저장됨)
 
                     # 수량이 변경되었으면 평균가도 바뀌었을 가능성 → REST API 조회
                     if abs(balance - existing_amount) > 0.00000001:
@@ -896,8 +899,13 @@ class PositionManager:
                     logger.info(f"   🔄 그룹 변경 감지: {symbol} ({old_group_id} → {current_group_id})")
 
                 self.update_position(symbol, updates)
-                synced_positions.append(symbol)
-                logger.debug(f"   ✅ MyAsset 동기화: {symbol} | balance={balance:.8f}, locked={locked:.8f}")
+
+                # 🆕 실제 수량 변경 시에만 synced_positions에 추가 (중복 로그 방지)
+                if abs(balance - existing_amount) > 0.00000001:
+                    synced_positions.append(symbol)
+                    logger.debug(f"   ✅ MyAsset 수량 변동: {symbol} | {existing_amount:.8f} → {balance:.8f}")
+                else:
+                    logger.debug(f"   ✅ MyAsset 동기화 (수량 변동 없음): {symbol}")
             else:
                 # 새 포지션 발견 (외부 앱에서 매수한 경우)
                 group_id = self._find_group_for_coin(symbol, config)
