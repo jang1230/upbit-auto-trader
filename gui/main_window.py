@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QDialog  # Step 6: Global Settings Dialog용
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QAction, QFont, QColor
+from PySide6.QtGui import QAction, QFont, QColor, QTextCursor
 from gui.settings_dialog import SettingsDialog
 from gui.config_manager import ConfigManager
 from gui.trading_worker import TradingEngineWorker
@@ -1949,9 +1949,9 @@ class MainWindow(QMainWindow):
         if document.lineCount() > 1000:
             # 처음 100줄 삭제 (한 번에 여러 줄 삭제로 성능 개선)
             cursor = self.log_text.textCursor()
-            cursor.movePosition(cursor.Start)
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
             for _ in range(100):
-                cursor.select(cursor.LineUnderCursor)
+                cursor.select(QTextCursor.SelectionType.LineUnderCursor)
                 cursor.removeSelectedText()
                 cursor.deleteChar()  # 줄바꿈 문자 삭제
 
