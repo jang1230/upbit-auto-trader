@@ -90,6 +90,15 @@ class GuiLogHandler(logging.Handler, QObject):
         "asyncio",                      # 비동기 이벤트 루프 로그
     ]
 
+    # ═══════════════════════════════════════════════════════════
+    # 🧹 INFO 레벨에서 제거할 이모지 (WARNING/ERROR는 유지)
+    # ═══════════════════════════════════════════════════════════
+    EMOJI_TO_REMOVE = [
+        '🎯', '📬', '💰', '📡', '📝', '🎉', '⏭️', '🔖', '🗑️', '📊',
+        '📱', '✅', '🔄', '🛒', '🔌', '🚀', '📌', '🔍', '💵', '🆕',
+        '━', '─', '═',  # 구분선 문자도 정리
+    ]
+
     def __init__(self):
         """핸들러 초기화"""
         logging.Handler.__init__(self)
@@ -97,6 +106,21 @@ class GuiLogHandler(logging.Handler, QObject):
 
         # 기본 레벨: INFO 이상만 처리
         self.setLevel(logging.INFO)
+
+    def _clean_emoji(self, message: str) -> str:
+        """
+        INFO 레벨 로그에서 불필요한 이모지 제거
+
+        WARNING/ERROR 레벨은 이모지 유지 (주의 환기 목적)
+        """
+        for emoji in self.EMOJI_TO_REMOVE:
+            message = message.replace(emoji, '')
+
+        # 연속 공백 정리
+        while '  ' in message:
+            message = message.replace('  ', ' ')
+
+        return message.strip()
 
     def emit(self, record: logging.LogRecord):
         """
@@ -149,17 +173,21 @@ class GuiLogHandler(logging.Handler, QObject):
             # ─────────────────────────────────────────────────
             timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
 
-            # 레벨별 이모지 (사용자 친화적)
-            level_emoji = {
-                'INFO': 'ℹ️',
-                'WARNING': '⚠️',
-                'ERROR': '❌',
-                'CRITICAL': '🚨'
-            }
-            emoji = level_emoji.get(record.levelname, 'ℹ️')
-
-            # 최종 메시지 포맷: [시간] 이모지 메시지
-            formatted = f"[{timestamp}] {emoji} {message}"
+            # INFO 레벨: 이모지 제거 (깔끔한 로그)
+            # WARNING/ERROR: 이모지 유지 (주의 환기)
+            if record.levelno == logging.INFO:
+                # INFO는 메시지 내 이모지 제거, 레벨 이모지도 제거
+                clean_message = self._clean_emoji(message)
+                formatted = f"[{timestamp}] {clean_message}"
+            else:
+                # WARNING/ERROR는 이모지 유지
+                level_emoji = {
+                    'WARNING': '⚠️',
+                    'ERROR': '❌',
+                    'CRITICAL': '🚨'
+                }
+                emoji = level_emoji.get(record.levelname, '')
+                formatted = f"[{timestamp}] {emoji} {message}"
 
             # Qt Signal로 GUI 스레드에 전송
             self.log_signal.emit(record.levelname, formatted)
