@@ -2410,6 +2410,7 @@ class MainWindow(QMainWindow):
 
             # 각 포지션을 테이블에 추가
             row_idx = 0
+            managed_count = 0  # 🔧 관찰 모드 제외한 관리 중인 포지션 카운트
             for symbol, pos in sorted_positions:
                 if pos.get("status") != "active":
                     continue  # 비활성 포지션은 스킵
@@ -2418,6 +2419,10 @@ class MainWindow(QMainWindow):
                 group_id = pos.get("group_id", "")
                 group = groups.get(group_id, {})
                 group_name = group.get("name", group_id)
+
+                # 🔧 관찰 모드가 아닌 포지션만 카운트 (최대 포지션 개수 계산용)
+                if not group.get("observation_only", False):
+                    managed_count += 1
 
                 # 매수/DCA/익절/손절 설정
                 buy_settings = group.get("buy_settings", {})
@@ -2509,8 +2514,11 @@ class MainWindow(QMainWindow):
 
                 row_idx += 1
 
-            logger.info(f"✅ V4 포지션 로드 완료: {row_idx}개")
+            logger.info(f"✅ V4 포지션 로드 완료: {row_idx}개 (관리 중: {managed_count}개)")
             self._add_log(f"📊 포지션 {row_idx}개 로드됨")
+
+            # 🔧 관리 중인 포지션 개수 업데이트 (관찰 모드 제외)
+            self.price_label.setText(f"관리 중: {managed_count}개 포지션")
 
             # 🔧 WebSocket 시작 (포지션이 있을 때만)
             if row_idx > 0:
