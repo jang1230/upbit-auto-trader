@@ -1006,6 +1006,10 @@ class MainWindow(QMainWindow):
             self.v4_engine.on_auto_sell_callback = self._on_auto_sell_executed
             logger.info("✅ 자동 매도 콜백 등록 완료")
 
+            # 🔧 2-2단계: 포지션 생성 콜백 등록 (GUI 새로고침용)
+            self.v4_engine.on_position_created_callback = self._on_position_created
+            logger.info("✅ 포지션 생성 콜백 등록 완료")
+
             # 엔진을 백그라운드 스레드에서 시작 (GUI 블로킹 방지)
             def run_engine():
                 try:
@@ -2009,6 +2013,23 @@ class MainWindow(QMainWindow):
         import time
         self.recent_immediate_sells[symbol] = time.time()
         logger.info(f"🔖 자동 매도 추적 등록: {symbol} (수량: {quantity:.8f}) - 10초간 수동매도 알림 차단")
+
+    def _on_position_created(self, symbol: str):
+        """
+        포지션 생성 시 호출되는 콜백 (GUI 새로고침용)
+
+        V4TradingEngine에서 포지션이 생성될 때 호출되어,
+        GUI 포지션 테이블을 새로고침합니다.
+
+        Args:
+            symbol: 생성된 포지션의 코인 심볼 (예: KRW-BTC)
+        """
+        logger.debug(f"📊 포지션 생성 콜백 수신: {symbol}")
+        try:
+            # GUI 스레드에서 안전하게 새로고침 (QTimer.singleShot 사용)
+            QTimer.singleShot(0, self._load_v4_positions)
+        except Exception as e:
+            logger.error(f"❌ GUI 새로고침 콜백 오류: {e}")
 
     def _on_backend_log(self, level: str, formatted_message: str):
         """

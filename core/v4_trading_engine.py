@@ -208,6 +208,7 @@ class V4TradingEngine:
 
         # 🔧 GUI 콜백 (중복 알림 방지용)
         self.on_auto_sell_callback = None  # 자동 매도 실행 시 호출 (익절/손절/DCA 매도)
+        self.on_position_created_callback = None  # 포지션 생성 시 호출 (GUI 새로고침용)
 
         # 스레드
         self.main_thread = None
@@ -1927,6 +1928,13 @@ class V4TradingEngine:
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
+                    # 🆕 GUI 새로고침 콜백 호출
+                    if self.on_position_created_callback:
+                        try:
+                            self.on_position_created_callback(symbol)
+                        except Exception as e:
+                            logger.error(f"❌ 포지션 생성 콜백 오류: {e}")
+
                     logger.debug(f"   🎉 [자동매수] {symbol} 초기 매수 처리 완료")
 
                 return  # 초기 매수는 여기서 종료
@@ -1966,6 +1974,13 @@ class V4TradingEngine:
                     # MyOrder 처리 완료 마킹 + 중복 방지
                     self._mark_processed_by_myorder(symbol)
                     self.processed_bot_order_uuids.add(order_uuid)
+
+                    # 🆕 GUI 새로고침 콜백 호출
+                    if self.on_position_created_callback:
+                        try:
+                            self.on_position_created_callback(symbol)
+                        except Exception as e:
+                            logger.error(f"❌ 포지션 생성 콜백 오류: {e}")
                     return
 
                 # 🆕 Phase B-2: 외부 추가 매수 처리
