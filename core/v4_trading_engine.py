@@ -2800,7 +2800,7 @@ class V4TradingEngine:
             max_limit = max_positions_config.get("limit", 3)
 
             # 현재 활성 포지션 개수 계산 (observation_only 그룹 제외)
-            all_positions = self.position_manager.get_all_positions()
+            all_positions = self.position_manager.get_active_positions()  # status='active'인 포지션만
             active_positions = 0
 
             # 1. 기존 포지션 카운트
