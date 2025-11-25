@@ -2068,6 +2068,9 @@ class V4TradingEngine:
                 # state=done: 완전 체결 (잔량 없음)
 
                 if order_type == 'dca':
+                    # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+                    self.processed_bot_order_uuids.add(order_uuid)
+
                     # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
                     dca_levels_executed = position.get('dca_levels_executed', [])
                     if level_index in dca_levels_executed:
@@ -2185,6 +2188,9 @@ class V4TradingEngine:
                     logger.debug(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
 
                 elif order_type in ['profit', 'loss']:
+                    # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+                    self.processed_bot_order_uuids.add(order_uuid)
+
                     # ✅ 중복 체크
                     if order_type == 'profit':
                         levels_executed = position.get('profit_levels_executed', [])
@@ -2366,6 +2372,9 @@ class V4TradingEngine:
 
             logger.debug(f"   ✅ {symbol} {order_type} 레벨 {level_index} 체결 완료 "
                        f"(수량: {executed_volume:.8f}, 가격: {avg_price:,.0f}원)")
+
+            # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+            self.processed_bot_order_uuids.add(order_uuid)
 
             # executed_levels 배열에 추가
             updates = {'pending_order': None}
@@ -2605,6 +2614,9 @@ class V4TradingEngine:
                 self._mark_processed_by_myorder(symbol)
 
             elif order_type == 'dca':
+                # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+                self.processed_bot_order_uuids.add(order_uuid)
+
                 # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
                 dca_levels_executed = position.get('dca_levels_executed', [])
                 if level_index in dca_levels_executed:
