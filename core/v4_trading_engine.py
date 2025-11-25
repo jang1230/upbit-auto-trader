@@ -743,18 +743,9 @@ class V4TradingEngine:
                                 quantity=total,
                                 force_create_for_sync=True
                             )
-                            logger.info(f"✅ [수동] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
-
-                            # 텔레그램 알림 전송
+                            # GUI 로그만 (텔레그램 알림 없음 - group_null은 DCA/익절/손절 미작동)
                             total_krw = avg_buy_price * total
-                            self._send_telegram_alert(
-                                f"🆕 **수동 매수 감지** (Upbit 앱/웹)\n\n"
-                                f"코인: {symbol}\n"
-                                f"평단가: {avg_buy_price:,.0f}원\n"
-                                f"수량: {total:.8f}개\n"
-                                f"투자금: {total_krw:,.0f}원\n"
-                                f"그룹: group_null (자동 할당)"
-                            )
+                            logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {total:.8f}개 | group_null")
 
                             # BalancePollingManager의 known_symbols에도 추가
                             if self.balance_polling_manager:
@@ -1959,23 +1950,10 @@ class V4TradingEngine:
                         force_create_for_sync=(group_id == "group_null")
                     )
 
-                    # GUI 한 줄 요약 로그
-                    total_krw = avg_price * executed_volume
-                    logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {executed_volume:.8f}개 | {avg_price:,.0f}원")
-
-                    # 텔레그램 알림 추가
+                    # GUI 로그만 (텔레그램 알림 없음 - group_null은 DCA/익절/손절 미작동)
                     total_krw = avg_price * executed_volume
                     group_name = "그룹 없음" if group_id == "group_null" else group_id
-                    self._send_telegram_alert(
-                        f"🆕 [수동] 신규 매수 감지\n"
-                        f"그룹: {group_name}\n"
-                        f"코인: {symbol}\n"
-                        f"금액: {total_krw:,.0f}원\n"
-                        f"수량: {executed_volume:.8f}개\n"
-                        f"가격: {avg_price:,}원\n"
-                        f"━━━━━━━━━━━━━━\n"
-                        f"포지션이 생성되었습니다"
-                    )
+                    logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {executed_volume:.8f}개 | {group_name}")
 
                     # MyOrder 처리 완료 마킹 + 중복 방지
                     self._mark_processed_by_myorder(symbol)
