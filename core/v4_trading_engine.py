@@ -2920,11 +2920,11 @@ class V4TradingEngine:
             group_coins = group.get("coins", [])
 
             for symbol in group_coins:
-                # 포지션 존재 여부 확인
-                all_positions = self.position_manager.get_all_positions()
+                # 포지션 존재 여부 확인 (활성 포지션만)
+                active_positions = self.position_manager.get_active_positions()
                 position = None
 
-                for pos_id, pos in all_positions.items():
+                for pos_id, pos in active_positions.items():
                     if pos.get("symbol") == symbol and pos.get("group_id") == group_id:
                         position = pos
                         break
@@ -3172,14 +3172,11 @@ class V4TradingEngine:
         try:
             krw_balance = self._get_krw_balance()
 
-            # 모든 포지션의 현재가 평가액
-            all_positions = self.position_manager.get_all_positions()
+            # 활성 포지션의 현재가 평가액
+            active_positions = self.position_manager.get_active_positions()
             coin_value = 0.0
 
-            for symbol, position in all_positions.items():
-                if position.get("status") != "active":
-                    continue
-
+            for symbol, position in active_positions.items():
                 current_price = self._get_current_price_safe(symbol)
                 if current_price:
                     total_amount = position.get("total_amount", 0)

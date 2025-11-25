@@ -1304,9 +1304,9 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("중지됨")
             self._add_log("✅ 트레이딩 중지 완료")
 
-            # 🔧 4단계: GUI WebSocket 재시작 (포지션이 있으면)
+            # 🔧 4단계: GUI WebSocket 재시작 (활성 포지션이 있으면)
             try:
-                positions = self.v4_position_manager.get_all_positions()
+                positions = self.v4_position_manager.get_active_positions()
                 if positions:
                     symbols = [p['symbol'] for p in positions.values()]
                     logger.info(f"🔄 V4 WebSocket → GUI WebSocket 전환 ({len(symbols)}개 심볼)")
@@ -2373,8 +2373,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            # 모든 포지션 가져오기
-            positions = self.v4_position_manager.get_all_positions()
+            # 활성 포지션만 가져오기 (status='active')
+            positions = self.v4_position_manager.get_active_positions()
 
             # 설정 로드 (그룹명 및 DCA/익절/손절 설정 확인용)
             config = self.v4_config_manager.load_config()
@@ -2741,8 +2741,8 @@ class MainWindow(QMainWindow):
             if not self.v4_engine.websocket_manager or not self.v4_engine.websocket_manager.is_running:
                 return
 
-            # 모든 포지션의 심볼에 대해 현재가 가져오기
-            positions = self.v4_position_manager.get_all_positions()
+            # 활성 포지션의 심볼에 대해 현재가 가져오기
+            positions = self.v4_position_manager.get_active_positions()
             for symbol, position in positions.items():
                 # V4 WebSocketManager에서 실시간 현재가 가져오기
                 current_price = self.v4_engine.websocket_manager.get_current_price(symbol)
