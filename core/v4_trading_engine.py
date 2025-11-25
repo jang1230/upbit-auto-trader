@@ -1871,12 +1871,14 @@ class V4TradingEngine:
                     else:
                         logger.debug(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
 
-                    # 🆕 REST API로 정확한 평균가 조회
+                    # 🆕 REST API로 정확한 평균가 조회 (체결 반영 대기)
                     final_avg_price = avg_price  # fallback
                     final_balance = executed_volume  # fallback
 
                     if self.upbit_api:
                         try:
+                            # 🔧 Upbit 시스템에 체결 반영될 때까지 대기
+                            time.sleep(1.5)
                             accounts = self.upbit_api.get_accounts()
                             for acc in accounts:
                                 currency = symbol.replace('KRW-', '')
@@ -1909,6 +1911,9 @@ class V4TradingEngine:
                         total_krw=pending_buy['buy_amount_krw'],
                         dry_run=False
                     )
+
+                    # 🔧 GUI 완료 로그 (한 줄 요약)
+                    logger.info(f"[자동매수완료] {symbol} | {pending_buy['buy_amount_krw']:,.0f}원 | {final_balance:.8f}개 | {final_avg_price:,.0f}원")
 
                     # 텔레그램 알림
                     self._send_telegram_alert(
@@ -2183,6 +2188,9 @@ class V4TradingEngine:
                         dca_level=level_index + 1
                     )
 
+                    # 🔧 GUI 완료 로그 (한 줄 요약)
+                    logger.info(f"[DCA완료] {symbol} L{level_index + 1} | {dca_value_krw:,.0f}원 | 평균가 {final_avg_price:,.0f}원 | 보유 {final_balance:.8f}개")
+
                     # 텔레그램 알림
                     self._send_telegram_alert(
                         f"🔄 DCA 추가 매수 완료\n"
@@ -2200,6 +2208,13 @@ class V4TradingEngine:
 
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
+
+                    # 🆕 GUI 새로고침 콜백 호출 (DCA로 포지션 변경됨)
+                    if self.on_position_created_callback:
+                        try:
+                            self.on_position_created_callback(symbol)
+                        except Exception as e:
+                            logger.error(f"❌ DCA 완료 GUI 콜백 오류: {e}")
 
                     # 🔧 중복 처리 방지: 봇 주문 UUID 기록
                     self.processed_bot_order_uuids.add(order_uuid)
@@ -2365,6 +2380,13 @@ class V4TradingEngine:
 
                     # MyOrder 처리 완료 마킹
                     self._mark_processed_by_myorder(symbol)
+
+                    # 🆕 GUI 새로고침 콜백 호출 (익절/손절로 포지션 변경됨)
+                    if self.on_position_created_callback:
+                        try:
+                            self.on_position_created_callback(symbol)
+                        except Exception as e:
+                            logger.error(f"❌ 익절/손절 완료 GUI 콜백 오류: {e}")
 
                 else:
                     # 기타 주문 타입
@@ -2708,6 +2730,9 @@ class V4TradingEngine:
                     dca_level=level_index + 1  # 1-based for display
                 )
 
+                # 🔧 GUI 완료 로그 (한 줄 요약)
+                logger.info(f"[DCA완료] {symbol} L{level_index + 1} | {dca_value_krw:,.0f}원 | 평균가 {final_avg_price:,.0f}원 | 보유 {final_balance:.8f}개")
+
                 # 텔레그램 알림
                 self._send_telegram_alert(
                     f"🔄 DCA 추가 매수 완료\n"
@@ -2731,6 +2756,13 @@ class V4TradingEngine:
 
             # 포지션 업데이트 (pending_order 제거)
             self.position_manager.update_position(symbol, updates)
+
+            # 🆕 GUI 새로고침 콜백 호출 (포지션 변경됨)
+            if self.on_position_created_callback:
+                try:
+                    self.on_position_created_callback(symbol)
+                except Exception as e:
+                    logger.error(f"❌ 포지션 변경 GUI 콜백 오류: {e}")
 
             logger.debug(f"   🎉 {symbol} 주문 {order_uuid[:8]}... 처리 완료")
 
