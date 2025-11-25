@@ -859,10 +859,11 @@ class V4TradingEngine:
                 logger.info(f"      ⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
             return
 
-        # 1. 포지션 확인
+        # 1. 포지션 확인 (활성 포지션만 체크)
         position = self.position_manager.get_position(symbol)
+        has_active_position = position and position.get('status') == 'active'
         if verbose:
-            logger.info(f"      📊 {symbol}: 포지션 존재 = {position is not None}")
+            logger.info(f"      📊 {symbol}: 활성 포지션 존재 = {has_active_position}")
 
         # 1-A. pending 초기 매수 확인 (중복 매수 방지)
         has_pending_buy = any(
@@ -872,8 +873,8 @@ class V4TradingEngine:
         if verbose:
             logger.info(f"      📊 {symbol}: pending 초기 매수 = {has_pending_buy}")
 
-        # 2-A. 신규 매수 (포지션이 없고 pending도 없는 경우) - 전역 제약 체크 필요
-        if not position and not has_pending_buy and group.get("buy_settings", {}).get("mode") == "auto":
+        # 2-A. 신규 매수 (활성 포지션이 없고 pending도 없는 경우) - 전역 제약 체크 필요
+        if not has_active_position and not has_pending_buy and group.get("buy_settings", {}).get("mode") == "auto":
             # 전역 제약 확인 (신규 매수 시에만)
             constraints_ok = self._check_global_constraints(verbose=verbose)
             if verbose:
@@ -888,13 +889,13 @@ class V4TradingEngine:
             self._check_buy_signal(symbol, group_id, group, verbose=verbose)
 
         # 2-B. 포지션 관리 (DCA, 익절, 손절) - 전역 제약 무관
-        elif position:
+        elif has_active_position:
             if verbose:
                 logger.info(f"      🎯 {symbol}: 포지션 관리 시작 (DCA/익절/손절)")
             self._manage_position(symbol, group_id, group)
 
         # 2-C. pending 초기 매수 대기 중 (중복 매수 방지)
-        elif not position and has_pending_buy:
+        elif not has_active_position and has_pending_buy:
             if verbose:
                 logger.info(f"      ⏭️ {symbol}: pending 초기 매수 대기 중 (중복 매수 방지)")
 
@@ -1843,9 +1844,9 @@ class V4TradingEngine:
 
                 # 🔧 Phase D: state='done' or 'cancel' 모두 처리 (DCA와 동일 패턴)
                 if state in ['done', 'cancel']:
-                    # ✅ 중복 체크: 이미 포지션이 있으면 스킵
+                    # ✅ 중복 체크: 이미 활성 포지션이 있으면 스킵
                     existing_position = self.position_manager.get_position(symbol)
-                    if existing_position:
+                    if existing_position and existing_position.get('status') == 'active':
                         logger.warning(f"   ⚠️ [자동매수] {symbol} 초기 매수 중복 감지 (포지션 이미 존재) → 스킵")
 
                         # 텔레그램 알림 추가
@@ -1939,9 +1940,10 @@ class V4TradingEngine:
                     return
 
                 position = self.position_manager.get_position(symbol)
+                has_active_position = position and position.get('status') == 'active'
 
-                if not position:
-                    # 🆕 Phase B-1: 외부 신규 매수 처리
+                if not has_active_position:
+                    # 🆕 Phase B-1: 외부 신규 매수 처리 (포지션 없거나 종료된 경우)
                     group_id = self._find_group_for_symbol(symbol)
 
                     if not group_id:

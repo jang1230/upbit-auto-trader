@@ -189,7 +189,13 @@ class PositionManager:
 
         # Check for existing position
         if symbol in self.positions:
-            if force_create_for_sync:
+            existing = self.positions[symbol]
+
+            # 종료된 포지션은 삭제하고 새로 생성 허용
+            if existing.get('status') == 'closed':
+                logger.info(f"🔄 종료된 포지션 삭제 후 신규 생성 - {symbol}")
+                del self.positions[symbol]
+            elif force_create_for_sync:
                 # Sync mode: Update existing position instead of raising error
                 logger.info(f"🔄 동기화 모드: 기존 포지션 업데이트 - {symbol}")
                 return self.update_position(symbol, {
@@ -203,7 +209,7 @@ class PositionManager:
                     **kwargs
                 })
             else:
-                raise ValueError(f"포지션이 이미 존재합니다: {symbol}")
+                raise ValueError(f"활성 포지션이 이미 존재합니다: {symbol}")
 
         position = {
             "group_id": group_id,
