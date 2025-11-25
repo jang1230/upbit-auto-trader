@@ -3024,13 +3024,8 @@ class MainWindow(QMainWindow):
             actual_profit_krw = actual_sell_value - (avg_buy_price * actual_sell_amount)
             actual_profit_pct = (actual_profit_krw / (avg_buy_price * actual_sell_amount)) * 100 if avg_buy_price > 0 else 0
 
-            logger.info(f"✅ 즉시매도 성공: {symbol}, UUID: {sell_result.get('uuid', 'N/A')}")
-            self._add_log(f"✅ 즉시매도 성공: {symbol}")
-            self._add_log(f"   주문 UUID: {sell_result.get('uuid', 'N/A')}")
-            self._add_log(f"   매도 수량: {actual_sell_amount:.8f}")
-            self._add_log(f"   실제 체결가: {actual_sell_price:,.2f} 원")
-            self._add_log(f"   체결 금액: {actual_sell_value:,.0f} 원")
-            self._add_log(f"   실제 손익: {actual_profit_krw:+,.0f} 원 ({actual_profit_pct:+.2f}%)")
+            logger.info(f"✅ 즉시매도 성공: {symbol} | {actual_sell_value:,.0f}원 | {actual_profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
+            self._add_log(f"✅ 즉시매도 성공: {symbol} | {actual_sell_value:,.0f}원 | {actual_profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
 
             # 7. 포지션 제거 (실제 체결 가격으로)
             close_reason = "즉시매도"
