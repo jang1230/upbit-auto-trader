@@ -2868,8 +2868,18 @@ class MainWindow(QMainWindow):
                 # MyAsset은 백업용이므로 GUI 로그 불필요
 
                 if sync_result['synced_positions']:
-                    synced_str = ', '.join(sync_result['synced_positions'])
-                    self._add_log(f"📊 수량 변동: {synced_str}")
+                    # 🔧 봇 매도 시 수량 변동 로그 차단 (MyOrder에서 이미 처리됨)
+                    if hasattr(self, 'v4_engine') and self.v4_engine:
+                        filtered_positions = [
+                            s for s in sync_result['synced_positions']
+                            if not self.v4_engine._was_recently_processed_by_myorder(s, window_seconds=10)
+                        ]
+                    else:
+                        filtered_positions = sync_result['synced_positions']
+
+                    if filtered_positions:
+                        synced_str = ', '.join(filtered_positions)
+                        self._add_log(f"📊 수량 변동: {synced_str}")
 
         except Exception as e:
             logger.error(f"❌ 잔고 업데이트 처리 오류: {e}", exc_info=True)

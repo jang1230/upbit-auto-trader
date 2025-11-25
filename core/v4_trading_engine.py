@@ -1465,7 +1465,7 @@ class V4TradingEngine:
             quantity_ratio = level.get("quantity_ratio", 100) / 100.0
 
             if profit_pct >= target_pct:
-                logger.info(f"🎯 {symbol}: 익절 레벨 {level_index} 도달 (현재: {profit_pct:.2f}%, 목표: {target_pct:.2f}%)")
+                logger.info(f"[익절] {symbol} 레벨{level_index} 도달 (+{profit_pct:.2f}%) → 매도 주문")
 
                 if profit_settings.get("mode") == "auto":
                     self._execute_sell(symbol, group_id, group, "profit", quantity_ratio, level_index, profit_pct)
@@ -1567,7 +1567,7 @@ class V4TradingEngine:
             quantity_ratio = level.get("quantity_ratio", 100) / 100.0
 
             if profit_pct <= stop_pct:
-                logger.warning(f"🛑 {symbol}: 손절 레벨 {level_index} 도달 (현재: {profit_pct:.2f}%, 기준: {stop_pct:.2f}%)")
+                logger.info(f"[손절] {symbol} 레벨{level_index} 도달 ({profit_pct:.2f}%) → 매도 주문")
 
                 if loss_settings.get("mode") == "auto":
                     self._execute_sell(symbol, group_id, group, "loss", quantity_ratio, level_index, profit_pct)
@@ -1667,7 +1667,7 @@ class V4TradingEngine:
                     )
                     return
 
-        logger.info(f"💰 {symbol} 매도 실행 중... (사유: {reason}, 레벨: {level_index}, 수량: {sell_amount:.8f}개, 금액: {sell_value_krw:,.0f}원)")
+        logger.debug(f"💰 {symbol} 매도 실행 중... (사유: {reason}, 레벨: {level_index}, 수량: {sell_amount:.8f}개, 금액: {sell_value_krw:,.0f}원)")
 
         try:
             if self.dry_run or not self.upbit_api:
@@ -1716,7 +1716,7 @@ class V4TradingEngine:
                         "profit_pct": profit_pct  # 수익률 (%)
                     }
                 })
-                logger.info(f"   📝 {symbol} {reason} 레벨 {level_index} pending_order 사전 저장 완료")
+                logger.debug(f"   📝 {symbol} {reason} 레벨 {level_index} pending_order 사전 저장 완료")
 
                 # 2. REST API 호출
                 try:
@@ -1742,7 +1742,7 @@ class V4TradingEngine:
                     executed_volume = float(order_result.get('executed_volume', 0))
                     avg_price = float(order_result.get('avg_price', 0))
 
-                    logger.info(f"   📝 {symbol} 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
+                    logger.debug(f"   📝 {symbol} 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
 
                     # 3. pending_order 업데이트 (order_id 추가)
                     self.position_manager.update_position(symbol, {
@@ -1764,16 +1764,16 @@ class V4TradingEngine:
                     # 4. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
                     if self.myorder_ws:
                         self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
-                        logger.info(f"   📡 {symbol} 주문 {order_uuid[:8]}... 콜백 등록 완료")
+                        logger.debug(f"   📡 {symbol} 주문 {order_uuid[:8]}... 콜백 등록 완료")
                     else:
                         logger.warning(f"   ⚠️ {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
 
                     # 5. 포지션 종료 여부 로그
                     if quantity_ratio >= 0.99:
                         # 체결 확인 후 포지션 종료는 _on_order_completed에서 처리
-                        logger.info(f"   ⏳ {symbol} 전량 매도 주문 대기 중...")
+                        logger.debug(f"   ⏳ {symbol} 전량 매도 주문 대기 중...")
                     else:
-                        logger.info(f"   ⏳ {symbol} 부분 매도 주문 대기 중...")
+                        logger.debug(f"   ⏳ {symbol} 부분 매도 주문 대기 중...")
 
                 except Exception as api_error:
                     logger.error(f"❌ {symbol} 매도 REST API 호출 오류: {api_error}", exc_info=True)
@@ -1833,7 +1833,7 @@ class V4TradingEngine:
             avg_price = order_data.get('avg_price', 0)
             trade_price = order_data.get('price', 0)  # ✅ 실제 체결가 (state='trade'일 때)
 
-            logger.info(f"📬 주문 체결 이벤트 수신: {symbol} {order_uuid[:8]}... state={state}")
+            logger.debug(f"📬 주문 체결 이벤트 수신: {symbol} {order_uuid[:8]}... state={state}")
 
             # 대기 중인 주문은 무시
             if state == 'wait':
@@ -1866,11 +1866,11 @@ class V4TradingEngine:
                         del self.pending_initial_buys[order_uuid]
                         return
 
-                    # state 구분 로그
+                    # state 구분 로그 (debug)
                     if state == 'done':
-                        logger.info(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
+                        logger.debug(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
                     else:
-                        logger.info(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
+                        logger.debug(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
 
                     # 🆕 REST API로 정확한 평균가 조회
                     final_avg_price = avg_price  # fallback
@@ -1884,7 +1884,7 @@ class V4TradingEngine:
                                 if acc['currency'] == currency:
                                     final_avg_price = float(acc.get('avg_buy_price', 0))
                                     final_balance = float(acc.get('balance', 0))
-                                    logger.info(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
+                                    logger.debug(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
                                     break
                         except Exception as e:
                             logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
@@ -1924,12 +1924,12 @@ class V4TradingEngine:
                     # pending_initial_buys에서 제거
                     self.processed_bot_order_uuids.add(order_uuid)
                     del self.pending_initial_buys[order_uuid]
-                    logger.info(f"   🗑️ {symbol} pending_initial_buys 제거 완료")
+                    logger.debug(f"   🗑️ {symbol} pending_initial_buys 제거 완료")
 
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
-                    logger.info(f"   🎉 [자동매수] {symbol} 초기 매수 처리 완료")
+                    logger.debug(f"   🎉 [자동매수] {symbol} 초기 매수 처리 완료")
 
                 return  # 초기 매수는 여기서 종료
 
@@ -2031,21 +2031,24 @@ class V4TradingEngine:
 
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
-                logger.info(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f}, 가격: {trade_price:,.0f}원)")
+                # 🔧 익절/손절 부분체결 시 사용자 친화적 로그
+                position = self.position_manager.get_position(symbol)
+                pending_order = position.get('pending_order') if position else None
+                order_type = pending_order.get('type') if pending_order else None
+
+                if order_type == 'profit':
+                    logger.info(f"[익절] {symbol} 부분체결: {executed_volume:.8f}개 @ {trade_price:,.0f}원")
+                elif order_type == 'loss':
+                    logger.info(f"[손절] {symbol} 부분체결: {executed_volume:.8f}개 @ {trade_price:,.0f}원")
+                else:
+                    logger.debug(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f}, 가격: {trade_price:,.0f}원)")
 
                 # 🆕 실시간 평균가 업데이트 (REST API 조회)
                 # 🔧 매도 주문(profit/loss)일 경우 total_amount 업데이트 건너뛰기
-                #    - 매도 체결 중 REST API 조회 시 이미 매도된 후의 잔고가 반환됨
-                #    - 이로 인해 익절 완료 처리 시 remaining_amount 계산 오류 발생
-                #    - 매도 완료는 state=done에서 원래 수량 기준으로 처리
-                position = self.position_manager.get_position(symbol)
                 if position and self.upbit_api:
-                    pending_order = position.get('pending_order')
-                    order_type = pending_order.get('type') if pending_order else None
-
                     # 매도 주문(profit/loss)이면 total_amount 업데이트 건너뛰기
                     if order_type in ['profit', 'loss']:
-                        logger.info(f"   ⏭️ [실시간] {symbol} 매도 주문 진행 중 → total_amount 업데이트 스킵 (state=done에서 처리)")
+                        logger.debug(f"   ⏭️ [실시간] {symbol} 매도 주문 진행 중 → total_amount 업데이트 스킵")
                     else:
                         # 매수 주문(dca, buy 등)은 실시간 업데이트
                         try:
@@ -2063,7 +2066,7 @@ class V4TradingEngine:
                                         'total_invested_krw': new_avg_price * new_balance
                                     })
 
-                                    logger.info(f"   📊 [실시간] {symbol} 평균가 업데이트: {new_avg_price:,.0f}원 (수량: {new_balance:.8f}개)")
+                                    logger.debug(f"   📊 [실시간] {symbol} 평균가 업데이트: {new_avg_price:,.0f}원 (수량: {new_balance:.8f}개)")
                                     break
                         except Exception as e:
                             logger.error(f"❌ [실시간] {symbol} 평균가 조회 실패: {e}")
@@ -2127,7 +2130,7 @@ class V4TradingEngine:
                     group_id = pending_order.get('group_id', 'unknown')
                     group_name = pending_order.get('group_name', 'Unknown')
 
-                    logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
+                    logger.debug(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=cancel, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
 
                     # 🆕 REST API로 정확한 평균가 조회
                     final_avg_price = avg_price  # fallback
@@ -2141,7 +2144,7 @@ class V4TradingEngine:
                                 if acc['currency'] == currency:
                                     final_avg_price = float(acc.get('avg_buy_price', 0))
                                     final_balance = float(acc.get('balance', 0))
-                                    logger.info(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
+                                    logger.debug(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
                                     break
                         except Exception as e:
                             logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
@@ -2171,7 +2174,7 @@ class V4TradingEngine:
                         'pending_order': None
                     })
 
-                    logger.info(f"   📝 {symbol} DCA 레벨 {level_index+1} 완료 - dca_levels_executed: {dca_levels_executed}")
+                    logger.debug(f"   📝 {symbol} DCA 레벨 {level_index+1} 완료 - dca_levels_executed: {dca_levels_executed}")
 
                     # 거래 기록
                     updated_position = self.position_manager.get_position(symbol)
@@ -2206,7 +2209,7 @@ class V4TradingEngine:
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
-                    logger.info(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
+                    logger.debug(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
 
                 elif order_type in ['profit', 'loss']:
                     # ✅ 중복 체크
@@ -2247,7 +2250,7 @@ class V4TradingEngine:
 
                     # 레벨 기록
                     levels_executed.append(level_index)
-                    logger.info(f"   📝 {symbol} {order_type} 레벨 {level_index} 체결 완료 (state=cancel, 미세 잔량 반환) → {key}에 기록")
+                    logger.debug(f"   📝 {symbol} {order_type} 레벨 {level_index} 체결 완료 (state=cancel, 미세 잔량 반환) → {key}에 기록")
 
                     # 🔧 Phase D 버그 수정: 포지션 수량 감소 처리 (state=done과 동일)
                     group_id = pending_order.get('group_id', 'unknown')
@@ -2258,7 +2261,7 @@ class V4TradingEngine:
                     remaining_amount = total_amount - executed_volume
 
                     action_type = "익절" if order_type == 'profit' else "손절"
-                    logger.info(f"   📊 {symbol} {action_type} 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
+                    logger.debug(f"   📊 {symbol} {action_type} 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
 
                     # 현재가 조회 (최소 주문 금액 체크용)
                     current_price = self._get_current_price_safe(symbol)
@@ -2268,7 +2271,7 @@ class V4TradingEngine:
 
                         if remaining_value < MIN_ORDER_KRW:
                             # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
-                            logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                            logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
                             self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
 
                             # 거래 기록
@@ -2290,6 +2293,13 @@ class V4TradingEngine:
 
                             self.trade_history.add_trade(**trade_params)
 
+                            # 🔧 GUI 완료 로그 (한 줄 요약)
+                            sell_amount_krw = pending_order.get('sell_amount_krw', 0)
+                            profit_pct = pending_order.get('profit_pct', 0)
+                            avg_buy_price = position.get('avg_buy_price', 0)
+                            profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
+
                             # 텔레그램 알림
                             emoji = "✅" if order_type == 'profit' else "❌"
                             self._send_telegram_alert(
@@ -2298,7 +2308,7 @@ class V4TradingEngine:
                                 f"코인: {symbol}\n"
                                 f"레벨: {level_index + 1}\n"
                                 f"━━━━━━━━━━━━━━\n"
-                                f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                                f"매도 금액: {sell_amount_krw:,.0f}원\n"
                                 f"매도 수량: {executed_volume:.8f}개\n"
                                 f"체결 가격: {avg_price:,.0f}원\n"
                                 f"━━━━━━━━━━━━━━\n"
@@ -2306,7 +2316,7 @@ class V4TradingEngine:
                             )
                         else:
                             # 남은 금액 충분 → 수량만 감소
-                            logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                            logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
                             self.position_manager.update_position(symbol, {
                                 key: levels_executed,
                                 'pending_order': None,
@@ -2332,6 +2342,13 @@ class V4TradingEngine:
 
                             self.trade_history.add_trade(**trade_params)
 
+                            # 🔧 GUI 완료 로그 (한 줄 요약)
+                            sell_amount_krw = pending_order.get('sell_amount_krw', 0)
+                            profit_pct = pending_order.get('profit_pct', 0)
+                            avg_buy_price = position.get('avg_buy_price', 0)
+                            profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
                             # 텔레그램 알림
                             emoji = "✅" if order_type == 'profit' else "❌"
                             self._send_telegram_alert(
@@ -2340,7 +2357,7 @@ class V4TradingEngine:
                                 f"코인: {symbol}\n"
                                 f"레벨: {level_index + 1}\n"
                                 f"━━━━━━━━━━━━━━\n"
-                                f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                                f"매도 금액: {sell_amount_krw:,.0f}원\n"
                                 f"매도 수량: {executed_volume:.8f}개\n"
                                 f"체결 가격: {avg_price:,.0f}원\n"
                                 f"━━━━━━━━━━━━━━\n"
@@ -2354,7 +2371,7 @@ class V4TradingEngine:
                 else:
                     # 기타 주문 타입
                     self.position_manager.update_position(symbol, {'pending_order': None})
-                    logger.info(f"   🗑️ {symbol} pending_order 정리 완료")
+                    logger.debug(f"   🗑️ {symbol} pending_order 정리 완료")
 
                 return
 
@@ -2374,7 +2391,7 @@ class V4TradingEngine:
             order_type = pending_order.get('type')  # 'profit', 'loss', 'dca'
             level_index = pending_order.get('level')  # 0, 1, 2, ...
 
-            logger.info(f"   ✅ {symbol} {order_type} 레벨 {level_index} 체결 완료 "
+            logger.debug(f"   ✅ {symbol} {order_type} 레벨 {level_index} 체결 완료 "
                        f"(수량: {executed_volume:.8f}, 가격: {avg_price:,.0f}원)")
 
             # executed_levels 배열에 추가
@@ -2386,7 +2403,7 @@ class V4TradingEngine:
                 if level_index not in profit_levels_executed:
                     profit_levels_executed.append(level_index)
                     updates['profit_levels_executed'] = profit_levels_executed
-                    logger.info(f"   📝 {symbol} profit_levels_executed 업데이트: {profit_levels_executed}")
+                    logger.debug(f"   📝 {symbol} profit_levels_executed 업데이트: {profit_levels_executed}")
 
                 # 🔧 Phase D 버그 수정: 포지션 수량 감소 처리
                 group_id = pending_order.get('group_id', 'unknown')
@@ -2396,7 +2413,7 @@ class V4TradingEngine:
                 total_amount = position.get('total_amount', 0)
                 remaining_amount = total_amount - executed_volume
 
-                logger.info(f"   📊 {symbol} 익절 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
+                logger.debug(f"   📊 {symbol} 익절 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
 
                 # 현재가 조회 (최소 주문 금액 체크용)
                 current_price = self._get_current_price_safe(symbol)
@@ -2406,7 +2423,7 @@ class V4TradingEngine:
 
                     if remaining_value < MIN_ORDER_KRW:
                         # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
-                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                        logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
                         self.position_manager.close_position(symbol, close_price=avg_price, close_reason="profit")
 
                         # 거래 기록
@@ -2423,8 +2440,14 @@ class V4TradingEngine:
                             profit_level=level_index + 1
                         )
 
-                        # 텔레그램 알림
+                        # 🔧 GUI 완료 로그 (한 줄 요약)
                         profit_pct = pending_order.get('profit_pct', 0)
+                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                        logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
+
+                        # 텔레그램 알림
                         self._send_telegram_alert(
                             f"✅ 익절 매도 완료 (포지션 종료)\n"
                             f"그룹: {group_name}\n"
@@ -2432,7 +2455,7 @@ class V4TradingEngine:
                             f"레벨: {level_index + 1}\n"
                             f"수익률: +{profit_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
-                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 금액: {sell_amount_krw:,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
                             f"체결 가격: {avg_price:,.0f}원\n"
                             f"━━━━━━━━━━━━━━\n"
@@ -2444,7 +2467,7 @@ class V4TradingEngine:
                             self.on_auto_sell_callback(symbol, executed_volume)
                     else:
                         # 남은 금액 충분 → 수량만 감소
-                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                        logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
                         updates['total_amount'] = remaining_amount
 
                         # 거래 기록
@@ -2461,8 +2484,14 @@ class V4TradingEngine:
                             profit_level=level_index + 1
                         )
 
-                        # 텔레그램 알림
+                        # 🔧 GUI 완료 로그 (한 줄 요약)
                         profit_pct = pending_order.get('profit_pct', 0)
+                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                        logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                        # 텔레그램 알림
                         self._send_telegram_alert(
                             f"✅ 익절 부분 매도 완료\n"
                             f"그룹: {group_name}\n"
@@ -2470,7 +2499,7 @@ class V4TradingEngine:
                             f"레벨: {level_index + 1}\n"
                             f"수익률: +{profit_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
-                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 금액: {sell_amount_krw:,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
                             f"체결 가격: {avg_price:,.0f}원\n"
                             f"━━━━━━━━━━━━━━\n"
@@ -2491,7 +2520,7 @@ class V4TradingEngine:
                 if level_index not in loss_levels_executed:
                     loss_levels_executed.append(level_index)
                     updates['loss_levels_executed'] = loss_levels_executed
-                    logger.info(f"   📝 {symbol} loss_levels_executed 업데이트: {loss_levels_executed}")
+                    logger.debug(f"   📝 {symbol} loss_levels_executed 업데이트: {loss_levels_executed}")
 
                 # 🔧 Phase D 버그 수정: 포지션 수량 감소 처리
                 group_id = pending_order.get('group_id', 'unknown')
@@ -2501,7 +2530,7 @@ class V4TradingEngine:
                 total_amount = position.get('total_amount', 0)
                 remaining_amount = total_amount - executed_volume
 
-                logger.info(f"   📊 {symbol} 손절 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
+                logger.debug(f"   📊 {symbol} 손절 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f} (매도: {executed_volume:.8f})")
 
                 # 현재가 조회 (최소 주문 금액 체크용)
                 current_price = self._get_current_price_safe(symbol)
@@ -2511,7 +2540,7 @@ class V4TradingEngine:
 
                     if remaining_value < MIN_ORDER_KRW:
                         # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
-                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                        logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
                         self.position_manager.close_position(symbol, close_price=avg_price, close_reason="loss")
 
                         # 거래 기록
@@ -2528,8 +2557,14 @@ class V4TradingEngine:
                             loss_level=level_index + 1
                         )
 
-                        # 텔레그램 알림
+                        # 🔧 GUI 완료 로그 (한 줄 요약)
                         loss_pct = pending_order.get('profit_pct', 0)
+                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                        logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%)")
+
+                        # 텔레그램 알림
                         self._send_telegram_alert(
                             f"❌ 손절 매도 완료 (포지션 종료)\n"
                             f"그룹: {group_name}\n"
@@ -2537,7 +2572,7 @@ class V4TradingEngine:
                             f"레벨: {level_index + 1}\n"
                             f"수익률: {loss_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
-                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 금액: {sell_amount_krw:,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
                             f"체결 가격: {avg_price:,.0f}원\n"
                             f"━━━━━━━━━━━━━━\n"
@@ -2549,7 +2584,7 @@ class V4TradingEngine:
                             self.on_auto_sell_callback(symbol, executed_volume)
                     else:
                         # 남은 금액 충분 → 수량만 감소
-                        logger.info(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                        logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
                         updates['total_amount'] = remaining_amount
 
                         # 거래 기록
@@ -2566,8 +2601,14 @@ class V4TradingEngine:
                             loss_level=level_index + 1
                         )
 
-                        # 텔레그램 알림
+                        # 🔧 GUI 완료 로그 (한 줄 요약)
                         loss_pct = pending_order.get('profit_pct', 0)
+                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                        logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                        # 텔레그램 알림
                         self._send_telegram_alert(
                             f"❌ 손절 부분 매도 완료\n"
                             f"그룹: {group_name}\n"
@@ -2575,7 +2616,7 @@ class V4TradingEngine:
                             f"레벨: {level_index + 1}\n"
                             f"수익률: {loss_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
-                            f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
+                            f"매도 금액: {sell_amount_krw:,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
                             f"체결 가격: {avg_price:,.0f}원\n"
                             f"━━━━━━━━━━━━━━\n"
