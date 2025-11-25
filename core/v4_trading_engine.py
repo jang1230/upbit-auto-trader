@@ -2023,27 +2023,39 @@ class V4TradingEngine:
                 logger.info(f"   💰 주문 {order_uuid[:8]}... 부분 체결 (수량: {executed_volume:.8f}, 가격: {trade_price:,.0f}원)")
 
                 # 🆕 실시간 평균가 업데이트 (REST API 조회)
+                # 🔧 매도 주문(profit/loss)일 경우 total_amount 업데이트 건너뛰기
+                #    - 매도 체결 중 REST API 조회 시 이미 매도된 후의 잔고가 반환됨
+                #    - 이로 인해 익절 완료 처리 시 remaining_amount 계산 오류 발생
+                #    - 매도 완료는 state=done에서 원래 수량 기준으로 처리
                 position = self.position_manager.get_position(symbol)
                 if position and self.upbit_api:
-                    try:
-                        accounts = self.upbit_api.get_accounts()
-                        for acc in accounts:
-                            currency = symbol.replace('KRW-', '')
-                            if acc['currency'] == currency:
-                                new_avg_price = float(acc.get('avg_buy_price', 0))
-                                new_balance = float(acc.get('balance', 0))
+                    pending_order = position.get('pending_order')
+                    order_type = pending_order.get('type') if pending_order else None
 
-                                # 포지션 업데이트 (실시간)
-                                self.position_manager.update_position(symbol, {
-                                    'total_amount': new_balance,
-                                    'avg_buy_price': new_avg_price,
-                                    'total_invested_krw': new_avg_price * new_balance
-                                })
+                    # 매도 주문(profit/loss)이면 total_amount 업데이트 건너뛰기
+                    if order_type in ['profit', 'loss']:
+                        logger.info(f"   ⏭️ [실시간] {symbol} 매도 주문 진행 중 → total_amount 업데이트 스킵 (state=done에서 처리)")
+                    else:
+                        # 매수 주문(dca, buy 등)은 실시간 업데이트
+                        try:
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                currency = symbol.replace('KRW-', '')
+                                if acc['currency'] == currency:
+                                    new_avg_price = float(acc.get('avg_buy_price', 0))
+                                    new_balance = float(acc.get('balance', 0))
 
-                                logger.info(f"   📊 [실시간] {symbol} 평균가 업데이트: {new_avg_price:,.0f}원 (수량: {new_balance:.8f}개)")
-                                break
-                    except Exception as e:
-                        logger.error(f"❌ [실시간] {symbol} 평균가 조회 실패: {e}")
+                                    # 포지션 업데이트 (실시간)
+                                    self.position_manager.update_position(symbol, {
+                                        'total_amount': new_balance,
+                                        'avg_buy_price': new_avg_price,
+                                        'total_invested_krw': new_avg_price * new_balance
+                                    })
+
+                                    logger.info(f"   📊 [실시간] {symbol} 평균가 업데이트: {new_avg_price:,.0f}원 (수량: {new_balance:.8f}개)")
+                                    break
+                        except Exception as e:
+                            logger.error(f"❌ [실시간] {symbol} 평균가 조회 실패: {e}")
 
                 return  # 최종 처리는 state='done'에서
 
