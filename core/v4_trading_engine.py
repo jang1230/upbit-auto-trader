@@ -44,7 +44,8 @@ class V4TradingEngine:
     def __init__(
         self,
         config_path: str = "config/trading_config.json",
-        upbit_api: Optional[UpbitAPI] = None
+        upbit_api: Optional[UpbitAPI] = None,
+        position_manager: Optional['PositionManager'] = None
     ):
         """
         V4TradingEngine 초기화
@@ -52,6 +53,7 @@ class V4TradingEngine:
         Args:
             config_path: 설정 파일 경로
             upbit_api: Upbit API 인스턴스 (None이면 dry-run 모드)
+            position_manager: 외부 PositionManager (None이면 내부 생성)
         """
         logger.info("🚀 V4TradingEngine 초기화 시작")
 
@@ -70,8 +72,12 @@ class V4TradingEngine:
         # 그룹 관리
         self.group_manager = GroupManager(config_path, mode=mode)
 
-        # 포지션 관리
-        self.position_manager = PositionManager(mode=mode, upbit_api=upbit_api)
+        # 포지션 관리 (외부 인스턴스 사용 또는 내부 생성)
+        if position_manager:
+            self.position_manager = position_manager
+            logger.info("✅ 외부 PositionManager 사용 (recent_bot_sells 공유)")
+        else:
+            self.position_manager = PositionManager(mode=mode, upbit_api=upbit_api)
 
         # 거래 내역
         self.trade_history = TradeHistoryManager()

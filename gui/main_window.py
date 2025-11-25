@@ -995,10 +995,11 @@ class MainWindow(QMainWindow):
                 self.price_websocket_worker.wait(3000)  # 최대 3초 대기
                 self.price_websocket_worker = None
 
-            # 🔧 2단계: V4TradingEngine 인스턴스 생성
+            # 🔧 2단계: V4TradingEngine 인스턴스 생성 (PositionManager 공유)
             self.v4_engine = V4TradingEngine(
                 config_path="config/trading_config.json",
-                upbit_api=self.upbit_api
+                upbit_api=self.upbit_api,
+                position_manager=self.v4_position_manager  # recent_bot_sells 공유
             )
 
             # 🔧 2-1단계: 자동 매도 콜백 등록 (중복 알림 방지)

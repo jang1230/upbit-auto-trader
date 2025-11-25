@@ -372,7 +372,7 @@ class PositionManager:
         # MyAsset WebSocket에서 잔고 0 감지 시 "수동매도 감지" 알림 스킵용
         if close_reason in ['profit', 'loss']:
             self.recent_bot_sells[symbol] = time.time()
-            logger.info(f"🔖 봇 매도 기록: {symbol} (사유: {close_reason}) - 10초간 수동매도 알림 차단")
+            logger.debug(f"🔖 봇 매도 기록: {symbol} (사유: {close_reason}) - 10초간 수동매도 알림 차단")
 
         if symbol not in self.positions:
             raise ValueError(f"포지션을 찾을 수 없습니다: {symbol}")
