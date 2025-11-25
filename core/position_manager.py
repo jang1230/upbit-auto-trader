@@ -55,6 +55,11 @@ class PositionManager:
         # Thread-safe file I/O lock
         self._lock = threading.Lock()
 
+        # 🆕 봇 매도 기록 (중복 알림 방지용)
+        # close_position(reason='profit'/'loss') 호출 시 등록
+        # sync_with_myasset_websocket()에서 10초 이내면 수동매도 알림 스킵
+        self.recent_bot_sells: Dict[str, float] = {}
+
         # 로드
         self._load_positions()
 
@@ -363,6 +368,12 @@ class PositionManager:
         Returns:
             종료된 포지션
         """
+        # 🆕 봇 매도(익절/손절)일 때 기록 (중복 알림 방지)
+        # MyAsset WebSocket에서 잔고 0 감지 시 "수동매도 감지" 알림 스킵용
+        if close_reason in ['profit', 'loss']:
+            self.recent_bot_sells[symbol] = time.time()
+            logger.info(f"🔖 봇 매도 기록: {symbol} (사유: {close_reason}) - 10초간 수동매도 알림 차단")
+
         if symbol not in self.positions:
             raise ValueError(f"포지션을 찾을 수 없습니다: {symbol}")
 
@@ -765,7 +776,19 @@ class PositionManager:
                 # 명시적으로 0으로 업데이트된 경우 → 매도 완료
                 position = self.get_position(symbol)
                 if position:
-                    # 🆕 텔레그램 알림용 포지션 정보 저장
+                    # 🆕 봇 매도 체크 (10초 이내면 수동매도 알림 스킵)
+                    if symbol in self.recent_bot_sells:
+                        elapsed = time.time() - self.recent_bot_sells[symbol]
+                        if elapsed < 10:
+                            logger.info(f"   ⏭️ 봇 매도 직후 ({elapsed:.1f}초) → 수동매도 알림 스킵: {symbol}")
+                            self.delete_position(symbol)
+                            del self.recent_bot_sells[symbol]  # 정리
+                            continue  # removed_positions에 추가 안 함!
+                        else:
+                            # 10초 경과 → 만료 제거
+                            del self.recent_bot_sells[symbol]
+
+                    # 텔레그램 알림용 포지션 정보 저장 (외부/수동 매도)
                     removed_position_info = {
                         'symbol': symbol,
                         'avg_buy_price': position.get('avg_buy_price', 0),
