@@ -2209,6 +2209,9 @@ class V4TradingEngine:
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
+                    # 🔧 중복 처리 방지: 봇 주문 UUID 기록
+                    self.processed_bot_order_uuids.add(order_uuid)
+
                     logger.debug(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
 
                 elif order_type in ['profit', 'loss']:
@@ -2645,7 +2648,7 @@ class V4TradingEngine:
                 group_id = pending_order.get('group_id', 'unknown')
                 group_name = pending_order.get('group_name', 'Unknown')
 
-                logger.info(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
+                logger.debug(f"   ✅ {symbol} DCA 레벨 {level_index+1} 체결 완료 (state=done, MyOrder avg: {avg_price:,.0f}원, 수량: {executed_volume:.8f})")
 
                 # 🆕 REST API로 정확한 평균가 조회
                 final_avg_price = avg_price  # fallback
@@ -2659,7 +2662,7 @@ class V4TradingEngine:
                             if acc['currency'] == currency:
                                 final_avg_price = float(acc.get('avg_buy_price', 0))
                                 final_balance = float(acc.get('balance', 0))
-                                logger.info(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
+                                logger.debug(f"   📊 [최종] {symbol} REST API 평균가: {final_avg_price:,.0f}원 (수량: {final_balance:.8f}개)")
                                 break
                     except Exception as e:
                         logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
@@ -2686,7 +2689,7 @@ class V4TradingEngine:
                 updates['dca_history'] = dca_history
                 updates['dca_levels_executed'] = dca_levels_executed
 
-                logger.info(f"   📝 {symbol} DCA 레벨 {level_index+1} 완료 - dca_levels_executed: {dca_levels_executed}")
+                logger.debug(f"   📝 {symbol} DCA 레벨 {level_index+1} 완료 - dca_levels_executed: {dca_levels_executed}")
 
                 # 거래 기록 (Live 모드에서만, Dry-run은 _execute_dca에서 이미 기록)
                 self.trade_history.add_trade(
@@ -2720,10 +2723,13 @@ class V4TradingEngine:
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                 self._mark_processed_by_myorder(symbol)
 
+                # 🔧 중복 처리 방지: 봇 주문 UUID 기록
+                self.processed_bot_order_uuids.add(order_uuid)
+
             # 포지션 업데이트 (pending_order 제거)
             self.position_manager.update_position(symbol, updates)
 
-            logger.info(f"   🎉 {symbol} 주문 {order_uuid[:8]}... 처리 완료")
+            logger.debug(f"   🎉 {symbol} 주문 {order_uuid[:8]}... 처리 완료")
 
         except Exception as e:
             logger.error(f"❌ 주문 체결 콜백 처리 오류: {e}", exc_info=True)
