@@ -2516,8 +2516,7 @@ class MainWindow(QMainWindow):
 
                 row_idx += 1
 
-            logger.info(f"✅ V4 포지션 로드 완료: {row_idx}개 (관리 중: {managed_count}개)")
-            self._add_log(f"📊 포지션 {row_idx}개 로드됨")
+            logger.debug(f"✅ V4 포지션 로드 완료: {row_idx}개 (관리 중: {managed_count}개)")
 
             # 🔧 관리 중인 포지션 개수 업데이트 (관찰 모드 제외)
             self.price_label.setText(f"관리 중: {managed_count}개 포지션")
@@ -2865,9 +2864,8 @@ class MainWindow(QMainWindow):
                             # 이전 버전 호환성 (심볼만 있는 경우)
                             logger.debug(f"매도 감지 (상세 정보 없음): {removed_pos}")
 
-                if sync_result['new_positions']:
-                    new_str = ', '.join(sync_result['new_positions'])
-                    self._add_log(f"🆕 매수 감지: {new_str}")
+                # 🔧 new_positions 로그 제거 - V4 엔진(MyOrder)에서 이미 처리함
+                # MyAsset은 백업용이므로 GUI 로그 불필요
 
                 if sync_result['synced_positions']:
                     synced_str = ', '.join(sync_result['synced_positions'])

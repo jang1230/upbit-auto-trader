@@ -1947,10 +1947,7 @@ class V4TradingEngine:
                     # 🆕 Phase B-1: 외부 신규 매수 처리
                     group_id = self._find_group_for_symbol(symbol)
 
-                    if group_id:
-                        logger.info(f"🆕 [수동] {symbol} 신규 매수 감지 (그룹: {group_id})")
-                    else:
-                        logger.info(f"🆕 [수동] {symbol} 신규 매수 감지 (그룹 없음 → group_null)")
+                    if not group_id:
                         group_id = "group_null"
 
                     # 포지션 생성
@@ -1962,7 +1959,9 @@ class V4TradingEngine:
                         force_create_for_sync=(group_id == "group_null")
                     )
 
-                    logger.info(f"   ✅ [수동] {group_id} 포지션 생성: {symbol}")
+                    # GUI 한 줄 요약 로그
+                    total_krw = avg_price * executed_volume
+                    logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {executed_volume:.8f}개 | {avg_price:,.0f}원")
 
                     # 텔레그램 알림 추가
                     total_krw = avg_price * executed_volume
@@ -1986,8 +1985,6 @@ class V4TradingEngine:
                 pending_order = position.get('pending_order')
 
                 if not pending_order:
-                    logger.info(f"🆕 [수동] {symbol} 추가 매수 감지 (수량: {executed_volume:.8f})")
-
                     # REST API로 최신 평균가 조회
                     if self.upbit_api:
                         try:
@@ -2005,12 +2002,13 @@ class V4TradingEngine:
                                         'total_invested_krw': new_avg_price * new_balance
                                     })
 
-                                    logger.info(f"   ✅ [수동] {symbol} 추가 매수 반영 (새 평균가: {new_avg_price:,.0f}원)")
+                                    # GUI 한 줄 요약 로그
+                                    additional_krw = avg_price * executed_volume
+                                    logger.info(f"[수동매수] 추가: {symbol} | {additional_krw:,.0f}원 | 평균가 {new_avg_price:,.0f}원")
 
                                     # 텔레그램 알림 추가
                                     group_id = position.get('group_id', 'unknown')
                                     group_name = position.get('group_name', 'Unknown')
-                                    additional_krw = avg_price * executed_volume
                                     self._send_telegram_alert(
                                         f"🔄 [수동] 추가 매수 감지\n"
                                         f"그룹: {group_name}\n"
@@ -2030,138 +2028,6 @@ class V4TradingEngine:
                     # MyOrder 처리 완료 마킹
                     self._mark_processed_by_myorder(symbol)
                     return
-
-            # 🆕 Phase C: 수동 매도 처리 (state='done' or 'cancel' and side='ask')
-            if state in ['done', 'cancel'] and ask_bid == 'ASK':
-                position = self.position_manager.get_position(symbol)
-
-                if not position:
-                    logger.warning(f"🔔 [수동매도] {symbol} 매도 감지 (포지션 없음 - 외부 매도)")
-                    return
-
-                pending_order = position.get('pending_order')
-
-                # 봇이 실행한 매도 주문이면 스킵 (profit/loss)
-                if pending_order and pending_order.get('order_id') == order_uuid:
-                    logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), 수동 매도 처리 스킵")
-                    return
-
-                # 수동 매도 감지 (상세 로그는 텔레그램으로 전송, GUI는 한 줄 요약)
-                logger.debug(f"🔔 [수동매도] {symbol} 외부 매도 감지 (수량: {executed_volume:.8f})")
-
-                # 손익 계산
-                avg_buy_price = position.get('avg_buy_price', 0)
-                total_amount = position.get('total_amount', 0)
-                group_id = position.get('group_id', 'unknown')
-                group_name = position.get('group_name', 'Unknown')
-
-                # 매도 금액 및 손익 계산
-                sell_value = avg_price * executed_volume
-                cost_basis = avg_buy_price * executed_volume
-                profit_krw = sell_value - cost_basis
-                profit_pct = ((avg_price - avg_buy_price) / avg_buy_price * 100) if avg_buy_price > 0 else 0
-
-                # 매도 비율 계산
-                sell_ratio = (executed_volume / total_amount * 100) if total_amount > 0 else 100
-                remaining_amount = total_amount - executed_volume
-
-                # REST API로 최신 잔고 확인
-                actual_balance = 0
-                if self.upbit_api:
-                    try:
-                        accounts = self.upbit_api.get_accounts()
-                        for acc in accounts:
-                            currency = symbol.replace('KRW-', '')
-                            if acc['currency'] == currency:
-                                actual_balance = float(acc.get('balance', 0))
-                                break
-                    except Exception as e:
-                        logger.error(f"❌ [수동매도] {symbol} 잔고 조회 실패: {e}")
-                        actual_balance = remaining_amount
-
-                # 포지션 종료 또는 업데이트
-                MIN_ORDER_KRW = 5000
-                current_price = self._get_current_price_safe(symbol)
-                remaining_value = actual_balance * current_price if current_price else 0
-
-                if actual_balance <= 0.00000001 or remaining_value < MIN_ORDER_KRW:
-                    # 전량 매도 또는 잔량 미미 → 포지션 종료
-                    # GUI 한 줄 요약 로그
-                    logger.info(f"🔔 [수동매도] 전량: {symbol} | {sell_value:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
-                    self.position_manager.close_position(symbol, close_price=avg_price, close_reason="manual_sell")
-
-                    # 거래 기록
-                    self.trade_history.add_trade(
-                        group_id=group_id,
-                        group_name=group_name,
-                        symbol=symbol,
-                        action="sell",
-                        trade_type="manual",
-                        price=avg_price,
-                        amount=executed_volume,
-                        total_krw=sell_value,
-                        dry_run=False
-                    )
-
-                    # 텔레그램 알림 (전량 매도)
-                    profit_emoji = "📈" if profit_krw >= 0 else "📉"
-                    self._send_telegram_alert(
-                        f"🔔 [수동매도] 전량 매도 감지\n"
-                        f"그룹: {group_name}\n"
-                        f"코인: {symbol}\n"
-                        f"━━━━━━━━━━━━━━\n"
-                        f"매도 금액: {sell_value:,.0f}원\n"
-                        f"매도 수량: {executed_volume:.8f}개\n"
-                        f"체결 가격: {avg_price:,.0f}원\n"
-                        f"━━━━━━━━━━━━━━\n"
-                        f"{profit_emoji} 손익: {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)\n"
-                        f"포지션 종료됨"
-                    )
-
-                    # GUI 콜백 호출
-                    if self.on_auto_sell_callback:
-                        self.on_auto_sell_callback(symbol, executed_volume)
-                else:
-                    # 부분 매도 → 수량만 감소
-                    # GUI 한 줄 요약 로그
-                    logger.info(f"🔔 [수동매도] 부분({sell_ratio:.0f}%): {symbol} | {sell_value:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
-                    self.position_manager.update_position(symbol, {
-                        'total_amount': actual_balance,
-                        'total_invested_krw': avg_buy_price * actual_balance
-                    })
-
-                    # 거래 기록
-                    self.trade_history.add_trade(
-                        group_id=group_id,
-                        group_name=group_name,
-                        symbol=symbol,
-                        action="sell",
-                        trade_type="manual",
-                        price=avg_price,
-                        amount=executed_volume,
-                        total_krw=sell_value,
-                        dry_run=False
-                    )
-
-                    # 텔레그램 알림 (부분 매도)
-                    profit_emoji = "📈" if profit_krw >= 0 else "📉"
-                    self._send_telegram_alert(
-                        f"🔔 [수동매도] 부분 매도 감지\n"
-                        f"그룹: {group_name}\n"
-                        f"코인: {symbol}\n"
-                        f"매도 비율: {sell_ratio:.1f}%\n"
-                        f"━━━━━━━━━━━━━━\n"
-                        f"매도 금액: {sell_value:,.0f}원\n"
-                        f"매도 수량: {executed_volume:.8f}개\n"
-                        f"체결 가격: {avg_price:,.0f}원\n"
-                        f"━━━━━━━━━━━━━━\n"
-                        f"{profit_emoji} 손익: {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)\n"
-                        f"남은 수량: {actual_balance:.8f}개"
-                    )
-
-                # MyOrder 처리 완료 마킹
-                self._mark_processed_by_myorder(symbol)
-                return
 
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
@@ -3410,9 +3276,7 @@ class V4TradingEngine:
         logger.warning(f"✅ 모든 포지션 청산 완료")
 
     def _send_telegram_alert(self, message: str):
-        """텔레그램 알림 전송 (동기 방식)"""
-        logger.info(f"📱 [Telegram] {message}")
-
+        """텔레그램 알림 전송 (동기 방식) - GUI 로그 없이 텔레그램만 전송"""
         # 텔레그램 봇 전송
         if self.telegram_bot:
             def send_sync():
@@ -3426,7 +3290,7 @@ class V4TradingEngine:
                     }
                     response = requests.post(url, json=payload, timeout=10)
                     response.raise_for_status()
-                    logger.info(f"📤 메시지 전송 완료: {message[:50]}...")
+                    logger.debug(f"📤 텔레그램 전송 완료")
                 except Exception as e:
                     logger.error(f"❌ 텔레그램 메시지 전송 실패: {e}")
 
