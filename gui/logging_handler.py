@@ -149,6 +149,24 @@ class GuiLogHandler(logging.Handler, QObject):
             return message
 
         # ─────────────────────────────────────────────────
+        # 초기 매수 완료 ([봇] 매수 완료 또는 [Dry-run] 매수 완료)
+        # ─────────────────────────────────────────────────
+        if "매수 완료" in message and "DCA" not in message:
+            try:
+                coin = re.search(r'코인:\s*(KRW-\w+)', message)
+                amount = re.search(r'금액:\s*([\d,]+)원', message)
+                price = re.search(r'가격:\s*([\d,]+)원', message)
+                quantity = re.search(r'수량:\s*([\d.]+)개', message)
+
+                if coin and amount and price:
+                    result = f"[매수완료] {coin.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+                    if quantity:
+                        result += f" | {quantity.group(1)}개"
+                    return result
+            except Exception:
+                pass
+
+        # ─────────────────────────────────────────────────
         # DCA 추가 매수 완료
         # ─────────────────────────────────────────────────
         if "DCA 추가 매수 완료" in message:
@@ -158,11 +176,14 @@ class GuiLogHandler(logging.Handler, QObject):
                 amount = re.search(r'추가 금액:\s*([\d,]+)원', message)
                 price = re.search(r'체결 가격:\s*([\d,]+)원', message)
                 avg_price = re.search(r'평균 매수가:\s*([\d,]+)원', message)
+                total_qty = re.search(r'총 보유량:\s*([\d.]+)개', message)
 
                 if coin and level and amount and price:
-                    result = f"[DCA] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 → {price.group(1)}원"
+                    result = f"[DCA완료] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 → {price.group(1)}원"
                     if avg_price:
                         result += f" | 평단 {avg_price.group(1)}원"
+                    if total_qty:
+                        result += f" | 총 {total_qty.group(1)}개"
                     return result
             except Exception:
                 pass
@@ -170,30 +191,38 @@ class GuiLogHandler(logging.Handler, QObject):
         # ─────────────────────────────────────────────────
         # 익절 매도 완료
         # ─────────────────────────────────────────────────
-        if "익절 매도 완료" in message:
+        if "익절" in message and "매도 완료" in message:
             try:
                 coin = re.search(r'코인:\s*(KRW-\w+)', message)
                 level = re.search(r'레벨:\s*(\d+)', message)
                 amount = re.search(r'매도 금액:\s*([\d,]+)원', message)
                 price = re.search(r'체결 가격:\s*([\d,]+)원', message)
+                profit_pct = re.search(r'수익률:\s*\+?([\d.]+)%', message)
 
                 if coin and level and amount and price:
-                    return f"[익절] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+                    result = f"[익절완료] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+                    if profit_pct:
+                        result += f" | +{profit_pct.group(1)}%"
+                    return result
             except Exception:
                 pass
 
         # ─────────────────────────────────────────────────
         # 손절 매도 완료
         # ─────────────────────────────────────────────────
-        if "손절 매도 완료" in message:
+        if "손절" in message and "매도 완료" in message:
             try:
                 coin = re.search(r'코인:\s*(KRW-\w+)', message)
                 level = re.search(r'레벨:\s*(\d+)', message)
                 amount = re.search(r'매도 금액:\s*([\d,]+)원', message)
                 price = re.search(r'체결 가격:\s*([\d,]+)원', message)
+                loss_pct = re.search(r'수익률:\s*(-?[\d.]+)%', message)
 
                 if coin and level and amount and price:
-                    return f"[손절] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+                    result = f"[손절완료] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+                    if loss_pct:
+                        result += f" | {loss_pct.group(1)}%"
+                    return result
             except Exception:
                 pass
 

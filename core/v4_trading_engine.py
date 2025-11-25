@@ -1465,7 +1465,7 @@ class V4TradingEngine:
                 logger.info(f"🎯 {symbol}: 익절 레벨 {level_index} 도달 (현재: {profit_pct:.2f}%, 목표: {target_pct:.2f}%)")
 
                 if profit_settings.get("mode") == "auto":
-                    self._execute_sell(symbol, group_id, group, "profit", quantity_ratio, level_index)
+                    self._execute_sell(symbol, group_id, group, "profit", quantity_ratio, level_index, profit_pct)
                 else:
                     self._send_telegram_alert(
                         f"🎯 익절 알림 (레벨 {level_index})\n"
@@ -1567,7 +1567,7 @@ class V4TradingEngine:
                 logger.warning(f"🛑 {symbol}: 손절 레벨 {level_index} 도달 (현재: {profit_pct:.2f}%, 기준: {stop_pct:.2f}%)")
 
                 if loss_settings.get("mode") == "auto":
-                    self._execute_sell(symbol, group_id, group, "loss", quantity_ratio, level_index)
+                    self._execute_sell(symbol, group_id, group, "loss", quantity_ratio, level_index, profit_pct)
                 else:
                     self._send_telegram_alert(
                         f"🛑 손절 알림 (레벨 {level_index})\n"
@@ -1586,7 +1586,8 @@ class V4TradingEngine:
         group: Dict[str, Any],
         reason: str,  # "profit" or "loss"
         quantity_ratio: float = 1.0,  # 판매 비율 (1.0 = 전량)
-        level_index: int = 0  # 익절/손절 레벨 인덱스
+        level_index: int = 0,  # 익절/손절 레벨 인덱스
+        profit_pct: float = 0.0  # 수익률 (%)
     ):
         """매도 실행 (주문 체결 확인 포함)"""
         if self.observation_mode:
@@ -1708,7 +1709,8 @@ class V4TradingEngine:
                         "group_id": group_id,
                         "group_name": group.get('name', 'Unknown'),
                         "sell_amount_krw": sell_value_krw,
-                        "sell_amount": sell_amount
+                        "sell_amount": sell_amount,
+                        "profit_pct": profit_pct  # 수익률 (%)
                     }
                 })
                 logger.info(f"   📝 {symbol} {reason} 레벨 {level_index} pending_order 사전 저장 완료")
@@ -1751,7 +1753,8 @@ class V4TradingEngine:
                             "group_id": group_id,
                             "group_name": group.get('name', 'Unknown'),
                             "sell_amount_krw": sell_value_krw,
-                            "sell_amount": sell_amount
+                            "sell_amount": sell_amount,
+                            "profit_pct": profit_pct  # 수익률 (%)
                         }
                     })
 
@@ -2413,11 +2416,13 @@ class V4TradingEngine:
                         )
 
                         # 텔레그램 알림
+                        profit_pct = pending_order.get('profit_pct', 0)
                         self._send_telegram_alert(
                             f"✅ 익절 매도 완료 (포지션 종료)\n"
                             f"그룹: {group_name}\n"
                             f"코인: {symbol}\n"
                             f"레벨: {level_index + 1}\n"
+                            f"수익률: +{profit_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
@@ -2449,11 +2454,13 @@ class V4TradingEngine:
                         )
 
                         # 텔레그램 알림
+                        profit_pct = pending_order.get('profit_pct', 0)
                         self._send_telegram_alert(
                             f"✅ 익절 부분 매도 완료\n"
                             f"그룹: {group_name}\n"
                             f"코인: {symbol}\n"
                             f"레벨: {level_index + 1}\n"
+                            f"수익률: +{profit_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
@@ -2514,11 +2521,13 @@ class V4TradingEngine:
                         )
 
                         # 텔레그램 알림
+                        loss_pct = pending_order.get('profit_pct', 0)
                         self._send_telegram_alert(
                             f"❌ 손절 매도 완료 (포지션 종료)\n"
                             f"그룹: {group_name}\n"
                             f"코인: {symbol}\n"
                             f"레벨: {level_index + 1}\n"
+                            f"수익률: {loss_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
@@ -2550,11 +2559,13 @@ class V4TradingEngine:
                         )
 
                         # 텔레그램 알림
+                        loss_pct = pending_order.get('profit_pct', 0)
                         self._send_telegram_alert(
                             f"❌ 손절 부분 매도 완료\n"
                             f"그룹: {group_name}\n"
                             f"코인: {symbol}\n"
                             f"레벨: {level_index + 1}\n"
+                            f"수익률: {loss_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"매도 금액: {pending_order.get('sell_amount_krw', 0):,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
