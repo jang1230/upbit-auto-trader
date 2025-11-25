@@ -4,6 +4,7 @@ GUI Logging Handler - 사용자 중심 로그 필터링
 """
 
 import logging
+import re
 from datetime import datetime
 from PySide6.QtCore import QObject, Signal
 
@@ -125,6 +126,72 @@ class GuiLogHandler(logging.Handler, QObject):
 
         return message.strip()
 
+    def _format_multiline_message(self, message: str) -> str:
+        """
+        여러 줄 텔레그램 메시지를 한 줄로 요약
+
+        Before: [Telegram] DCA 추가 매수 완료\n그룹: 3번 그룹\n코인: KRW-0G\n...
+        After:  [DCA] KRW-0G Lv.1 | 6,000원 → 1,830원 | 평단 1,871원
+        """
+        # 여러 줄 메시지가 아니면 그대로 반환
+        if '\n' not in message:
+            return message
+
+        # ─────────────────────────────────────────────────
+        # DCA 추가 매수 완료
+        # ─────────────────────────────────────────────────
+        if "DCA 추가 매수 완료" in message:
+            try:
+                coin = re.search(r'코인:\s*(KRW-\w+)', message)
+                level = re.search(r'레벨:\s*(\d+)', message)
+                amount = re.search(r'추가 금액:\s*([\d,]+)원', message)
+                price = re.search(r'체결 가격:\s*([\d,]+)원', message)
+                avg_price = re.search(r'평균 매수가:\s*([\d,]+)원', message)
+
+                if coin and level and amount and price:
+                    result = f"[DCA] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 → {price.group(1)}원"
+                    if avg_price:
+                        result += f" | 평단 {avg_price.group(1)}원"
+                    return result
+            except Exception:
+                pass
+
+        # ─────────────────────────────────────────────────
+        # 익절 매도 완료
+        # ─────────────────────────────────────────────────
+        if "익절 매도 완료" in message:
+            try:
+                coin = re.search(r'코인:\s*(KRW-\w+)', message)
+                level = re.search(r'레벨:\s*(\d+)', message)
+                amount = re.search(r'매도 금액:\s*([\d,]+)원', message)
+                price = re.search(r'체결 가격:\s*([\d,]+)원', message)
+
+                if coin and level and amount and price:
+                    return f"[익절] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+            except Exception:
+                pass
+
+        # ─────────────────────────────────────────────────
+        # 손절 매도 완료
+        # ─────────────────────────────────────────────────
+        if "손절 매도 완료" in message:
+            try:
+                coin = re.search(r'코인:\s*(KRW-\w+)', message)
+                level = re.search(r'레벨:\s*(\d+)', message)
+                amount = re.search(r'매도 금액:\s*([\d,]+)원', message)
+                price = re.search(r'체결 가격:\s*([\d,]+)원', message)
+
+                if coin and level and amount and price:
+                    return f"[손절] {coin.group(1)} Lv.{level.group(1)} | {amount.group(1)}원 | 체결 {price.group(1)}원"
+            except Exception:
+                pass
+
+        # ─────────────────────────────────────────────────
+        # 기타 여러 줄 메시지: 첫 줄만 반환
+        # ─────────────────────────────────────────────────
+        first_line = message.split('\n')[0].strip()
+        return first_line
+
     def emit(self, record: logging.LogRecord):
         """
         로그 레코드 처리 및 필터링
@@ -172,7 +239,12 @@ class GuiLogHandler(logging.Handler, QObject):
                 return  # 중요하지 않으면 GUI에 표시 안 함
 
             # ─────────────────────────────────────────────────
-            # 6️⃣ GUI 포맷팅 및 전송
+            # 6️⃣ 여러 줄 메시지 한 줄로 요약
+            # ─────────────────────────────────────────────────
+            message = self._format_multiline_message(message)
+
+            # ─────────────────────────────────────────────────
+            # 7️⃣ GUI 포맷팅 및 전송
             # ─────────────────────────────────────────────────
             timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
 
