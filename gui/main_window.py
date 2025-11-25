@@ -1031,7 +1031,9 @@ class MainWindow(QMainWindow):
             mode_str = "🧪 Dry-run" if dry_run else "💰 Live"
             self._add_log(f"✅ V4 엔진 시작 완료 ({mode_str})")
             self._add_log(f"📊 활성 그룹: {len(groups)}개")
-            self._add_log("✅ 실시간 가격 업데이트: V4 WebSocket 사용")
+
+            # V4 엔진 시작 완료 - 여기서 종료
+            return
 
         except Exception as e:
             logger.error(f"❌ V4 엔진 시작 실패: {e}", exc_info=True)
