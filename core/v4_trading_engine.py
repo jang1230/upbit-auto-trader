@@ -2242,6 +2242,7 @@ class V4TradingEngine:
                             self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
 
                             # 거래 기록
+                            sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
                             trade_params = {
                                 "group_id": group_id,
                                 "group_name": group_name,
@@ -2250,7 +2251,7 @@ class V4TradingEngine:
                                 "trade_type": order_type,
                                 "price": avg_price,
                                 "amount": executed_volume,
-                                "total_krw": pending_order.get('sell_amount_krw', 0),
+                                "total_krw": sell_amount_krw,
                                 "dry_run": False
                             }
                             if order_type == 'profit':
@@ -2261,7 +2262,6 @@ class V4TradingEngine:
                             self.trade_history.add_trade(**trade_params)
 
                             # 🔧 GUI 완료 로그 (한 줄 요약)
-                            sell_amount_krw = pending_order.get('sell_amount_krw', 0)
                             profit_pct = pending_order.get('profit_pct', 0)
                             avg_buy_price = position.get('avg_buy_price', 0)
                             profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
@@ -2291,6 +2291,7 @@ class V4TradingEngine:
                             })
 
                             # 거래 기록
+                            sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
                             trade_params = {
                                 "group_id": group_id,
                                 "group_name": group_name,
@@ -2299,7 +2300,7 @@ class V4TradingEngine:
                                 "trade_type": order_type,
                                 "price": avg_price,
                                 "amount": executed_volume,
-                                "total_krw": pending_order.get('sell_amount_krw', 0),
+                                "total_krw": sell_amount_krw,
                                 "dry_run": False
                             }
                             if order_type == 'profit':
@@ -2310,7 +2311,6 @@ class V4TradingEngine:
                             self.trade_history.add_trade(**trade_params)
 
                             # 🔧 GUI 완료 로그 (한 줄 요약)
-                            sell_amount_krw = pending_order.get('sell_amount_krw', 0)
                             profit_pct = pending_order.get('profit_pct', 0)
                             avg_buy_price = position.get('avg_buy_price', 0)
                             profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
@@ -2394,6 +2394,7 @@ class V4TradingEngine:
                         self.position_manager.close_position(symbol, close_price=avg_price, close_reason="profit")
 
                         # 거래 기록
+                        sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
                         self.trade_history.add_trade(
                             group_id=group_id,
                             group_name=group_name,
@@ -2402,14 +2403,13 @@ class V4TradingEngine:
                             trade_type="profit",
                             price=avg_price,
                             amount=executed_volume,
-                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            total_krw=sell_amount_krw,
                             dry_run=False,
                             profit_level=level_index + 1
                         )
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
                         profit_pct = pending_order.get('profit_pct', 0)
-                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
                         avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
@@ -2438,6 +2438,7 @@ class V4TradingEngine:
                         updates['total_amount'] = remaining_amount
 
                         # 거래 기록
+                        sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
                         self.trade_history.add_trade(
                             group_id=group_id,
                             group_name=group_name,
@@ -2446,14 +2447,13 @@ class V4TradingEngine:
                             trade_type="profit",
                             price=avg_price,
                             amount=executed_volume,
-                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            total_krw=sell_amount_krw,
                             dry_run=False,
                             profit_level=level_index + 1
                         )
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
                         profit_pct = pending_order.get('profit_pct', 0)
-                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
                         avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
@@ -2511,6 +2511,7 @@ class V4TradingEngine:
                         self.position_manager.close_position(symbol, close_price=avg_price, close_reason="loss")
 
                         # 거래 기록
+                        sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
                         self.trade_history.add_trade(
                             group_id=group_id,
                             group_name=group_name,
@@ -2519,14 +2520,13 @@ class V4TradingEngine:
                             trade_type="loss",
                             price=avg_price,
                             amount=executed_volume,
-                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            total_krw=sell_amount_krw,
                             dry_run=False,
                             loss_level=level_index + 1
                         )
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
                         loss_pct = pending_order.get('profit_pct', 0)
-                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
                         avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%)")
@@ -2555,6 +2555,7 @@ class V4TradingEngine:
                         updates['total_amount'] = remaining_amount
 
                         # 거래 기록
+                        sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
                         self.trade_history.add_trade(
                             group_id=group_id,
                             group_name=group_name,
@@ -2563,14 +2564,13 @@ class V4TradingEngine:
                             trade_type="loss",
                             price=avg_price,
                             amount=executed_volume,
-                            total_krw=pending_order.get('sell_amount_krw', 0),
+                            total_krw=sell_amount_krw,
                             dry_run=False,
                             loss_level=level_index + 1
                         )
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
                         loss_pct = pending_order.get('profit_pct', 0)
-                        sell_amount_krw = pending_order.get('sell_amount_krw', 0)
                         avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
