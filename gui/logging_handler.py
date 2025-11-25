@@ -92,6 +92,22 @@ class GuiLogHandler(logging.Handler, QObject):
         # 🔧 내부 API 처리
         "REST API 평균가 조회",
         "MyAsset 포지션 생성",
+
+        # 🔄 포지션 상태 변경 (내부 처리)
+        "포지션 로드됨", "로드됨",
+        "수량 변동",
+        "부분 체결",
+        "MyAsset에 평균가 없음",
+        "pending_initial_buys 제거",
+        "처리 완료 마킹",
+
+        # 📡 WebSocket 내부 이벤트
+        "MyOrder WebSocket",
+        "MyAsset WebSocket",
+        "상태: RECEIVING",
+
+        # 🔄 중복 매수 감지 로그 ([수동] 없는 내부 로그)
+        "🆕 매수 감지:",
     ]
 
     # ═══════════════════════════════════════════════════════════

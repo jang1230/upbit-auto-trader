@@ -168,6 +168,9 @@ class V4TradingEngine:
         # 초기 매수 주문 추적 (MyOrder WebSocket에서 포지션 생성용)
         self.pending_initial_buys: Dict[str, Dict[str, Any]] = {}  # {order_uuid: {symbol, group_id, buy_amount_krw, ...}}
 
+        # 🆕 처리된 봇 주문 UUID 추적 (중복 수동 매수 감지 방지)
+        self.processed_bot_order_uuids: set = set()
+
         # 🆕 Phase B-C: MyOrder 처리 완료 추적 (MyAsset 백업용)
         self._myorder_processed_symbols: Dict[str, datetime] = {}  # {symbol: timestamp}
 
@@ -268,13 +271,13 @@ class V4TradingEngine:
             except Exception as e:
                 logger.error(f"❌ pending_order 복구 실패: {e}", exc_info=True)
 
-        # 🔧 Step 2: 재시작 시 외부 매수 조용히 추가 (알림 없음)
+        # 🔧 Step 2: 재시작 시 수동 매수 조용히 추가 (알림 없음)
         if self.upbit_api and not self.dry_run:
-            logger.info("🔄 재시작 시 외부 매수 확인 중...")
+            logger.info("🔄 재시작 시 수동 매수 확인 중...")
             try:
                 self._sync_external_positions_on_startup()
             except Exception as e:
-                logger.error(f"❌ 재시작 시 외부 매수 동기화 실패: {e}", exc_info=True)
+                logger.error(f"❌ 재시작 시 수동 매수 동기화 실패: {e}", exc_info=True)
 
         # 🆕 Adaptive Polling 시작 (MyAsset WebSocket + REST API 폴링)
         if self.balance_polling_manager and self.myasset_ws:
@@ -581,10 +584,10 @@ class V4TradingEngine:
                 if connected:
                     await self.myorder_ws.subscribe_myorder()  # 전체 마켓 구독
 
-                    # 🆕 기본 콜백 설정 (외부 매수 감지용)
+                    # 🆕 기본 콜백 설정 (수동 매수 감지용)
                     self.myorder_ws.set_default_callback(self._on_order_completed)
 
-                    logger.info("✅ MyOrder WebSocket 연결 및 구독 완료 (외부 매수 감지 활성화)")
+                    logger.info("✅ MyOrder WebSocket 연결 및 구독 완료 (수동 매수 감지 활성화)")
                 else:
                     logger.warning("⚠️ MyOrder WebSocket 연결 실패 (REST API 폴백)")
                     self.myorder_ws = None
@@ -702,8 +705,8 @@ class V4TradingEngine:
                     # MyOrder가 누락했을 가능성 → 백업 처리
                     logger.warning(f"   ⚠️ {symbol} MyOrder 누락 감지, MyAsset 백업 처리")
 
-                    # 외부 매수 감지 (Upbit 앱/웹에서 직접 매수)
-                    logger.info(f"🆕 외부 매수 감지 (Upbit 앱/웹): {symbol}")
+                    # 수동 매수 감지 (Upbit 앱/웹에서 직접 매수)
+                    logger.info(f"🆕 수동 매수 감지 (Upbit 앱/웹): {symbol}")
 
                     # avg_buy_price 조회 (WebSocket에 없으므로 REST API 사용)
                     # 최대 6번 재시도 (0.5초 간격, 총 3초) - position_manager와 동일한 로직
@@ -740,12 +743,12 @@ class V4TradingEngine:
                                 quantity=total,
                                 force_create_for_sync=True
                             )
-                            logger.info(f"✅ [외부] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
+                            logger.info(f"✅ [수동] group_null 포지션 생성: {symbol} (Upbit 앱/웹 매수)")
 
                             # 텔레그램 알림 전송
                             total_krw = avg_buy_price * total
                             self._send_telegram_alert(
-                                f"🆕 **외부 매수 감지** (Upbit 앱/웹)\n\n"
+                                f"🆕 **수동 매수 감지** (Upbit 앱/웹)\n\n"
                                 f"코인: {symbol}\n"
                                 f"평단가: {avg_buy_price:,.0f}원\n"
                                 f"수량: {total:.8f}개\n"
@@ -961,7 +964,7 @@ class V4TradingEngine:
 
             if buy_signal:
                 # 매수 신호는 항상 로깅 (중요 이벤트)
-                logger.info(f"🔔 [봇] {symbol}: 매수 신호 발생!")
+                logger.info(f"🔔 [자동매수] {symbol}: 매수 신호 발생!")
 
                 # 지표 값 출력
                 indicators = strategy.get_indicator_values(candles)
@@ -996,7 +999,7 @@ class V4TradingEngine:
             logger.warning(f"⚠️ {symbol} 매수 취소: 잔고 부족")
             return
 
-        logger.info(f"💰 [봇] {symbol} 매수 실행 중... (금액: {buy_amount:,}원)")
+        logger.info(f"💰 [자동매수] {symbol} 매수 실행 중... (금액: {buy_amount:,}원)")
 
         try:
             if self.dry_run or not self.upbit_api:
@@ -1043,11 +1046,11 @@ class V4TradingEngine:
                 # 🔧 Phase D: MyOrder WebSocket 콜백 등록 (DCA/익절/손절과 동일)
                 if self.myorder_ws:
                     self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
-                    logger.info(f"   📡 [봇] {symbol} 주문 {order_uuid[:8]}... MyOrder WebSocket 콜백 등록 완료")
+                    logger.info(f"   📡 [자동매수] {symbol} 주문 {order_uuid[:8]}... MyOrder WebSocket 콜백 등록 완료")
                 else:
-                    logger.warning(f"   ⚠️ [봇] {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
+                    logger.warning(f"   ⚠️ [자동매수] {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
 
-                logger.info(f"✅ [봇] {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
+                logger.info(f"✅ [자동매수] {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
                 return  # 포지션은 MyOrder WebSocket에서 생성
 
             # Dry-run 모드에만 거래 기록 및 알림
@@ -1846,11 +1849,11 @@ class V4TradingEngine:
                     # ✅ 중복 체크: 이미 포지션이 있으면 스킵
                     existing_position = self.position_manager.get_position(symbol)
                     if existing_position:
-                        logger.warning(f"   ⚠️ [봇] {symbol} 초기 매수 중복 감지 (포지션 이미 존재) → 스킵")
+                        logger.warning(f"   ⚠️ [자동매수] {symbol} 초기 매수 중복 감지 (포지션 이미 존재) → 스킵")
 
                         # 텔레그램 알림 추가
                         self._send_telegram_alert(
-                            f"⚠️ [봇] 초기 매수 중복 감지\n"
+                            f"⚠️ [자동매수] 초기 매수 중복 감지\n"
                             f"코인: {symbol}\n"
                             f"수량: {executed_volume:.8f}개\n"
                             f"가격: {avg_price:,}원\n"
@@ -1859,14 +1862,15 @@ class V4TradingEngine:
                             f"주문 ID: {order_uuid[:8]}..."
                         )
 
+                        self.processed_bot_order_uuids.add(order_uuid)
                         del self.pending_initial_buys[order_uuid]
                         return
 
                     # state 구분 로그
                     if state == 'done':
-                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
+                        logger.info(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
                     else:
-                        logger.info(f"   ✅ [봇] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
+                        logger.info(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=cancel, 미세 잔량 반환) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
 
                     # 🆕 REST API로 정확한 평균가 조회
                     final_avg_price = avg_price  # fallback
@@ -1909,7 +1913,7 @@ class V4TradingEngine:
 
                     # 텔레그램 알림
                     self._send_telegram_alert(
-                        f"✅ [봇] 매수 완료\n"
+                        f"✅ [자동매수] 매수 완료\n"
                         f"그룹: {pending_buy['group_name']}\n"
                         f"코인: {symbol}\n"
                         f"금액: {pending_buy['buy_amount_krw']:,}원\n"
@@ -1918,19 +1922,25 @@ class V4TradingEngine:
                     )
 
                     # pending_initial_buys에서 제거
+                    self.processed_bot_order_uuids.add(order_uuid)
                     del self.pending_initial_buys[order_uuid]
                     logger.info(f"   🗑️ {symbol} pending_initial_buys 제거 완료")
 
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
-                    logger.info(f"   🎉 [봇] {symbol} 초기 매수 처리 완료")
+                    logger.info(f"   🎉 [자동매수] {symbol} 초기 매수 처리 완료")
 
                 return  # 초기 매수는 여기서 종료
 
-            # 🆕 Phase B: 외부 매수 처리 (state='done' or 'cancel' and side='bid')
+            # 🆕 Phase B: 수동 매수 처리 (state='done' or 'cancel' and side='bid')
             # 시장가 주문은 부분 체결 후 state=cancel로 완료될 수 있음
             if state in ['done', 'cancel'] and ask_bid == 'BID':
+                # 🆕 이미 처리된 봇 주문이면 수동 매수 처리 스킵
+                if order_uuid in self.processed_bot_order_uuids:
+                    logger.debug(f"   ⏭️ {symbol} 이미 처리된 봇 주문 ({order_uuid[:8]}...), 수동 매수 처리 스킵")
+                    return
+
                 position = self.position_manager.get_position(symbol)
 
                 if not position:
@@ -1938,9 +1948,9 @@ class V4TradingEngine:
                     group_id = self._find_group_for_symbol(symbol)
 
                     if group_id:
-                        logger.info(f"🆕 [외부] {symbol} 신규 매수 감지 (그룹: {group_id})")
+                        logger.info(f"🆕 [수동] {symbol} 신규 매수 감지 (그룹: {group_id})")
                     else:
-                        logger.info(f"🆕 [외부] {symbol} 신규 매수 감지 (그룹 없음 → group_null)")
+                        logger.info(f"🆕 [수동] {symbol} 신규 매수 감지 (그룹 없음 → group_null)")
                         group_id = "group_null"
 
                     # 포지션 생성
@@ -1952,13 +1962,13 @@ class V4TradingEngine:
                         force_create_for_sync=(group_id == "group_null")
                     )
 
-                    logger.info(f"   ✅ [외부] {group_id} 포지션 생성: {symbol}")
+                    logger.info(f"   ✅ [수동] {group_id} 포지션 생성: {symbol}")
 
                     # 텔레그램 알림 추가
                     total_krw = avg_price * executed_volume
                     group_name = "그룹 없음" if group_id == "group_null" else group_id
                     self._send_telegram_alert(
-                        f"🆕 [외부] 신규 매수 감지\n"
+                        f"🆕 [수동] 신규 매수 감지\n"
                         f"그룹: {group_name}\n"
                         f"코인: {symbol}\n"
                         f"금액: {total_krw:,.0f}원\n"
@@ -1976,7 +1986,7 @@ class V4TradingEngine:
                 pending_order = position.get('pending_order')
 
                 if not pending_order:
-                    logger.info(f"🆕 [외부] {symbol} 추가 매수 감지 (수량: {executed_volume:.8f})")
+                    logger.info(f"🆕 [수동] {symbol} 추가 매수 감지 (수량: {executed_volume:.8f})")
 
                     # REST API로 최신 평균가 조회
                     if self.upbit_api:
@@ -1995,14 +2005,14 @@ class V4TradingEngine:
                                         'total_invested_krw': new_avg_price * new_balance
                                     })
 
-                                    logger.info(f"   ✅ [외부] {symbol} 추가 매수 반영 (새 평균가: {new_avg_price:,.0f}원)")
+                                    logger.info(f"   ✅ [수동] {symbol} 추가 매수 반영 (새 평균가: {new_avg_price:,.0f}원)")
 
                                     # 텔레그램 알림 추가
                                     group_id = position.get('group_id', 'unknown')
                                     group_name = position.get('group_name', 'Unknown')
                                     additional_krw = avg_price * executed_volume
                                     self._send_telegram_alert(
-                                        f"🔄 [외부] 추가 매수 감지\n"
+                                        f"🔄 [수동] 추가 매수 감지\n"
                                         f"그룹: {group_name}\n"
                                         f"코인: {symbol}\n"
                                         f"━━━━━━━━━━━━━━\n"
@@ -2015,7 +2025,7 @@ class V4TradingEngine:
                                     )
                                     break
                         except Exception as e:
-                            logger.error(f"❌ [외부] {symbol} 평균가 조회 실패: {e}")
+                            logger.error(f"❌ [수동] {symbol} 평균가 조회 실패: {e}")
 
                     # MyOrder 처리 완료 마킹
                     self._mark_processed_by_myorder(symbol)
@@ -3319,7 +3329,7 @@ class V4TradingEngine:
         logger.info("✅ 09:00 일일 리셋 완료")
 
     # ========================================
-    # 🔧 Pending Order 복구 & 외부 매수 감지
+    # 🔧 Pending Order 복구 & 수동 매수 감지
     # ========================================
 
     def _recover_pending_orders(self):
@@ -3441,7 +3451,7 @@ class V4TradingEngine:
 
     def _sync_external_positions_on_startup(self):
         """
-        재시작 시 외부 매수 조용히 추가 (알림 없음)
+        재시작 시 수동 매수 조용히 추가 (알림 없음)
 
         프로그램이 꺼져있는 동안 사용자가 Upbit 앱에서 수동 매수한 코인을
         포지션에 추가합니다.
@@ -3480,7 +3490,7 @@ class V4TradingEngine:
                 if symbol in existing_symbols:
                     continue
 
-                # 외부 매수 발견!
+                # 수동 매수 발견!
                 avg_buy_price = float(account.get('avg_buy_price', 0))
 
                 # 에어드랍 코인 스킵 (평단가 0원)
@@ -3489,7 +3499,7 @@ class V4TradingEngine:
                     continue
 
                 logger.info(
-                    f"  ℹ️ {symbol}: 재시작 시 외부 매수 감지 "
+                    f"  ℹ️ {symbol}: 재시작 시 수동 매수 감지 "
                     f"(평단가={avg_buy_price:,.0f}원, 수량={balance:.8f}개)"
                 )
 
@@ -3515,22 +3525,22 @@ class V4TradingEngine:
                     external_count += 1
 
                     # ⚠️ 알림 보내지 않음 (재시작 시)
-                    logger.info(f"  ✅ {symbol}: 외부 매수 포지션 추가 (알림 없음)")
+                    logger.info(f"  ✅ {symbol}: 수동 매수 포지션 추가 (알림 없음)")
 
                 except Exception as e:
-                    logger.error(f"  ❌ {symbol}: 외부 매수 포지션 생성 실패 - {e}")
+                    logger.error(f"  ❌ {symbol}: 수동 매수 포지션 생성 실패 - {e}")
 
             if external_count > 0:
-                logger.info(f"✅ 재시작 시 외부 매수 {external_count}개 추가 완료 (알림 없음)")
+                logger.info(f"✅ 재시작 시 수동 매수 {external_count}개 추가 완료 (알림 없음)")
             else:
-                logger.info("ℹ️ 재시작 시 외부 매수 없음")
+                logger.info("ℹ️ 재시작 시 수동 매수 없음")
 
         except Exception as e:
-            logger.error(f"❌ 재시작 시 외부 매수 동기화 실패: {e}", exc_info=True)
+            logger.error(f"❌ 재시작 시 수동 매수 동기화 실패: {e}", exc_info=True)
 
     async def _handle_order_event(self, order_data: dict):
         """
-        WebSocket myOrder 이벤트 처리 (실행 중 외부 매수 감지)
+        WebSocket myOrder 이벤트 처리 (실행 중 수동 매수 감지)
 
         Args:
             order_data: myOrder 데이터
@@ -3546,7 +3556,7 @@ class V4TradingEngine:
 
         Note:
             - pending_order에 있으면: 프로그램 주문 (알림 없음, OrderManager가 처리)
-            - pending_order에 없으면: 외부 매수 (즉시 알림!)
+            - pending_order에 없으면: 수동 매수 (즉시 알림!)
         """
         try:
             # 매수만 처리
@@ -3572,9 +3582,9 @@ class V4TradingEngine:
                 # OrderManager에서 이미 처리하므로 여기서는 아무것도 안 함
 
             else:
-                # ✅ 외부 매수! (Upbit 앱에서 수동 주문)
+                # ✅ 수동 매수! (Upbit 앱에서 수동 주문)
                 logger.info(
-                    f"🔔 [{symbol}] 외부 매수 감지! (실시간) "
+                    f"🔔 [{symbol}] 수동 매수 감지! (실시간) "
                     f"(order_id={order_id[:8]}...)"
                 )
                 await self._handle_external_buy_realtime(order_data)
@@ -3584,13 +3594,13 @@ class V4TradingEngine:
 
     async def _handle_external_buy_realtime(self, order_data: dict):
         """
-        실행 중 외부 매수 처리 (실시간 알림)
+        실행 중 수동 매수 처리 (실시간 알림)
 
         Args:
             order_data: myOrder 데이터
 
         Note:
-            - 프로그램 실행 중 외부 매수만 알림
+            - 프로그램 실행 중 수동 매수만 알림
             - 포지션 생성 + 텔레그램 즉시 알림
         """
         symbol = order_data.get('code')
@@ -3598,7 +3608,7 @@ class V4TradingEngine:
         executed_volume = float(order_data.get('executed_volume', 0))
 
         logger.info(
-            f"🔔 [{symbol}] 외부 매수 처리: "
+            f"🔔 [{symbol}] 수동 매수 처리: "
             f"평단가={price:,.0f}원, 수량={executed_volume:.8f}개"
         )
 
@@ -3622,14 +3632,14 @@ class V4TradingEngine:
                 source="external"
             )
 
-            logger.info(f"✅ [{symbol}] 외부 매수 포지션 생성 완료")
+            logger.info(f"✅ [{symbol}] 수동 매수 포지션 생성 완료")
 
-            # 📱 텔레그램 즉시 알림! (실행 중 외부 매수)
+            # 📱 텔레그램 즉시 알림! (실행 중 수동 매수)
             if self.telegram_bot:
                 executed_funds = price * executed_volume
 
                 self.telegram_bot.send_message(
-                    f"ℹ️ [{symbol}] 외부 매수 감지! (실시간)\n\n"
+                    f"ℹ️ [{symbol}] 수동 매수 감지! (실시간)\n\n"
                     f"평단가: {price:,.0f}원\n"
                     f"수량: {executed_volume:.8f}개\n"
                     f"총액: {executed_funds:,.0f}원\n\n"
@@ -3639,7 +3649,7 @@ class V4TradingEngine:
                 )
 
         except Exception as e:
-            logger.error(f"❌ [{symbol}] 외부 매수 포지션 생성 실패: {e}", exc_info=True)
+            logger.error(f"❌ [{symbol}] 수동 매수 포지션 생성 실패: {e}", exc_info=True)
 
 
 # 테스트 코드
