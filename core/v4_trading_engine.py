@@ -1845,26 +1845,6 @@ class V4TradingEngine:
 
                 # 🔧 Phase D: state='done' or 'cancel' 모두 처리 (DCA와 동일 패턴)
                 if state in ['done', 'cancel']:
-                    # ✅ 중복 체크: 이미 활성 포지션이 있으면 스킵
-                    existing_position = self.position_manager.get_position(symbol)
-                    if existing_position and existing_position.get('status') == 'active':
-                        logger.warning(f"   ⚠️ [자동매수] {symbol} 초기 매수 중복 감지 (포지션 이미 존재) → 스킵")
-
-                        # 텔레그램 알림 추가
-                        self._send_telegram_alert(
-                            f"⚠️ [자동매수] 초기 매수 중복 감지\n"
-                            f"코인: {symbol}\n"
-                            f"수량: {executed_volume:.8f}개\n"
-                            f"가격: {avg_price:,}원\n"
-                            f"━━━━━━━━━━━━━━\n"
-                            f"포지션이 이미 존재하여 스킵됨\n"
-                            f"주문 ID: {order_uuid[:8]}..."
-                        )
-
-                        self.processed_bot_order_uuids.add(order_uuid)
-                        del self.pending_initial_buys[order_uuid]
-                        return
-
                     # state 구분 로그 (debug)
                     if state == 'done':
                         logger.debug(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
@@ -1890,14 +1870,29 @@ class V4TradingEngine:
                         except Exception as e:
                             logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
 
-                    # 포지션 생성
-                    position = self.position_manager.create_position(
-                        group_id=pending_buy['group_id'],
-                        symbol=symbol,
-                        buy_price=final_avg_price,  # ✅ REST API 최종 평균가
-                        quantity=final_balance,
-                        buy_amount_krw=pending_buy['buy_amount_krw']
-                    )
+                    # 🔧 Race condition 방지: REST API 조회 후 포지션 체크
+                    existing_position = self.position_manager.get_position(symbol)
+                    if existing_position and existing_position.get('status') == 'active':
+                        # MyAsset이 먼저 생성한 경우 → 정보 업데이트
+                        logger.info(f"   🔄 [자동매수] {symbol} MyAsset이 먼저 생성 → 그룹 정보 업데이트")
+                        position = self.position_manager.update_position(symbol, {
+                            'group_id': pending_buy['group_id'],
+                            'entry_price': final_avg_price,
+                            'entry_amount': final_balance,
+                            'entry_krw': pending_buy['buy_amount_krw'],
+                            'total_amount': final_balance,
+                            'total_invested_krw': pending_buy['buy_amount_krw'],
+                            'avg_buy_price': final_avg_price
+                        })
+                    else:
+                        # 정상: 포지션 새로 생성
+                        position = self.position_manager.create_position(
+                            group_id=pending_buy['group_id'],
+                            symbol=symbol,
+                            buy_price=final_avg_price,
+                            quantity=final_balance,
+                            buy_amount_krw=pending_buy['buy_amount_krw']
+                        )
 
                     # 거래 기록
                     self.trade_history.add_trade(
