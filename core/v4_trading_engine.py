@@ -2102,7 +2102,10 @@ class V4TradingEngine:
                 # state=done: 완전 체결 (잔량 없음)
 
                 if order_type == 'dca':
-                    # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+                    # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+                    if order_uuid in self.processed_bot_order_uuids:
+                        logger.debug(f"   ⏭️ {symbol} DCA 주문 {order_uuid[:8]}... 이미 처리됨 (state={state}) → 스킵")
+                        return
                     self.processed_bot_order_uuids.add(order_uuid)
 
                     # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
@@ -2234,7 +2237,10 @@ class V4TradingEngine:
                     logger.debug(f"   🎉 {symbol} DCA 주문 {order_uuid[:8]}... 처리 완료")
 
                 elif order_type in ['profit', 'loss']:
-                    # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+                    # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+                    if order_uuid in self.processed_bot_order_uuids:
+                        logger.debug(f"   ⏭️ {symbol} {order_type} 주문 {order_uuid[:8]}... 이미 처리됨 (state={state}) → 스킵")
+                        return
                     self.processed_bot_order_uuids.add(order_uuid)
 
                     # ✅ 중복 체크
@@ -2426,7 +2432,10 @@ class V4TradingEngine:
             logger.debug(f"   ✅ {symbol} {order_type} 레벨 {level_index} 체결 완료 "
                        f"(수량: {executed_volume:.8f}, 가격: {avg_price:,.0f}원)")
 
-            # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+            # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+            if order_uuid in self.processed_bot_order_uuids:
+                logger.debug(f"   ⏭️ {symbol} 주문 {order_uuid[:8]}... 이미 처리됨 (state=done) → 스킵")
+                return
             self.processed_bot_order_uuids.add(order_uuid)
 
             # executed_levels 배열에 추가
@@ -2667,7 +2676,10 @@ class V4TradingEngine:
                 self._mark_processed_by_myorder(symbol)
 
             elif order_type == 'dca':
-                # 🔧 중복 처리 방지: 봇 주문 UUID 먼저 기록 (타이밍 이슈 방지)
+                # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+                if order_uuid in self.processed_bot_order_uuids:
+                    logger.debug(f"   ⏭️ {symbol} DCA 주문 {order_uuid[:8]}... 이미 처리됨 (state=done) → 스킵")
+                    return
                 self.processed_bot_order_uuids.add(order_uuid)
 
                 # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
