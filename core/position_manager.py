@@ -154,6 +154,7 @@ class PositionManager:
         buy_price: float = None,
         quantity: float = None,
         force_create_for_sync: bool = False,
+        status: str = "active",  # 'pending_buy', 'active', 'closed'
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -168,6 +169,7 @@ class PositionManager:
             buy_price: 진입 가격 (entry_price의 별칭)
             quantity: 진입 수량 (entry_amount의 별칭)
             force_create_for_sync: True일 경우 기존 포지션이 있어도 업데이트 (동기화용)
+            status: 포지션 상태 ('pending_buy', 'active', 'closed')
             **kwargs: 추가 정보
 
         Returns:
@@ -183,9 +185,10 @@ class PositionManager:
         if buy_amount_krw is None and entry_price is not None and entry_amount is not None:
             buy_amount_krw = entry_price * entry_amount
 
-        # Validation
-        if entry_price is None or entry_amount is None or buy_amount_krw is None:
-            raise ValueError("entry_price, entry_amount, buy_amount_krw는 필수입니다")
+        # Validation - pending_buy 상태에서는 price/amount 없어도 됨
+        if status != 'pending_buy':
+            if entry_price is None or entry_amount is None or buy_amount_krw is None:
+                raise ValueError("entry_price, entry_amount, buy_amount_krw는 필수입니다")
 
         # Check for existing position
         if symbol in self.positions:
@@ -209,12 +212,13 @@ class PositionManager:
                     **kwargs
                 })
             else:
-                raise ValueError(f"활성 포지션이 이미 존재합니다: {symbol}")
+                existing_status = existing.get('status', 'unknown')
+                raise ValueError(f"포지션이 이미 존재합니다: {symbol} (status={existing_status})")
 
         position = {
             "group_id": group_id,
             "symbol": symbol,
-            "status": "active",
+            "status": status,
             "entry_price": entry_price,
             "entry_amount": entry_amount,
             "entry_krw": buy_amount_krw,
@@ -240,7 +244,10 @@ class PositionManager:
         self.positions[symbol] = position
         self._save_positions()
 
-        print(f"✅ 포지션 생성 ({self.mode}): {symbol} @ {entry_price:,.0f}원")
+        if status == 'pending_buy':
+            print(f"⏳ 포지션 생성 ({self.mode}): {symbol} [pending_buy]")
+        else:
+            print(f"✅ 포지션 생성 ({self.mode}): {symbol} @ {entry_price:,.0f}원")
         return position
 
     def update_position(

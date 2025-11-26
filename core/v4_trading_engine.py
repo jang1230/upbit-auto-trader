@@ -171,8 +171,9 @@ class V4TradingEngine:
         # 그룹별 전략 캐시
         self.strategies: Dict[str, Dict[str, Any]] = {}  # {group_id: {symbol: strategy}} (V4AutoBuyStrategy or ExpertStrategy)
 
-        # 초기 매수 주문 추적 (MyOrder WebSocket에서 포지션 생성용)
-        self.pending_initial_buys: Dict[str, Dict[str, Any]] = {}  # {order_uuid: {symbol, group_id, buy_amount_krw, ...}}
+        # 🔧 [DEPRECATED] pending_initial_buys 제거됨 (Race Condition 해결)
+        # 대신 position.status = 'pending_buy' 사용
+        # self.pending_initial_buys: Dict[str, Dict[str, Any]] = {}  # {order_uuid: {...}}
 
         # 🆕 처리된 봇 주문 UUID 추적 (중복 수동 매수 감지 방지)
         self.processed_bot_order_uuids: set = set()
@@ -691,18 +692,14 @@ class V4TradingEngine:
 
                 # 포지션 확인
                 position = self.position_manager.get_position_by_symbol(symbol)
+                position_status = position.get('status') if position else None
+
+                # 🔧 pending_buy 상태인 경우 → MyOrder WebSocket이 처리할 예정
+                if position_status == 'pending_buy':
+                    logger.debug(f"⏭️ {symbol} 봇 주문 진행 중 (pending_buy, MyOrder WebSocket에서 처리 예정, MyAsset 스킵)")
+                    continue
 
                 if not position:
-                    # 🆕 봇 주문인지 확인 (pending_initial_buys)
-                    is_bot_order = any(
-                        pending_data.get('symbol') == symbol
-                        for pending_data in self.pending_initial_buys.values()
-                    )
-
-                    if is_bot_order:
-                        # 봇 주문 → MyOrder WebSocket이 처리할 예정
-                        logger.debug(f"⏭️ {symbol} 봇 주문 진행 중 (MyOrder WebSocket에서 처리 예정, MyAsset 스킵)")
-                        continue
 
                     # 🔧 Phase C: MyOrder가 이미 처리했는지 확인 (5초 윈도우)
                     if self._was_recently_processed_by_myorder(symbol):
@@ -860,22 +857,15 @@ class V4TradingEngine:
                 logger.info(f"      ⏭️ {symbol}: 스킵됨 (상장폐지 또는 404 에러)")
             return
 
-        # 1. 포지션 확인 (활성 포지션만 체크)
+        # 1. 포지션 확인 (단일 체크로 Race Condition 방지)
         position = self.position_manager.get_position(symbol)
-        has_active_position = position and position.get('status') == 'active'
-        if verbose:
-            logger.info(f"      📊 {symbol}: 활성 포지션 존재 = {has_active_position}")
+        position_status = position.get('status') if position else None
 
-        # 1-A. pending 초기 매수 확인 (중복 매수 방지)
-        has_pending_buy = any(
-            pending['symbol'] == symbol
-            for pending in self.pending_initial_buys.values()
-        )
         if verbose:
-            logger.info(f"      📊 {symbol}: pending 초기 매수 = {has_pending_buy}")
+            logger.info(f"      📊 {symbol}: 포지션 상태 = {position_status}")
 
-        # 2-A. 신규 매수 (활성 포지션이 없고 pending도 없는 경우) - 전역 제약 체크 필요
-        if not has_active_position and not has_pending_buy and group.get("buy_settings", {}).get("mode") == "auto":
+        # 2-A. 포지션 없음 → 신규 매수 체크
+        if not position and group.get("buy_settings", {}).get("mode") == "auto":
             # 전역 제약 확인 (신규 매수 시에만)
             constraints_ok = self._check_global_constraints(verbose=verbose)
             if verbose:
@@ -889,16 +879,21 @@ class V4TradingEngine:
                 logger.info(f"      🎯 {symbol}: 매수 신호 체크 시작")
             self._check_buy_signal(symbol, group_id, group, verbose=verbose)
 
-        # 2-B. 포지션 관리 (DCA, 익절, 손절) - 전역 제약 무관
-        elif has_active_position:
+        # 2-B. 활성 포지션 → 포지션 관리 (DCA, 익절, 손절)
+        elif position_status == 'active':
             if verbose:
                 logger.info(f"      🎯 {symbol}: 포지션 관리 시작 (DCA/익절/손절)")
             self._manage_position(symbol, group_id, group)
 
-        # 2-C. pending 초기 매수 대기 중 (중복 매수 방지)
-        elif not has_active_position and has_pending_buy:
+        # 2-C. pending_buy → 체결 대기 중 (중복 매수 방지)
+        elif position_status == 'pending_buy':
             if verbose:
-                logger.info(f"      ⏭️ {symbol}: pending 초기 매수 대기 중 (중복 매수 방지)")
+                logger.info(f"      ⏭️ {symbol}: 매수 체결 대기 중 [pending_buy]")
+
+        # 2-D. closed → 무시 (정리 대상)
+        elif position_status == 'closed':
+            if verbose:
+                logger.info(f"      ⏭️ {symbol}: 종료된 포지션 (정리 대상)")
 
         else:
             if verbose:
@@ -1023,24 +1018,41 @@ class V4TradingEngine:
 
             else:
                 # Live 모드: 실제 주문
+                # 🔧 Race Condition 방지: 주문 전에 pending_buy 상태로 포지션 먼저 생성
+                try:
+                    self.position_manager.create_position(
+                        symbol=symbol,
+                        group_id=group_id,
+                        status='pending_buy',
+                        order_uuid=None,  # 아직 주문 전
+                        buy_amount_krw=buy_amount,
+                        group_name=group.get('name', 'Unknown')
+                    )
+                    logger.debug(f"   📝 [자동매수] {symbol} pending_buy 포지션 생성 완료")
+                except ValueError as e:
+                    # 이미 포지션이 존재하는 경우 (Race Condition 방지 성공)
+                    logger.warning(f"⚠️ {symbol} 매수 취소: {e}")
+                    return
+
                 order_result = self.upbit_api.buy_market_order(symbol, buy_amount)
 
                 if not order_result or 'error' in order_result:
                     logger.error(f"❌ {symbol} 매수 실패: {order_result}")
+                    # 주문 실패 시 pending_buy 포지션 삭제
+                    self.position_manager.close_position(symbol, close_reason='order_failed')
                     return
 
                 order_uuid = order_result.get('uuid')
                 if not order_uuid:
                     logger.error(f"❌ {symbol} 주문 UUID 없음: {order_result}")
+                    # 주문 실패 시 pending_buy 포지션 삭제
+                    self.position_manager.close_position(symbol, close_reason='order_failed')
                     return
 
-                # 초기 매수 주문 추적 (MyOrder WebSocket에서 체결 완료 시 포지션 생성)
-                self.pending_initial_buys[order_uuid] = {
-                    'symbol': symbol,
-                    'group_id': group_id,
-                    'group_name': group.get('name', 'Unknown'),
-                    'buy_amount_krw': buy_amount
-                }
+                # pending_buy 포지션에 order_uuid 업데이트
+                self.position_manager.update_position(symbol, {
+                    'order_uuid': order_uuid
+                })
 
                 # 🔧 Phase D: MyOrder WebSocket 콜백 등록 (DCA/익절/손절과 동일)
                 if self.myorder_ws:
@@ -1050,7 +1062,7 @@ class V4TradingEngine:
                     logger.warning(f"   ⚠️ [자동매수] {symbol} MyOrderWebSocket 없음 (콜백 등록 불가)")
 
                 logger.info(f"✅ [자동매수] {symbol} 매수 주문 접수 완료: {order_uuid[:8]}... (MyOrder WebSocket에서 체결 대기 중)")
-                return  # 포지션은 MyOrder WebSocket에서 생성
+                return  # 체결 완료 시 _on_order_completed에서 status='active'로 변경
 
             # Dry-run 모드에만 거래 기록 및 알림
             # Live 모드는 MyOrder WebSocket에서 처리
@@ -1839,10 +1851,13 @@ class V4TradingEngine:
                 logger.debug(f"   ⏳ 주문 {order_uuid[:8]}... 아직 대기 중")
                 return
 
-            # 초기 매수 주문 체결 처리 (pending_initial_buys 확인)
-            if order_uuid in self.pending_initial_buys:
-                pending_buy = self.pending_initial_buys[order_uuid]
+            # 🔧 초기 매수 주문 체결 처리 (pending_buy 포지션 확인 - Race Condition 방지)
+            pending_position = self.position_manager.get_position(symbol)
+            is_pending_buy = (pending_position and
+                              pending_position.get('status') == 'pending_buy' and
+                              pending_position.get('order_uuid') == order_uuid)
 
+            if is_pending_buy:
                 # 🔧 Phase D: state='done' or 'cancel' 모두 처리 (DCA와 동일 패턴)
                 if state in ['done', 'cancel']:
                     # state 구분 로그 (debug)
@@ -1870,60 +1885,54 @@ class V4TradingEngine:
                         except Exception as e:
                             logger.error(f"❌ {symbol} REST API 평균가 조회 실패 (fallback to MyOrder): {e}")
 
-                    # 🔧 Race condition 방지: REST API 조회 후 포지션 체크
-                    existing_position = self.position_manager.get_position(symbol)
-                    if existing_position and existing_position.get('status') == 'active':
-                        # MyAsset이 먼저 생성한 경우 → 정보 업데이트
-                        logger.info(f"   🔄 [자동매수] {symbol} MyAsset이 먼저 생성 → 그룹 정보 업데이트")
-                        position = self.position_manager.update_position(symbol, {
-                            'group_id': pending_buy['group_id'],
-                            'entry_price': final_avg_price,
-                            'entry_amount': final_balance,
-                            'entry_krw': pending_buy['buy_amount_krw'],
-                            'total_amount': final_balance,
-                            'total_invested_krw': pending_buy['buy_amount_krw'],
-                            'avg_buy_price': final_avg_price
-                        })
-                    else:
-                        # 정상: 포지션 새로 생성
-                        position = self.position_manager.create_position(
-                            group_id=pending_buy['group_id'],
-                            symbol=symbol,
-                            buy_price=final_avg_price,
-                            quantity=final_balance,
-                            buy_amount_krw=pending_buy['buy_amount_krw']
-                        )
+                    # pending_buy 포지션에서 그룹 정보 가져오기
+                    group_id = pending_position.get('group_id')
+                    group_name = pending_position.get('group_name', 'Unknown')
+                    buy_amount_krw = pending_position.get('buy_amount_krw', 0)
+
+                    # 🔧 pending_buy → active 상태로 업데이트
+                    position = self.position_manager.update_position(symbol, {
+                        'status': 'active',
+                        'entry_price': final_avg_price,
+                        'entry_amount': final_balance,
+                        'entry_krw': buy_amount_krw,
+                        'total_amount': final_balance,
+                        'total_invested_krw': buy_amount_krw,
+                        'avg_buy_price': final_avg_price,
+                        'current_price': final_avg_price,
+                        'current_value_krw': buy_amount_krw,
+                        'order_uuid': None  # 주문 완료, UUID 제거
+                    })
 
                     # 거래 기록
                     self.trade_history.add_trade(
-                        group_id=pending_buy['group_id'],
-                        group_name=pending_buy['group_name'],
+                        group_id=group_id,
+                        group_name=group_name,
                         symbol=symbol,
                         action="buy",
                         trade_type="initial",
                         price=final_avg_price,
                         amount=final_balance,
-                        total_krw=pending_buy['buy_amount_krw'],
+                        total_krw=buy_amount_krw,
                         dry_run=False
                     )
 
                     # 🔧 GUI 완료 로그 (한 줄 요약)
-                    logger.info(f"[자동매수완료] {symbol} | {pending_buy['buy_amount_krw']:,.0f}원 | {final_balance:.8f}개 | {final_avg_price:,.0f}원")
+                    logger.info(f"[자동매수완료] {symbol} | {buy_amount_krw:,.0f}원 | {final_balance:.8f}개 | {final_avg_price:,.0f}원")
 
                     # 텔레그램 알림
                     self._send_telegram_alert(
                         f"✅ [자동매수] 매수 완료\n"
-                        f"그룹: {pending_buy['group_name']}\n"
+                        f"그룹: {group_name}\n"
                         f"코인: {symbol}\n"
-                        f"금액: {pending_buy['buy_amount_krw']:,}원\n"
+                        f"금액: {buy_amount_krw:,}원\n"
                         f"수량: {final_balance:.8f}개\n"
                         f"가격: {final_avg_price:,}원"
                     )
 
-                    # pending_initial_buys에서 제거
+                    # 처리된 봇 주문 UUID 기록
                     self.processed_bot_order_uuids.add(order_uuid)
-                    del self.pending_initial_buys[order_uuid]
-                    logger.debug(f"   🗑️ {symbol} pending_initial_buys 제거 완료")
+                    logger.debug(f"   🗑️ {symbol} pending_buy → active 전환 완료")
 
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
@@ -2878,25 +2887,28 @@ class V4TradingEngine:
                     if not group.get("observation_only", False):
                         active_positions += 1
 
-            # 2. pending 초기 매수 주문도 카운트 (observation_only 그룹 제외)
+            # 2. pending_buy 상태 포지션도 카운트 (observation_only 그룹 제외)
+            # 🔧 Race Condition 방지: pending_initial_buys 대신 position.status='pending_buy' 사용
             pending_count = 0
-            for pending in self.pending_initial_buys.values():
-                pending_group_id = pending.get('group_id')
-                if pending_group_id and pending_group_id in self.config.get("groups", {}):
-                    pending_group = self.config["groups"][pending_group_id]
-                    if not pending_group.get("observation_only", False):
-                        active_positions += 1
-                        pending_count += 1
+            all_raw_positions = self.position_manager.get_all_positions()  # 모든 포지션 (closed 포함)
+            for symbol, position in all_raw_positions.items():
+                if position.get('status') == 'pending_buy':
+                    pending_group_id = position.get('group_id')
+                    if pending_group_id and pending_group_id in self.config.get("groups", {}):
+                        pending_group = self.config["groups"][pending_group_id]
+                        if not pending_group.get("observation_only", False):
+                            active_positions += 1
+                            pending_count += 1
 
             if verbose:
-                logger.info(f"         🔍 현재 포지션: {active_positions}개 (포지션: {len(all_positions)}개 + pending: {pending_count}개) / 최대: {max_limit}개")
+                logger.info(f"         🔍 현재 포지션: {active_positions}개 (active: {len(all_positions)}개 + pending_buy: {pending_count}개) / 최대: {max_limit}개")
 
             if active_positions >= max_limit:
                 position_count = len(all_positions)
 
                 # 최초 도달 시에만 경고 출력 (로그 스팸 방지)
                 if not self.max_position_warning_shown:
-                    logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 (포지션: {position_count}개 + pending: {pending_count}개 = 총 {active_positions}개 >= 최대: {max_limit}개)")
+                    logger.warning(f"⚠️ 최대 포지션 개수 도달로 인해 거래 불가 (active: {position_count}개 + pending_buy: {pending_count}개 = 총 {active_positions}개 >= 최대: {max_limit}개)")
                     logger.info(f"ℹ️  이 경고는 포지션이 감소할 때까지 다시 표시되지 않습니다.")
                     self.max_position_warning_shown = True
 
