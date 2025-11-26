@@ -14,6 +14,7 @@ import os
 import logging
 import threading
 import time
+import copy
 from datetime import datetime
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pathlib import Path
@@ -90,8 +91,10 @@ class PositionManager:
         """포지션 파일 저장 (Thread-safe)"""
         with self._lock:
             os.makedirs(os.path.dirname(self.positions_path), exist_ok=True)
+            # dictionary 복사본 생성 (iteration 중 변경 방지)
+            positions_copy = copy.deepcopy(self.positions)
             with open(self.positions_path, 'w', encoding='utf-8') as f:
-                json.dump(self.positions, f, indent=2, ensure_ascii=False)
+                json.dump(positions_copy, f, indent=2, ensure_ascii=False)
 
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
