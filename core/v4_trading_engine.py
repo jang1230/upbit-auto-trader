@@ -1248,6 +1248,21 @@ class V4TradingEngine:
         quantity_ratio = min(quantity_ratio, 1.0)  # 최대 100% 제한
         dca_amount = int(total_invested * quantity_ratio)
 
+        # 🔧 최소 주문금액 체크 (Upbit 최소 5,000원)
+        MIN_ORDER_KRW = 5000
+        if dca_amount < MIN_ORDER_KRW:
+            logger.warning(f"⚠️ {symbol} DCA 레벨 {dca_level_num} 스킵: 금액 부족 ({dca_amount:,}원 < {MIN_ORDER_KRW:,}원)")
+
+            # 해당 레벨을 실행 완료로 마킹 (재시도 방지)
+            dca_levels_executed = position.get('dca_levels_executed', [])
+            if dca_level_index not in dca_levels_executed:
+                dca_levels_executed.append(dca_level_index)
+                self.position_manager.update_position(symbol, {
+                    'dca_levels_executed': dca_levels_executed
+                })
+                logger.info(f"   📝 {symbol} DCA 레벨 {dca_level_num} → 최소금액 미달로 스킵 처리됨")
+            return
+
         # 잔고 체크 (DCA 직전에만 REST API 호출)
         if not self._check_min_balance(dca_amount):
             logger.warning(f"⚠️ {symbol} DCA 레벨 {dca_level_num} 취소: 잔고 부족")
@@ -2779,7 +2794,11 @@ class V4TradingEngine:
                 self.processed_bot_order_uuids.add(order_uuid)
 
             # 포지션 업데이트 (pending_order 제거)
-            self.position_manager.update_position(symbol, updates)
+            # 🔧 포지션이 close_position()으로 삭제된 경우 스킵
+            if self.position_manager.get_position(symbol):
+                self.position_manager.update_position(symbol, updates)
+            else:
+                logger.debug(f"   ⏭️ {symbol} 포지션 이미 종료됨 → update_position 스킵")
 
             # 🆕 GUI 새로고침 콜백 호출 (포지션 변경됨)
             if self.on_position_created_callback:
