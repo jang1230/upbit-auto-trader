@@ -509,11 +509,11 @@ class LevelSettingsDialog(QDialog):
                     )
                     return False
 
-                if quantity_ratio <= 0:
+                if quantity_ratio <= 0 or quantity_ratio > 1000:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"DCA 레벨 {i+1}: 수량 비율은 양수여야 합니다. (현재: {quantity_ratio}%)"
+                        f"DCA 레벨 {i+1}: 수량 비율은 1~1000 범위여야 합니다. (현재: {quantity_ratio}%)"
                     )
                     return False
 
