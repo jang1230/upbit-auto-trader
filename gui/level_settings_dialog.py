@@ -517,16 +517,9 @@ class LevelSettingsDialog(QDialog):
                     )
                     return False
 
-                if i > 0 and price_ratio >= dca_levels[i-1]["price_ratio"]:
-                    QMessageBox.warning(
-                        self,
-                        "검증 오류",
-                        f"DCA 레벨 {i+1}: 하락률이 이전 레벨보다 작아야 합니다.\n"
-                        f"이전: {dca_levels[i-1]['price_ratio']}%, 현재: {price_ratio}%"
-                    )
-                    return False
+                # 레벨 간 순서 검증 제거 - 사용자 전략에 따라 자유롭게 설정 가능
 
-            # 익절 검증: 수익률 > 0, 순서대로 증가
+            # 익절 검증: 수익률 > 0
             for i, level in enumerate(profit_levels):
                 price_ratio = level["price_ratio"]
                 quantity_ratio = level["quantity_ratio"]
@@ -547,14 +540,7 @@ class LevelSettingsDialog(QDialog):
                     )
                     return False
 
-                if i > 0 and price_ratio <= profit_levels[i-1]["price_ratio"]:
-                    QMessageBox.warning(
-                        self,
-                        "검증 오류",
-                        f"익절 레벨 {i+1}: 수익률이 이전 레벨보다 커야 합니다.\n"
-                        f"이전: {profit_levels[i-1]['price_ratio']}%, 현재: {price_ratio}%"
-                    )
-                    return False
+                # 레벨 간 순서 검증 제거 - 사용자 전략에 따라 자유롭게 설정 가능
 
             # 손절 검증: 손실률 < 0
             for i, level in enumerate(loss_levels):
