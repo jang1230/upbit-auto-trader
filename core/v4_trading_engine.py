@@ -1853,11 +1853,19 @@ class V4TradingEngine:
 
             # 🔧 초기 매수 주문 체결 처리 (pending_buy 포지션 확인 - Race Condition 방지)
             pending_position = self.position_manager.get_position(symbol)
+            pending_order_uuid = pending_position.get('order_uuid') if pending_position else None
+
+            # 🔧 Race Condition 대응: order_uuid가 None이면 아직 업데이트 전 (봇 주문으로 인정)
+            # order_uuid가 다르면 수동 매수로 처리 (동시 매수 시나리오 대응)
             is_pending_buy = (pending_position and
                               pending_position.get('status') == 'pending_buy' and
-                              pending_position.get('order_uuid') == order_uuid)
+                              (pending_order_uuid == order_uuid or pending_order_uuid is None))
 
             if is_pending_buy:
+                # 🔧 Race Condition 감지: order_uuid가 None이면 지금 업데이트
+                if pending_order_uuid is None:
+                    self.position_manager.update_position(symbol, {'order_uuid': order_uuid})
+                    logger.debug(f"   🔧 {symbol} Race Condition 감지: order_uuid 업데이트 ({order_uuid[:8]}...)")
                 # 🔧 Phase D: state='done' or 'cancel' 모두 처리 (DCA와 동일 패턴)
                 if state in ['done', 'cancel']:
                     # state 구분 로그 (debug)
