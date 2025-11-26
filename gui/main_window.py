@@ -2395,6 +2395,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # 🔧 JSON 파일에서 최신 데이터 강제 리로드 (Engine과 동기화)
+            self.v4_position_manager.reload_positions()
+
             # 활성 포지션만 가져오기 (status='active')
             positions = self.v4_position_manager.get_active_positions()
 

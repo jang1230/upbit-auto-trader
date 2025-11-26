@@ -77,6 +77,15 @@ class PositionManager:
             print(f"⚠️ 포지션 파일 파싱 오류: {self.positions_path}")
             self.positions = {}
 
+    def reload_positions(self) -> None:
+        """
+        포지션 파일 강제 리로드 (Thread-safe)
+
+        GUI에서 최신 포지션 상태를 반영하기 위해 호출
+        """
+        with self._lock:
+            self._load_positions()
+
     def _save_positions(self) -> None:
         """포지션 파일 저장 (Thread-safe)"""
         with self._lock:
