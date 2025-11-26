@@ -1221,8 +1221,16 @@ class V4TradingEngine:
 
             price_ratio = level.get("price_ratio", -5.0)
 
-            if profit_pct <= price_ratio:
-                logger.info(f"🔔 {symbol}: DCA 레벨 {i+1} 트리거 (현재: {profit_pct:.2f}%, 기준: {price_ratio:.2f}%)")
+            # 물타기 (음수): 현재가가 기준 이하로 하락 시 트리거
+            # 불타기 (양수): 현재가가 기준 이상으로 상승 시 트리거
+            if price_ratio < 0:
+                triggered = profit_pct <= price_ratio  # 물타기
+            else:
+                triggered = profit_pct >= price_ratio  # 불타기
+
+            if triggered:
+                dca_type = "물타기" if price_ratio < 0 else "불타기"
+                logger.info(f"🔔 {symbol}: DCA 레벨 {i+1} {dca_type} 트리거 (현재: {profit_pct:.2f}%, 기준: {price_ratio:.2f}%)")
                 self._execute_dca(symbol, group_id, group, position, level, i)
                 break  # 한 번에 하나의 DCA만 실행
 
@@ -1245,7 +1253,7 @@ class V4TradingEngine:
         # DCA 금액 계산: 현재 총 투자 금액 대비 비율
         total_invested = position.get("total_invested_krw", 50000)
         quantity_ratio = level.get("quantity_ratio", 100) / 100.0  # 100 = 1.0배 (100%)
-        quantity_ratio = min(quantity_ratio, 1.0)  # 최대 100% 제한
+        quantity_ratio = min(quantity_ratio, 10.0)  # 최대 1000% 제한
         dca_amount = int(total_invested * quantity_ratio)
 
         # 🔧 최소 주문금액 체크 (Upbit 최소 5,000원)

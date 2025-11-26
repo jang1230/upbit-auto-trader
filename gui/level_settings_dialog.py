@@ -80,10 +80,11 @@ class LevelSettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
 
         # 설명
-        desc_label = QLabel("💡 DCA (Dollar Cost Averaging): 가격이 하락할 때 추가 매수하여 평균 단가를 낮춥니다.\n"
-                           "• 하락률: 최초 매수가 대비 하락 퍼센트 (예: -3, -5, -7)\n"
-                           "• 수량 비율: 현재 보유 금액 대비 비율 (100 = 100%, 최대 100%)\n"
-                           "  예) 2만원 보유 → 100% = 2만원 추가 → 총 4만원")
+        desc_label = QLabel("💡 DCA (추가 매수): 가격 변동 시 추가 매수합니다.\n"
+                           "• 변동률: 최초 매수가 대비 변동 퍼센트\n"
+                           "  - 음수 (물타기): 가격 하락 시 추가 매수 (예: -3, -5, -7)\n"
+                           "  - 양수 (불타기): 가격 상승 시 추가 매수 (예: 3, 5, 7)\n"
+                           "• 수량 비율: 현재 보유 금액 대비 비율 (100 = 100%, 최대 1000%)")
         desc_label.setFont(QFont("맑은 고딕", 9))
         desc_label.setStyleSheet("background-color: #e3f2fd; padding: 10px; border-radius: 5px;")
         desc_label.setWordWrap(True)
@@ -107,7 +108,7 @@ class LevelSettingsDialog(QDialog):
         # 테이블
         self.dca_table = QTableWidget()
         self.dca_table.setColumnCount(3)
-        self.dca_table.setHorizontalHeaderLabels(["No", "하락률 (%)", "수량 비율 (%)"])
+        self.dca_table.setHorizontalHeaderLabels(["No", "변동률 (%)", "수량 비율 (%)"])
         self.dca_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.dca_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.dca_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -496,16 +497,16 @@ class LevelSettingsDialog(QDialog):
                         loss_levels: List[Dict[str, Any]]) -> bool:
         """레벨 검증"""
         try:
-            # DCA 검증: 하락률은 음수이고 순서대로 감소
+            # DCA 검증: 변동률은 0이 아니어야 함 (물타기: 음수, 불타기: 양수)
             for i, level in enumerate(dca_levels):
                 price_ratio = level["price_ratio"]
                 quantity_ratio = level["quantity_ratio"]
 
-                if price_ratio >= 0:
+                if price_ratio == 0:
                     QMessageBox.warning(
                         self,
                         "검증 오류",
-                        f"DCA 레벨 {i+1}: 하락률은 음수여야 합니다. (현재: {price_ratio}%)"
+                        f"DCA 레벨 {i+1}: 변동률은 0이 아니어야 합니다. (음수: 물타기, 양수: 불타기)"
                     )
                     return False
 
