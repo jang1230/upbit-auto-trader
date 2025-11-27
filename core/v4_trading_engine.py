@@ -2876,8 +2876,11 @@ class V4TradingEngine:
                 self._mark_processed_by_myorder(symbol)
 
             elif order_type == 'dca':
-                # 🔧 state='done' 섹션에서는 이미 2458-2462에서 UUID 중복 체크 완료
-                # (중복 체크 제거 - 이전 버그: 2462에서 추가 후 여기서 return으로 조기 종료되어 GUI 업데이트 안 됨)
+                # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+                if order_uuid in self.processed_bot_order_uuids:
+                    logger.debug(f"   ⏭️ {symbol} DCA 주문 {order_uuid[:8]}... 이미 처리됨 (state={state}) → 스킵")
+                    return
+                self.processed_bot_order_uuids.add(order_uuid)
 
                 # ✅ 중복 체크: 이미 실행된 레벨이면 스킵
                 dca_levels_executed = position.get('dca_levels_executed', [])
