@@ -392,7 +392,7 @@ class GroupUnifiedSettingsDialog(QDialog):
             level_type: "dca", "profit", "loss"
 
         Returns:
-            롤백용 백업 데이터 {symbol: [executed_levels]}
+            롤백용 백업 데이터 {symbol: {field: value, ...}}
         """
         field_name = f"{level_type}_levels_executed"
         backup = {}
@@ -402,12 +402,20 @@ class GroupUnifiedSettingsDialog(QDialog):
         for symbol, position in positions.items():
             if position.get("group_id") == self.group_id:
                 # 백업
-                backup[symbol] = position.get(field_name, []).copy()
+                backup[symbol] = {
+                    field_name: position.get(field_name, []).copy()
+                }
+
+                # 리셋할 필드
+                reset_fields = {field_name: []}
+
+                # DCA의 경우 dca_count도 함께 리셋
+                if level_type == "dca":
+                    backup[symbol]["dca_count"] = position.get("dca_count", 0)
+                    reset_fields["dca_count"] = 0
 
                 # 리셋
-                self.position_manager.update_position(symbol, {
-                    field_name: []
-                })
+                self.position_manager.update_position(symbol, reset_fields)
 
         logger.info(f"🔄 그룹 {self.group_id}의 {level_type} 레벨 실행 기록 리셋 ({len(backup)}개 포지션)")
         return backup
@@ -417,20 +425,18 @@ class GroupUnifiedSettingsDialog(QDialog):
         리셋 롤백 (실패 시 원복)
 
         Args:
-            reset_backup: {level_type: {symbol: [executed_levels]}}
+            reset_backup: {level_type: {symbol: {field: value, ...}}}
         """
         if not self.position_manager:
             return
 
         for level_type, positions_backup in reset_backup.items():
-            field_name = f"{level_type}_levels_executed"
-            for symbol, executed_levels in positions_backup.items():
+            for symbol, fields_backup in positions_backup.items():
                 try:
-                    self.position_manager.update_position(symbol, {
-                        field_name: executed_levels
-                    })
+                    # 백업된 모든 필드 복원
+                    self.position_manager.update_position(symbol, fields_backup)
                 except Exception as e:
-                    logger.error(f"❌ 롤백 실패 {symbol}.{field_name}: {e}")
+                    logger.error(f"❌ 롤백 실패 {symbol}: {e}")
 
 
 if __name__ == "__main__":
