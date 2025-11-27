@@ -8,6 +8,8 @@ import os
 import time
 import logging
 import threading
+import uuid
+from datetime import datetime
 
 # 🔧 로거 초기화
 logger = logging.getLogger(__name__)
@@ -2978,7 +2980,14 @@ class MainWindow(QMainWindow):
                 actual_sell_amount = total_amount
             else:
                 # 실제 매도 실행
-                sell_result = self.upbit_api.sell_market_order(symbol, total_amount)
+                # 🆕 identifier 생성 (봇 즉시매도 구분용)
+                currency = symbol.replace("KRW-", "")
+                timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
+                short_uuid = uuid.uuid4().hex[:8]
+                identifier = f"bot_immediate_{currency}_{timestamp_str}_{short_uuid}"
+                logger.debug(f"🏷️ 즉시매도 identifier 생성: {identifier}")
+
+                sell_result = self.upbit_api.sell_market_order(symbol, total_amount, identifier=identifier)
 
                 if not sell_result or 'uuid' not in sell_result:
                     raise ValueError("매도 주문 실패: 결과에 UUID가 없습니다.")

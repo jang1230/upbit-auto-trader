@@ -11,6 +11,7 @@ V4 거래 엔진
 
 import logging
 import time
+import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import threading
@@ -221,6 +222,83 @@ class V4TradingEngine:
         self.websocket_thread = None  # WebSocket 스레드
 
         logger.info(f"✅ V4TradingEngine 초기화 완료 (모드: {mode}, 관찰: {self.observation_mode})")
+
+    # ============================================================
+    # 🆕 Identifier 관련 함수 (자동/수동 주문 구분)
+    # ============================================================
+
+    def _generate_bot_identifier(self, order_type: str, symbol: str) -> str:
+        """
+        봇 주문용 identifier 생성
+
+        형식: bot_{type}_{currency}_{timestamp}_{uuid8}
+        예: bot_dca_BTC_20251127143052_a1b2c3d4
+
+        Args:
+            order_type: 주문 유형 (buy, dca, profit, loss, immediate)
+            symbol: 마켓 코드 (예: KRW-BTC)
+
+        Returns:
+            str: 고유한 identifier
+        """
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        short_uuid = uuid.uuid4().hex[:8]
+        currency = symbol.replace("KRW-", "")
+
+        identifier = f"bot_{order_type}_{currency}_{timestamp}_{short_uuid}"
+        logger.debug(f"🏷️ identifier 생성: {identifier}")
+        return identifier
+
+    def _parse_bot_identifier(self, identifier: str) -> Optional[Dict]:
+        """
+        identifier 파싱
+
+        Args:
+            identifier: MyOrder WebSocket에서 받은 identifier
+
+        Returns:
+            Dict or None: 파싱 결과
+                - is_bot: True
+                - order_type: buy, dca, profit, loss, immediate
+                - currency: BTC, ETH 등
+                - timestamp: 20251127143052
+                - uuid: a1b2c3d4
+        """
+        if not identifier or not identifier.startswith('bot_'):
+            return None
+
+        parts = identifier.split('_')
+        if len(parts) >= 3:
+            result = {
+                'is_bot': True,
+                'order_type': parts[1],  # buy, dca, profit, loss, immediate
+            }
+            if len(parts) >= 3:
+                result['currency'] = parts[2]
+            if len(parts) >= 4:
+                result['timestamp'] = parts[3]
+            if len(parts) >= 5:
+                result['uuid'] = parts[4]
+            return result
+
+        return {'is_bot': True, 'order_type': parts[1] if len(parts) > 1 else 'unknown'}
+
+    def _is_bot_order(self, data: Dict) -> tuple:
+        """
+        WebSocket 이벤트가 봇 주문인지 확인
+
+        Args:
+            data: MyOrder WebSocket 이벤트 데이터
+
+        Returns:
+            tuple: (is_bot: bool, parsed_info: Dict or None)
+        """
+        identifier = data.get('identifier') or data.get('id')
+        parsed = self._parse_bot_identifier(identifier)
+
+        if parsed:
+            return True, parsed
+        return False, None
 
     def start(self):
         """거래 시작"""
@@ -1034,7 +1112,9 @@ class V4TradingEngine:
                     logger.warning(f"⚠️ {symbol} 매수 취소: {e}")
                     return
 
-                order_result = self.upbit_api.buy_market_order(symbol, buy_amount)
+                # 🆕 identifier 생성 (봇 주문 구분용)
+                identifier = self._generate_bot_identifier("buy", symbol)
+                order_result = self.upbit_api.buy_market_order(symbol, buy_amount, identifier=identifier)
 
                 if not order_result or 'error' in order_result:
                     logger.error(f"❌ {symbol} 매수 실패: {order_result}")
@@ -1350,7 +1430,9 @@ class V4TradingEngine:
 
                 # 2. REST API 호출
                 try:
-                    order_result = self.upbit_api.buy_market_order(symbol, dca_amount)
+                    # 🆕 identifier 생성 (봇 DCA 주문 구분용)
+                    identifier = self._generate_bot_identifier("dca", symbol)
+                    order_result = self.upbit_api.buy_market_order(symbol, dca_amount, identifier=identifier)
 
                     if not order_result or 'error' in order_result:
                         logger.error(f"❌ {symbol} DCA 실패: {order_result}")
@@ -1753,7 +1835,9 @@ class V4TradingEngine:
 
                 # 2. REST API 호출
                 try:
-                    order_result = self.upbit_api.sell_market_order(symbol, sell_amount)
+                    # 🆕 identifier 생성 (봇 익절/손절 주문 구분용)
+                    identifier = self._generate_bot_identifier(reason, symbol)  # reason = "profit" or "loss"
+                    order_result = self.upbit_api.sell_market_order(symbol, sell_amount, identifier=identifier)
 
                     if not order_result or 'error' in order_result:
                         logger.error(f"❌ {symbol} 매도 실패: {order_result}")
@@ -1866,7 +1950,15 @@ class V4TradingEngine:
             avg_price = order_data.get('avg_price', 0)
             trade_price = order_data.get('price', 0)  # ✅ 실제 체결가 (state='trade'일 때)
 
-            logger.debug(f"📬 주문 체결 이벤트 수신: {symbol} {order_uuid[:8]}... state={state}")
+            # 🆕 identifier 추출 (봇 주문 구분용)
+            identifier = order_data.get('identifier') or order_data.get('id')
+            is_bot, bot_info = self._is_bot_order(order_data)
+            bot_order_type = bot_info.get('order_type') if bot_info else None
+
+            if is_bot:
+                logger.debug(f"📬 [봇주문] 체결 이벤트: {symbol} {order_uuid[:8]}... state={state} type={bot_order_type} id={identifier}")
+            else:
+                logger.debug(f"📬 [수동주문] 체결 이벤트: {symbol} {order_uuid[:8]}... state={state}")
 
             # 대기 중인 주문은 무시
             if state == 'wait':
@@ -1877,11 +1969,20 @@ class V4TradingEngine:
             pending_position = self.position_manager.get_position(symbol)
             pending_order_uuid = pending_position.get('order_uuid') if pending_position else None
 
-            # 🔧 Race Condition 대응: order_uuid가 None이면 아직 업데이트 전 (봇 주문으로 인정)
-            # order_uuid가 다르면 수동 매수로 처리 (동시 매수 시나리오 대응)
-            is_pending_buy = (pending_position and
-                              pending_position.get('status') == 'pending_buy' and
-                              (pending_order_uuid == order_uuid or pending_order_uuid is None))
+            # 🆕 identifier 기반 봇 주문 판별 (최우선)
+            # identifier가 있고 bot_으로 시작하면 100% 봇 주문
+            # identifier가 없거나 bot_으로 시작하지 않으면 수동 주문 가능성
+            is_pending_buy = False
+            if is_bot and bot_order_type == 'buy':
+                # identifier로 봇 초기 매수 확정
+                is_pending_buy = (pending_position and
+                                  pending_position.get('status') == 'pending_buy')
+            elif not is_bot:
+                # 🔧 기존 로직 (fallback): identifier 없는 경우 pending_buy 체크
+                # Race Condition 대응: order_uuid가 None이면 아직 업데이트 전
+                is_pending_buy = (pending_position and
+                                  pending_position.get('status') == 'pending_buy' and
+                                  (pending_order_uuid == order_uuid or pending_order_uuid is None))
 
             if is_pending_buy:
                 # 🔧 Race Condition 감지: order_uuid가 None이면 지금 업데이트
@@ -1981,9 +2082,13 @@ class V4TradingEngine:
             # 🆕 Phase B: 수동 매수 처리 (state='done' or 'cancel' and side='bid')
             # 시장가 주문은 부분 체결 후 state=cancel로 완료될 수 있음
             if state in ['done', 'cancel'] and ask_bid == 'BID':
-                # 🆕 이미 처리된 봇 주문이면 수동 매수 처리 스킵
-                if order_uuid in self.processed_bot_order_uuids:
-                    logger.debug(f"   ⏭️ {symbol} 이미 처리된 봇 주문 ({order_uuid[:8]}...), 수동 매수 처리 스킵")
+                # 🆕 identifier 기반 봇 주문 구분 (100% 정확)
+                if is_bot:
+                    # DCA 봇 주문은 별도 pending_order 처리에서 완료됨
+                    if bot_order_type == 'dca':
+                        logger.debug(f"   ⏭️ {symbol} 봇 DCA 주문 ({order_uuid[:8]}...), 별도 처리됨")
+                    else:
+                        logger.debug(f"   ⏭️ {symbol} 봇 매수 주문 ({order_uuid[:8]}...), type={bot_order_type}")
                     return
 
                 position = self.position_manager.get_position(symbol)
@@ -2057,18 +2162,13 @@ class V4TradingEngine:
 
             # 🆕 수동 매도 처리 (state='done' or 'cancel' and side='ask')
             if state in ['done', 'cancel'] and ask_bid == 'ASK':
-                # 이미 처리된 봇 주문이면 스킵 (익절/손절 등)
-                if order_uuid in self.processed_bot_order_uuids:
-                    logger.debug(f"   ⏭️ {symbol} 이미 처리된 봇 매도 주문 ({order_uuid[:8]}...), 수동 매도 처리 스킵")
+                # 🆕 identifier 기반 봇 주문 구분 (100% 정확)
+                if is_bot:
+                    # 봇 매도 주문 (profit/loss/immediate)은 별도 pending_order 처리에서 완료됨
+                    logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), type={bot_order_type}, 별도 처리됨")
                     return
 
                 position = self.position_manager.get_position(symbol)
-                pending_order = position.get('pending_order') if position else None
-
-                # pending_order가 있으면 봇이 주문한 것 (익절/손절)
-                if pending_order and pending_order.get('order_id') == order_uuid:
-                    logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), 별도 처리됨")
-                    return
 
                 # 수동 매도 처리
                 if position:

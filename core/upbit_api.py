@@ -400,14 +400,17 @@ class UpbitAPI:
         logger.warning(f"⚠️ {currency} 잔고를 찾을 수 없음")
         return 0.0
     
-    def buy_market_order(self, symbol: str, price: float) -> Dict:
+    def buy_market_order(self, symbol: str, price: float, identifier: str = None) -> Dict:
         """
         시장가 매수 주문
-        
+
         Args:
             symbol: 마켓 코드 (예: 'KRW-BTC')
             price: 매수 금액 (KRW)
-            
+            identifier: 클라이언트 지정 주문 식별자 (Optional)
+                - 계정 내 유일해야 하며, 한 번 사용한 값은 재사용 불가
+                - 봇 주문 구분에 활용: "bot_{type}_{currency}_{timestamp}_{uuid8}"
+
         Returns:
             Dict: 주문 정보
                 {
@@ -416,19 +419,24 @@ class UpbitAPI:
                     'ord_type': 'price',
                     'price': '10000.0',
                     'market': 'KRW-BTC',
+                    'identifier': '봇 주문 식별자',
                     'created_at': '2024-01-01T00:00:00+09:00',
                     ...
                 }
         """
-        logger.info(f"🛒 시장가 매수 주문: {symbol}, {price:,.0f}원")
-        
+        logger.info(f"🛒 시장가 매수 주문: {symbol}, {price:,.0f}원" + (f" (id: {identifier[:20]}...)" if identifier else ""))
+
         body = {
             'market': symbol,
             'side': 'bid',
             'ord_type': 'price',
             'price': str(price)
         }
-        
+
+        # identifier 추가 (봇 주문 구분용)
+        if identifier:
+            body['identifier'] = identifier
+
         order = self._request("POST", "/orders", body=body)
 
         # 에러 응답 체크
@@ -440,26 +448,33 @@ class UpbitAPI:
         logger.info(f"✅ 매수 주문 완료: {order['uuid']}")
         return order
     
-    def sell_market_order(self, symbol: str, volume: float) -> Dict:
+    def sell_market_order(self, symbol: str, volume: float, identifier: str = None) -> Dict:
         """
         시장가 매도 주문
-        
+
         Args:
             symbol: 마켓 코드 (예: 'KRW-BTC')
             volume: 매도 수량 (코인 수량)
-            
+            identifier: 클라이언트 지정 주문 식별자 (Optional)
+                - 계정 내 유일해야 하며, 한 번 사용한 값은 재사용 불가
+                - 봇 주문 구분에 활용: "bot_{type}_{currency}_{timestamp}_{uuid8}"
+
         Returns:
             Dict: 주문 정보
         """
-        logger.info(f"💵 시장가 매도 주문: {symbol}, {volume:.8f}개")
-        
+        logger.info(f"💵 시장가 매도 주문: {symbol}, {volume:.8f}개" + (f" (id: {identifier[:20]}...)" if identifier else ""))
+
         body = {
             'market': symbol,
             'side': 'ask',
             'ord_type': 'market',
             'volume': str(volume)
         }
-        
+
+        # identifier 추가 (봇 주문 구분용)
+        if identifier:
+            body['identifier'] = identifier
+
         order = self._request("POST", "/orders", body=body)
 
         # 에러 응답 체크
