@@ -328,6 +328,12 @@ class V4TradingEngine:
         order_id = pending_order.get('order_id')
         order_type = pending_order.get('type', 'unknown')
 
+        # 🔧 dca_failed 타입은 주문 자체가 없으므로 바로 정리
+        if order_type == 'dca_failed':
+            logger.info(f"🗑️ {symbol} dca_failed pending_order 정리 (timeout 후 재시도 허용)")
+            self.position_manager.update_position(symbol, {"pending_order": None})
+            return True  # 정리 완료, 재시도 가능
+
         if not order_id or not self.upbit_api:
             logger.warning(f"⚠️ {symbol} REST API 확인 불가 (order_id 또는 API 없음)")
             return False
@@ -2173,7 +2179,8 @@ class V4TradingEngine:
                     # pending_buy 포지션에서 그룹 정보 가져오기
                     group_id = pending_position.get('group_id')
                     group_name = pending_position.get('group_name', 'Unknown')
-                    buy_amount_krw = pending_position.get('buy_amount_krw', 0)
+                    # 🔧 entry_krw가 정확한 필드명 (position_manager.create_position에서 entry_krw로 저장됨)
+                    buy_amount_krw = pending_position.get('entry_krw') or pending_position.get('buy_amount_krw', 0)
 
                     # 🔧 pending_buy → active 상태로 업데이트
                     position = self.position_manager.update_position(symbol, {
@@ -2754,10 +2761,12 @@ class V4TradingEngine:
                             self.trade_history.add_trade(**trade_params)
 
                             # 🔧 GUI 완료 로그 (한 줄 요약)
-                            profit_pct = pending_order.get('profit_pct', 0)
                             avg_buy_price = position.get('avg_buy_price', 0)
                             profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
-                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
+                            # 🔧 실제 체결 기준 수익률 계산
+                            invested_krw = avg_buy_price * executed_volume
+                            actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
 
                             # 텔레그램 알림
                             emoji = "✅" if order_type == 'profit' else "❌"
@@ -2803,10 +2812,13 @@ class V4TradingEngine:
                             self.trade_history.add_trade(**trade_params)
 
                             # 🔧 GUI 완료 로그 (한 줄 요약)
-                            profit_pct = pending_order.get('profit_pct', 0)
+                            # profit_pct는 트리거 조건이고, 실제 체결가는 다를 수 있음
                             avg_buy_price = position.get('avg_buy_price', 0)
                             profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
-                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+                            # 🔧 실제 체결 기준 수익률 계산 (트리거 조건이 아닌 실제 값)
+                            invested_krw = avg_buy_price * executed_volume
+                            actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
 
                             # 텔레그램 알림
                             emoji = "✅" if order_type == 'profit' else "❌"
@@ -2914,10 +2926,12 @@ class V4TradingEngine:
                         )
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
-                        profit_pct = pending_order.get('profit_pct', 0)
                         avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
-                        logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
+                        # 🔧 실제 체결 기준 수익률 계산
+                        invested_krw = avg_buy_price * executed_volume
+                        actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+                        logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
 
                         # 텔레그램 알림
                         self._send_telegram_alert(
@@ -2925,7 +2939,7 @@ class V4TradingEngine:
                             f"그룹: {group_name}\n"
                             f"코인: {symbol}\n"
                             f"레벨: {level_index + 1}\n"
-                            f"수익률: +{profit_pct:.2f}%\n"
+                            f"수익률: {actual_profit_pct:+.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"매도 금액: {sell_amount_krw:,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
@@ -2958,10 +2972,12 @@ class V4TradingEngine:
                         )
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
-                        profit_pct = pending_order.get('profit_pct', 0)
                         avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
-                        logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+                        # 🔧 실제 체결 기준 수익률 계산
+                        invested_krw = avg_buy_price * executed_volume
+                        actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+                        logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
 
                         # 텔레그램 알림
                         self._send_telegram_alert(
@@ -2969,7 +2985,7 @@ class V4TradingEngine:
                             f"그룹: {group_name}\n"
                             f"코인: {symbol}\n"
                             f"레벨: {level_index + 1}\n"
-                            f"수익률: +{profit_pct:.2f}%\n"
+                            f"수익률: +{actual_profit_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"매도 금액: {sell_amount_krw:,.0f}원\n"
                             f"매도 수량: {executed_volume:.8f}개\n"
