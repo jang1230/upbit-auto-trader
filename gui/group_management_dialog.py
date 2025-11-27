@@ -4,7 +4,7 @@ V4 그룹 시스템의 그룹 생성/삭제/수정 UI
 """
 
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget,
@@ -16,6 +16,9 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 
 from gui.manual_buy_dialog import ManualBuyDialog
+
+if TYPE_CHECKING:
+    from core.position_manager import PositionManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,15 @@ class GroupManagementDialog(QDialog):
     # 시그널: 그룹 변경 완료 (메인 윈도우에서 새로고침용)
     groups_changed = Signal()
 
-    def __init__(self, config_manager, group_manager, parent=None, is_trading_running=False, upbit_api=None):
+    def __init__(
+        self,
+        config_manager,
+        group_manager,
+        parent=None,
+        is_trading_running: bool = False,
+        upbit_api=None,
+        position_manager: Optional["PositionManager"] = None
+    ):
         """
         Args:
             config_manager: ConfigManager 인스턴스
@@ -40,6 +51,7 @@ class GroupManagementDialog(QDialog):
             parent: 부모 위젯
             is_trading_running: 거래 실행 중 여부
             upbit_api: UpbitAPI 인스턴스 (마켓 목록 조회용)
+            position_manager: 포지션 매니저 (레벨 리셋용)
         """
         super().__init__(parent)
 
@@ -47,6 +59,7 @@ class GroupManagementDialog(QDialog):
         self.group_manager = group_manager
         self.is_trading_running = is_trading_running  # 거래 실행 상태
         self.upbit_api = upbit_api
+        self.position_manager = position_manager
 
         # 현재 선택된 그룹 ID
         self.selected_group_id: Optional[str] = None
@@ -752,6 +765,8 @@ class GroupManagementDialog(QDialog):
 
             dialog = GroupUnifiedSettingsDialog(
                 group_id=self.selected_group_id,
+                position_manager=self.position_manager,
+                is_trading_running=self.is_trading_running,
                 parent=self
             )
 

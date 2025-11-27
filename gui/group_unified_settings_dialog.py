@@ -4,6 +4,8 @@ GroupUnifiedSettingsDialog - 그룹 통합 설정 다이얼로그
 자동매수, DCA, 익절/손절 설정을 탭으로 통합
 """
 
+from typing import Optional, TYPE_CHECKING
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
     QPushButton, QWidget, QLabel, QMessageBox
@@ -15,6 +17,9 @@ import logging
 from core.config_manager import ConfigManager
 from gui.auto_buy_settings_dialog_v2 import AutoBuySettingsDialogV2
 from gui.level_settings_dialog import LevelSettingsDialog
+
+if TYPE_CHECKING:
+    from core.position_manager import PositionManager
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +38,25 @@ class GroupUnifiedSettingsDialog(QDialog):
 
     settings_saved = Signal()
 
-    def __init__(self, group_id: str, parent=None):
+    def __init__(
+        self,
+        group_id: str,
+        position_manager: Optional["PositionManager"] = None,
+        is_trading_running: bool = False,
+        parent=None
+    ):
         """
         Args:
             group_id: 그룹 ID
+            position_manager: 포지션 매니저 (레벨 리셋용)
+            is_trading_running: 거래 실행 중 여부
             parent: 부모 위젯
         """
         super().__init__(parent)
 
         self.group_id = group_id
+        self.position_manager = position_manager
+        self.is_trading_running = is_trading_running
         self.config_manager = ConfigManager()
 
         # 설정 로드
@@ -139,6 +154,8 @@ class GroupUnifiedSettingsDialog(QDialog):
             config_manager=self.config_manager,
             group_id=self.group_id,
             group_name=self.group_config.get('name', self.group_id),
+            position_manager=self.position_manager,
+            is_trading_running=self.is_trading_running,
             parent=self
         )
 

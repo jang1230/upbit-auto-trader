@@ -4,7 +4,7 @@ V4 그룹별 매수/DCA/익절/손절 설정 UI
 """
 
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget,
@@ -15,6 +15,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from gui.auto_buy_settings_dialog_v2 import AutoBuySettingsDialogV2
+
+if TYPE_CHECKING:
+    from core.position_manager import PositionManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +35,22 @@ class GroupSettingsDialog(QDialog):
     # 시그널: 설정 저장 완료
     settings_saved = Signal()
 
-    def __init__(self, config_manager, group_id: str, group_name: str, parent=None):
+    def __init__(
+        self,
+        config_manager,
+        group_id: str,
+        group_name: str,
+        position_manager: Optional["PositionManager"] = None,
+        is_trading_running: bool = False,
+        parent=None
+    ):
         """
         Args:
             config_manager: ConfigManager 인스턴스
             group_id: 그룹 ID
             group_name: 그룹 이름 (표시용)
+            position_manager: 포지션 매니저 (레벨 리셋용)
+            is_trading_running: 거래 실행 중 여부
             parent: 부모 위젯
         """
         super().__init__(parent)
@@ -45,6 +58,8 @@ class GroupSettingsDialog(QDialog):
         self.config_manager = config_manager
         self.group_id = group_id
         self.group_name = group_name
+        self.position_manager = position_manager
+        self.is_trading_running = is_trading_running
 
         # auto_config 저장 (자동매수 설정)
         self.auto_config = None
@@ -555,9 +570,11 @@ class GroupSettingsDialog(QDialog):
             from gui.level_settings_dialog import LevelSettingsDialog
 
             dialog = LevelSettingsDialog(
-                self.config_manager,
-                self.group_id,
-                self.group_name,
+                config_manager=self.config_manager,
+                group_id=self.group_id,
+                group_name=self.group_name,
+                position_manager=self.position_manager,
+                is_trading_running=self.is_trading_running,
                 parent=self
             )
             dialog.settings_saved.connect(self._on_level_settings_saved)

@@ -2353,7 +2353,8 @@ class MainWindow(QMainWindow):
                 self.v4_group_manager,
                 parent=self,
                 is_trading_running=self.is_running,  # 거래 실행 상태 전달
-                upbit_api=self.upbit_api  # 동적 코인 목록 로드용
+                upbit_api=self.upbit_api,  # 동적 코인 목록 로드용
+                position_manager=self.v4_position_manager  # 레벨 리셋용
             )
 
             # 그룹 변경 시그널 연결

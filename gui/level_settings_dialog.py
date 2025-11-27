@@ -5,7 +5,7 @@ DCA/익절/손절 레벨을 테이블로 상세 편집
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
@@ -17,6 +17,9 @@ from PySide6.QtGui import QFont
 
 from core.config_manager import ConfigManager
 
+if TYPE_CHECKING:
+    from core.position_manager import PositionManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,11 +28,21 @@ class LevelSettingsDialog(QDialog):
 
     settings_saved = Signal()
 
-    def __init__(self, config_manager: ConfigManager, group_id: str, group_name: str, parent=None):
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        group_id: str,
+        group_name: str,
+        position_manager: Optional["PositionManager"] = None,
+        is_trading_running: bool = False,
+        parent=None
+    ):
         super().__init__(parent)
         self.config_manager = config_manager
         self.group_id = group_id
         self.group_name = group_name
+        self.position_manager = position_manager
+        self.is_trading_running = is_trading_running
 
         self.setWindowTitle(f"레벨 상세 설정: {group_name}")
         self.setMinimumSize(700, 600)
@@ -385,15 +398,24 @@ class LevelSettingsDialog(QDialog):
     def _save_levels(self):
         """레벨 저장"""
         try:
-            # 검증
-            dca_levels = self._get_dca_levels()
-            profit_levels = self._get_profit_levels()
-            loss_levels = self._get_loss_levels()
-
-            if not self._validate_levels(dca_levels, profit_levels, loss_levels):
+            # 1. 거래 실행 중이면 저장 불가
+            if self.is_trading_running:
+                QMessageBox.warning(
+                    self,
+                    "저장 불가",
+                    "거래가 실행 중입니다.\n정지 후 설정을 변경해주세요."
+                )
                 return
 
-            # 설정 업데이트
+            # 2. 새 설정 가져오기 및 검증
+            new_dca_levels = self._get_dca_levels()
+            new_profit_levels = self._get_profit_levels()
+            new_loss_levels = self._get_loss_levels()
+
+            if not self._validate_levels(new_dca_levels, new_profit_levels, new_loss_levels):
+                return
+
+            # 3. 기존 설정 가져오기
             config = self.config_manager.load_config()
             groups = config.get("groups", {})
 
@@ -402,34 +424,93 @@ class LevelSettingsDialog(QDialog):
 
             group = groups[self.group_id]
 
-            # DCA 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
+            old_dca_levels = group.get("dca_settings", {}).get("levels", [])
+            old_profit_levels = group.get("profit_settings", {}).get("levels", [])
+            old_loss_levels = group.get("loss_settings", {}).get("levels", [])
+
+            # 4. 변경 감지
+            dca_changed = old_dca_levels != new_dca_levels
+            profit_changed = old_profit_levels != new_profit_levels
+            loss_changed = old_loss_levels != new_loss_levels
+
+            # 5. 변경된 항목이 있고, 리셋이 필요한 경우 확인 다이얼로그
+            changed_items = []
+            if dca_changed:
+                changed_items.append("DCA")
+            if profit_changed:
+                changed_items.append("익절")
+            if loss_changed:
+                changed_items.append("손절")
+
+            if changed_items:
+                # position_manager가 없으면 경고
+                if not self.position_manager:
+                    result = QMessageBox.warning(
+                        self,
+                        "경고",
+                        f"변경된 항목: {', '.join(changed_items)}\n\n"
+                        "position_manager가 없어 레벨 실행 기록을 리셋할 수 없습니다.\n"
+                        "설정만 변경하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if result == QMessageBox.No:
+                        return
+                else:
+                    # 확인 다이얼로그
+                    result = QMessageBox.question(
+                        self,
+                        "설정 변경 확인",
+                        f"변경된 항목: {', '.join(changed_items)}\n\n"
+                        f"해당 그룹의 모든 포지션에서 {', '.join(changed_items)} 실행 기록이 리셋됩니다.\n"
+                        "조건 충족 시 다시 실행될 수 있습니다.\n\n"
+                        "계속하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if result == QMessageBox.No:
+                        return
+
+            # 6. 리셋 실행 (변경된 항목만)
+            reset_backup = {}  # 롤백용 백업
+            if self.position_manager and changed_items:
+                try:
+                    if dca_changed:
+                        reset_backup["dca"] = self._reset_group_levels("dca")
+                    if profit_changed:
+                        reset_backup["profit"] = self._reset_group_levels("profit")
+                    if loss_changed:
+                        reset_backup["loss"] = self._reset_group_levels("loss")
+                except Exception as e:
+                    # 리셋 실패 시 이미 리셋된 것들 롤백
+                    self._rollback_reset(reset_backup)
+                    raise ValueError(f"레벨 리셋 실패: {e}")
+
+            # 7. config 업데이트
             if "dca_settings" not in group:
                 group["dca_settings"] = {"mode": "auto", "levels": []}
+            group["dca_settings"]["levels"] = new_dca_levels
+            group["dca_settings"]["mode"] = "auto" if len(new_dca_levels) > 0 else "disabled"
 
-            # 레벨이 1개 이상이면 auto, 없으면 disabled
-            group["dca_settings"]["levels"] = dca_levels
-            group["dca_settings"]["mode"] = "auto" if len(dca_levels) > 0 else "disabled"
-
-            # 익절 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "profit_settings" not in group:
                 group["profit_settings"] = {"mode": "auto", "levels": []}
+            group["profit_settings"]["levels"] = new_profit_levels
+            group["profit_settings"]["mode"] = "auto" if len(new_profit_levels) > 0 else "disabled"
 
-            # 레벨이 1개 이상이면 auto, 없으면 disabled
-            group["profit_settings"]["levels"] = profit_levels
-            group["profit_settings"]["mode"] = "auto" if len(profit_levels) > 0 else "disabled"
-
-            # 손절 설정 업데이트 (레벨 개수에 따라 mode 자동 설정)
             if "loss_settings" not in group:
                 group["loss_settings"] = {"mode": "auto", "levels": []}
+            group["loss_settings"]["levels"] = new_loss_levels
+            group["loss_settings"]["mode"] = "auto" if len(new_loss_levels) > 0 else "disabled"
 
-            # 레벨이 1개 이상이면 auto, 없으면 disabled
-            group["loss_settings"]["levels"] = loss_levels
-            group["loss_settings"]["mode"] = "auto" if len(loss_levels) > 0 else "disabled"
-
-            # 저장
-            self.config_manager.save_config(config)
+            # 8. config 저장
+            try:
+                self.config_manager.save_config(config)
+            except Exception as e:
+                # config 저장 실패 시 리셋 롤백
+                self._rollback_reset(reset_backup)
+                raise ValueError(f"설정 저장 실패: {e}")
 
             logger.info(f"✅ 레벨 저장 완료: {self.group_id}")
+            if changed_items:
+                logger.info(f"🔄 리셋된 항목: {', '.join(changed_items)}")
 
             QMessageBox.information(
                 self,
@@ -449,6 +530,54 @@ class LevelSettingsDialog(QDialog):
                 "오류",
                 f"레벨을 저장할 수 없습니다.\n{e}"
             )
+
+    def _reset_group_levels(self, level_type: str) -> Dict[str, List[int]]:
+        """
+        해당 그룹의 모든 포지션에서 레벨 실행 기록 리셋
+
+        Args:
+            level_type: "dca", "profit", "loss"
+
+        Returns:
+            롤백용 백업 데이터 {symbol: [executed_levels]}
+        """
+        field_name = f"{level_type}_levels_executed"
+        backup = {}
+
+        positions = self.position_manager.get_active_positions()
+
+        for symbol, position in positions.items():
+            if position.get("group_id") == self.group_id:
+                # 백업
+                backup[symbol] = position.get(field_name, []).copy()
+
+                # 리셋
+                self.position_manager.update_position(symbol, {
+                    field_name: []
+                })
+
+        logger.info(f"🔄 그룹 {self.group_id}의 {level_type} 레벨 실행 기록 리셋 ({len(backup)}개 포지션)")
+        return backup
+
+    def _rollback_reset(self, reset_backup: Dict[str, Dict[str, List[int]]]):
+        """
+        리셋 롤백 (실패 시 원복)
+
+        Args:
+            reset_backup: {level_type: {symbol: [executed_levels]}}
+        """
+        if not self.position_manager:
+            return
+
+        for level_type, positions_backup in reset_backup.items():
+            field_name = f"{level_type}_levels_executed"
+            for symbol, executed_levels in positions_backup.items():
+                try:
+                    self.position_manager.update_position(symbol, {
+                        field_name: executed_levels
+                    })
+                except Exception as e:
+                    logger.error(f"❌ 롤백 실패 {symbol}.{field_name}: {e}")
 
     def _get_dca_levels(self) -> List[Dict[str, Any]]:
         """DCA 테이블에서 레벨 읽기"""
