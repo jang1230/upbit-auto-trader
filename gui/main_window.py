@@ -2834,10 +2834,18 @@ class MainWindow(QMainWindow):
                 self._load_v4_positions()
 
                 # 수동매도 감지 시 GUI 로그만 표시 (텔레그램 알림 없음)
+                # 🔧 MyOrder에서 이미 처리된 수동 매도는 중복 로그 스킵
                 if sync_result['removed_positions']:
                     for removed_pos in sync_result['removed_positions']:
                         if isinstance(removed_pos, dict):
                             symbol = removed_pos['symbol']
+
+                            # 🔧 MyOrder에서 최근 처리된 경우 스킵 (중복 로그 방지)
+                            if hasattr(self, 'v4_engine') and self.v4_engine:
+                                if self.v4_engine._was_recently_processed_by_myorder(symbol, window_seconds=10):
+                                    logger.debug(f"   ⏭️ {symbol} MyOrder에서 이미 처리됨 → MyAsset 수동매도 로그 스킵")
+                                    continue
+
                             profit_krw = removed_pos.get('profit_krw', 0)
                             profit_pct = removed_pos.get('profit_pct', 0)
                             self._add_log(f"[수동매도] {symbol} | {profit_krw:+,.0f}원 ({profit_pct:+.2f}%)")
