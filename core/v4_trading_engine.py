@@ -300,6 +300,162 @@ class V4TradingEngine:
             return True, parsed
         return False, None
 
+    def _handle_pending_order_timeout(self, symbol: str, pending_order: Dict) -> bool:
+        """
+        pending_order timeout 시 REST API로 주문 상태 확인 후 처리
+
+        Upbit MyOrder WebSocket이 시장가 주문 체결 알림을 누락하는 경우가 있어서
+        timeout 발생 시 REST API로 직접 주문 상태를 확인하고 포지션을 업데이트합니다.
+
+        Args:
+            symbol: 마켓 코드 (예: KRW-BTC)
+            pending_order: pending_order 딕셔너리
+                {
+                    "order_id": "uuid",
+                    "type": "dca" | "buy" | "profit" | "loss",
+                    "level": int (DCA인 경우),
+                    "dca_price": float,
+                    "dca_amount": float,
+                    "dca_value_krw": float,
+                    "group_id": str,
+                    "group_name": str,
+                    ...
+                }
+
+        Returns:
+            bool: True = 체결 확인됨 (재시도 불필요), False = 재시도 필요
+        """
+        order_id = pending_order.get('order_id')
+        order_type = pending_order.get('type', 'unknown')
+
+        if not order_id or not self.upbit_api:
+            logger.warning(f"⚠️ {symbol} REST API 확인 불가 (order_id 또는 API 없음)")
+            return False
+
+        try:
+            # REST API로 주문 상태 확인
+            logger.info(f"🔍 {symbol} REST API로 주문 상태 확인 중... (order_id: {order_id[:8]}...)")
+            order_info = self.upbit_api.get_order(order_id)
+
+            state = order_info.get('state')
+            logger.info(f"   📋 주문 상태: {state}")
+
+            if state == 'done':
+                # 체결 완료! 포지션 업데이트
+                logger.info(f"✅ {symbol} REST API로 체결 확인됨! (WebSocket 누락 복구)")
+
+                # 체결 정보 추출
+                trades = order_info.get('trades', [])
+                if trades:
+                    # 실제 체결 정보 사용
+                    total_volume = sum(float(t.get('volume', 0)) for t in trades)
+                    total_funds = sum(float(t.get('funds', 0)) for t in trades)
+                    avg_price = total_funds / total_volume if total_volume > 0 else 0
+                else:
+                    # trades가 없으면 pending_order 정보 사용
+                    total_volume = float(pending_order.get('dca_amount', 0))
+                    avg_price = float(pending_order.get('dca_price', 0))
+                    total_funds = total_volume * avg_price
+
+                if order_type == 'dca':
+                    # DCA 체결 처리
+                    dca_level = pending_order.get('level', 0)
+                    group_id = pending_order.get('group_id', '')
+                    group_name = pending_order.get('group_name', 'Unknown')
+
+                    # add_dca로 포지션 업데이트
+                    self.position_manager.add_dca(
+                        symbol=symbol,
+                        dca_price=avg_price,
+                        dca_amount=total_volume,
+                        dca_value_krw=total_funds
+                    )
+
+                    # dca_levels_executed 업데이트
+                    position = self.position_manager.get_position(symbol)
+                    dca_levels_executed = position.get('dca_levels_executed', [])
+                    if dca_level not in dca_levels_executed:
+                        dca_levels_executed.append(dca_level)
+                        self.position_manager.update_position(symbol, {
+                            'dca_levels_executed': dca_levels_executed
+                        })
+
+                    # pending_order 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+
+                    # Telegram 알림
+                    if self.telegram_bot:
+                        self.telegram_bot.send_message(
+                            f"✅ DCA 체결 확인 (REST API Fallback)\n"
+                            f"코인: {symbol}\n"
+                            f"그룹: {group_name}\n"
+                            f"레벨: {dca_level + 1}\n"
+                            f"체결가: {avg_price:,.0f}원\n"
+                            f"수량: {total_volume:.8f}\n"
+                            f"금액: {total_funds:,.0f}원\n"
+                            f"⚠️ WebSocket 누락으로 REST API로 확인됨"
+                        )
+
+                    logger.info(
+                        f"✅ {symbol} DCA 레벨 {dca_level + 1} 체결 완료 (REST API Fallback)\n"
+                        f"   체결가: {avg_price:,.0f}원, 수량: {total_volume:.8f}"
+                    )
+
+                elif order_type in ['profit', 'loss']:
+                    # 익절/손절 체결 처리 - 포지션 이미 MyAsset에서 처리됐을 가능성 높음
+                    # pending_order만 제거
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+
+                    logger.info(f"✅ {symbol} {order_type} 체결 확인됨 (REST API Fallback)")
+
+                elif order_type == 'buy':
+                    # 자동 매수 체결 처리
+                    # pending_order만 제거 (포지션은 이미 생성됐을 것)
+                    self.position_manager.update_position(symbol, {
+                        "pending_order": None
+                    })
+
+                    logger.info(f"✅ {symbol} 자동 매수 체결 확인됨 (REST API Fallback)")
+
+                return True  # 체결됨, 재시도 불필요
+
+            elif state == 'wait':
+                # 아직 대기 중 - 더 기다리거나 취소
+                logger.warning(f"⏳ {symbol} 주문이 아직 대기 중 (state=wait)")
+                # pending_order 제거하고 재시도 허용
+                self.position_manager.update_position(symbol, {
+                    "pending_order": None
+                })
+                return False  # 재시도 필요
+
+            elif state == 'cancel':
+                # 취소됨
+                logger.warning(f"🚫 {symbol} 주문이 취소됨 (state=cancel)")
+                self.position_manager.update_position(symbol, {
+                    "pending_order": None
+                })
+                return False  # 재시도 필요
+
+            else:
+                # 알 수 없는 상태
+                logger.warning(f"❓ {symbol} 알 수 없는 주문 상태: {state}")
+                self.position_manager.update_position(symbol, {
+                    "pending_order": None
+                })
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ {symbol} REST API 주문 확인 실패: {e}", exc_info=True)
+            # API 실패 시 pending_order 제거하고 재시도 허용
+            self.position_manager.update_position(symbol, {
+                "pending_order": None
+            })
+            return False
+
     def start(self):
         """거래 시작"""
         if self.is_running:
@@ -1237,29 +1393,21 @@ class V4TradingEngine:
                     timestamp = datetime.fromisoformat(timestamp_str)
                     elapsed = (datetime.now() - timestamp).total_seconds()
 
-                    # 5분(300초) 이상 대기 중이면 자동 제거
+                    # 5분(300초) 이상 대기 중이면 REST API로 확인
                     if elapsed > 300:
                         logger.warning(
                             f"⚠️ {symbol} pending_order timeout "
                             f"(경과: {elapsed:.0f}초, 타입: {pending_order.get('type')}, "
-                            f"레벨: {pending_order.get('level')}) → 제거 및 재시도"
+                            f"레벨: {pending_order.get('level')}) → REST API 확인"
                         )
-                        self.position_manager.update_position(symbol, {
-                            "pending_order": None
-                        })
 
-                        # Telegram 알림
-                        if self.telegram_bot:
-                            self.telegram_bot.send_message(
-                                f"⚠️ pending_order Timeout\n"
-                                f"코인: {symbol}\n"
-                                f"타입: {pending_order.get('type')}\n"
-                                f"레벨: {pending_order.get('level')}\n"
-                                f"경과 시간: {elapsed:.0f}초\n"
-                                f"자동 제거 후 재시도합니다."
-                            )
+                        # 🔧 REST API Fallback: 주문 상태 확인 후 처리
+                        order_completed = self._handle_pending_order_timeout(symbol, pending_order)
 
-                        # Timeout 후 계속 진행 (재시도)
+                        if order_completed:
+                            # 체결 확인됨 → 재시도 불필요
+                            return
+                        # 미체결/취소 → 재시도 허용 (계속 진행)
                     else:
                         # 정상 대기 중
                         logger.debug(
