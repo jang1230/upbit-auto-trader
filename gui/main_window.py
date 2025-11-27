@@ -174,6 +174,9 @@ class MainWindow(QMainWindow):
     트레이딩 봇 실행/중지, 상태 모니터링
     """
 
+    # 🔧 스레드 안전한 GUI 업데이트용 Signal
+    position_refresh_signal = Signal(str)  # 포지션 새로고침 (symbol)
+
     def __init__(self):
         super().__init__()
 
@@ -248,6 +251,9 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Upbit DCA Trader V4")
         self.setMinimumSize(1600, 850)  # V4: 그룹 시스템으로 화면 확대
+
+        # 🔧 스레드 안전한 Signal 연결 (백그라운드 → GUI)
+        self.position_refresh_signal.connect(self._on_position_refresh_requested)
 
         self._init_ui()
         self._init_menu()
@@ -2016,20 +2022,36 @@ class MainWindow(QMainWindow):
 
     def _on_position_created(self, symbol: str):
         """
-        포지션 생성 시 호출되는 콜백 (GUI 새로고침용)
+        포지션 생성/변경 시 호출되는 콜백 (백그라운드 스레드에서 호출됨)
 
-        V4TradingEngine에서 포지션이 생성될 때 호출되어,
-        GUI 포지션 테이블을 새로고침합니다.
+        V4TradingEngine에서 포지션이 생성/변경될 때 호출되어,
+        Signal을 통해 GUI 스레드에 새로고침을 요청합니다.
 
         Args:
-            symbol: 생성된 포지션의 코인 심볼 (예: KRW-BTC)
+            symbol: 생성/변경된 포지션의 코인 심볼 (예: KRW-BTC)
         """
-        logger.debug(f"📊 포지션 생성 콜백 수신: {symbol}")
+        logger.info(f"📊 포지션 변경 콜백 수신: {symbol}")
         try:
-            # GUI 스레드에서 안전하게 새로고침 (QTimer.singleShot 사용)
-            QTimer.singleShot(0, self._load_v4_positions)
+            # 🔧 Signal을 통해 GUI 스레드에서 안전하게 새로고침
+            self.position_refresh_signal.emit(symbol)
         except Exception as e:
-            logger.error(f"❌ GUI 새로고침 콜백 오류: {e}")
+            logger.error(f"❌ GUI 새로고침 Signal emit 오류: {e}")
+
+    def _on_position_refresh_requested(self, symbol: str):
+        """
+        포지션 새로고침 Signal 슬롯 (GUI 스레드에서 실행됨)
+
+        백그라운드 스레드에서 position_refresh_signal이 emit되면
+        이 슬롯이 GUI 스레드에서 호출됩니다.
+
+        Args:
+            symbol: 변경된 포지션의 심볼
+        """
+        logger.info(f"🔄 GUI 포지션 새로고침 요청: {symbol}")
+        try:
+            self._load_v4_positions()
+        except Exception as e:
+            logger.error(f"❌ GUI 포지션 새로고침 오류: {e}")
 
     def _on_backend_log(self, level: str, formatted_message: str):
         """
