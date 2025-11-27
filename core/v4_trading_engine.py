@@ -2235,14 +2235,12 @@ class V4TradingEngine:
 
             # 🆕 Phase B: 수동 매수 처리 (state='done' or 'cancel' and side='bid')
             # 시장가 주문은 부분 체결 후 state=cancel로 완료될 수 있음
-            if state in ['done', 'cancel'] and ask_bid == 'BID':
+            # 🔧 DCA 봇 주문은 Phase C (state=cancel 블록)에서 처리하므로 여기서 제외
+            if state in ['done', 'cancel'] and ask_bid == 'BID' and not (is_bot and bot_order_type == 'dca'):
                 # 🆕 identifier 기반 봇 주문 구분 (100% 정확)
                 if is_bot:
-                    # DCA 봇 주문은 별도 pending_order 처리에서 완료됨
-                    if bot_order_type == 'dca':
-                        logger.debug(f"   ⏭️ {symbol} 봇 DCA 주문 ({order_uuid[:8]}...), 별도 처리됨")
-                    else:
-                        logger.debug(f"   ⏭️ {symbol} 봇 매수 주문 ({order_uuid[:8]}...), type={bot_order_type}")
+                    # DCA가 아닌 봇 매수 주문 (buy 등)
+                    logger.debug(f"   ⏭️ {symbol} 봇 매수 주문 ({order_uuid[:8]}...), type={bot_order_type}")
                     return
 
                 position = self.position_manager.get_position(symbol)
