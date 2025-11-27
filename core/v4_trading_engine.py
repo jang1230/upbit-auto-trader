@@ -1991,6 +1991,12 @@ class V4TradingEngine:
                     logger.debug(f"   🔧 {symbol} Race Condition 감지: order_uuid 업데이트 ({order_uuid[:8]}...)")
                 # 🔧 Phase D: state='done' or 'cancel' 모두 처리 (DCA와 동일 패턴)
                 if state in ['done', 'cancel']:
+                    # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+                    if order_uuid in self.processed_bot_order_uuids:
+                        logger.debug(f"   ⏭️ {symbol} 자동매수 주문 {order_uuid[:8]}... 이미 처리됨 (state={state}) → 스킵")
+                        return
+                    self.processed_bot_order_uuids.add(order_uuid)
+
                     # state 구분 로그 (debug)
                     if state == 'done':
                         logger.debug(f"   ✅ [자동매수] {symbol} 초기 매수 체결 완료 (state=done, 완전 체결) (수량: {executed_volume:.8f}, MyOrder avg: {avg_price:,.0f}원)")
