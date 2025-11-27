@@ -2055,6 +2055,95 @@ class V4TradingEngine:
                     self.processed_bot_order_uuids.add(order_uuid)
                     return
 
+            # 🆕 수동 매도 처리 (state='done' or 'cancel' and side='ask')
+            if state in ['done', 'cancel'] and ask_bid == 'ASK':
+                # 이미 처리된 봇 주문이면 스킵 (익절/손절 등)
+                if order_uuid in self.processed_bot_order_uuids:
+                    logger.debug(f"   ⏭️ {symbol} 이미 처리된 봇 매도 주문 ({order_uuid[:8]}...), 수동 매도 처리 스킵")
+                    return
+
+                position = self.position_manager.get_position(symbol)
+                pending_order = position.get('pending_order') if position else None
+
+                # pending_order가 있으면 봇이 주문한 것 (익절/손절)
+                if pending_order and pending_order.get('order_id') == order_uuid:
+                    logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), 별도 처리됨")
+                    return
+
+                # 수동 매도 처리
+                if position:
+                    current_amount = float(position.get('total_amount', 0))
+                    avg_buy_price = float(position.get('avg_buy_price', 0))
+                    group_id = position.get('group_id', 'unknown')
+                    sell_price = float(avg_price) if avg_price else float(trade_price)
+                    sell_volume = float(executed_volume)
+                    sell_krw = sell_volume * sell_price
+
+                    # 수익률 계산
+                    if avg_buy_price > 0:
+                        profit_pct = ((sell_price - avg_buy_price) / avg_buy_price) * 100
+                    else:
+                        profit_pct = 0
+
+                    # 남은 수량 확인 (Upbit API로 실제 잔고 조회)
+                    remaining_amount = 0
+                    if self.upbit_api:
+                        try:
+                            currency = symbol.replace('KRW-', '')
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                if acc['currency'] == currency:
+                                    remaining_amount = float(acc.get('balance', 0)) + float(acc.get('locked', 0))
+                                    break
+                        except Exception as e:
+                            logger.warning(f"⚠️ [{symbol}] 잔고 조회 실패, 계산값 사용: {e}")
+                            remaining_amount = max(0, current_amount - sell_volume)
+                    else:
+                        remaining_amount = max(0, current_amount - sell_volume)
+
+                    # 전체 매도 vs 부분 매도 판단
+                    is_full_sell = remaining_amount < 0.00000001
+                    profit_sign = "+" if profit_pct >= 0 else ""
+
+                    if is_full_sell:
+                        # 전체 매도 - 포지션 종료
+                        self.position_manager.close_position(
+                            symbol,
+                            close_price=sell_price,
+                            close_reason='manual_sell'
+                        )
+                        logger.info(
+                            f"[수동매도] 전체: {symbol} | {sell_krw:,.0f}원 | "
+                            f"{sell_volume:.8f}개 | {profit_sign}{profit_pct:.2f}% | {group_id}"
+                        )
+                    else:
+                        # 부분 매도 - 포지션 수량 업데이트
+                        new_total_invested = avg_buy_price * remaining_amount
+                        self.position_manager.update_position(symbol, {
+                            'total_amount': remaining_amount,
+                            'total_invested_krw': new_total_invested
+                        })
+                        logger.info(
+                            f"[수동매도] 부분: {symbol} | {sell_krw:,.0f}원 | "
+                            f"{sell_volume:.8f}개 | 잔여 {remaining_amount:.8f}개 | "
+                            f"{profit_sign}{profit_pct:.2f}% | {group_id}"
+                        )
+
+                    # MyOrder 처리 완료 마킹
+                    self._mark_processed_by_myorder(symbol)
+                    self.processed_bot_order_uuids.add(order_uuid)
+
+                    # GUI 새로고침 콜백 호출
+                    if self.on_position_created_callback:
+                        try:
+                            self.on_position_created_callback(symbol)
+                        except Exception as e:
+                            logger.error(f"❌ GUI 새로고침 콜백 오류: {e}")
+                    return
+                else:
+                    logger.warning(f"⚠️ [{symbol}] 수동 매도 감지했으나 포지션 없음 (이미 종료됨)")
+                    return
+
             # 부분 체결 처리 (state='trade')
             if state == 'trade':
                 # 🔧 익절/손절 부분체결 시 사용자 친화적 로그
@@ -3659,119 +3748,6 @@ class V4TradingEngine:
 
         except Exception as e:
             logger.error(f"❌ 재시작 시 수동 매수 동기화 실패: {e}", exc_info=True)
-
-    async def _handle_order_event(self, order_data: dict):
-        """
-        WebSocket myOrder 이벤트 처리 (실행 중 수동 매수 감지)
-
-        Args:
-            order_data: myOrder 데이터
-                {
-                    "type": "myOrder",
-                    "code": "KRW-VIRTUAL",
-                    "uuid": "xyz789",
-                    "ask_bid": "BID",
-                    "state": "done",
-                    "executed_volume": 20.0,
-                    "price": 5000.0
-                }
-
-        Note:
-            - pending_order에 있으면: 프로그램 주문 (알림 없음, OrderManager가 처리)
-            - pending_order에 없으면: 수동 매수 (즉시 알림!)
-        """
-        try:
-            # 매수만 처리
-            if order_data.get('ask_bid') != 'BID':
-                return
-
-            # 체결 완료만 처리
-            if order_data.get('state') != 'done':
-                return
-
-            order_id = order_data.get('uuid')
-            symbol = order_data.get('code')
-
-            # pending_order에 있는지 확인
-            pending_order = self.pending_order_mgr.get_order(order_id) if self.pending_order_mgr else None
-
-            if pending_order:
-                # ✅ 프로그램이 주문한 것
-                logger.info(
-                    f"📝 [{symbol}] 프로그램 주문 체결 감지 "
-                    f"(order_id={order_id[:8]}..., OrderManager에서 처리)"
-                )
-                # OrderManager에서 이미 처리하므로 여기서는 아무것도 안 함
-
-            else:
-                # ✅ 수동 매수! (Upbit 앱에서 수동 주문)
-                logger.info(
-                    f"🔔 [{symbol}] 수동 매수 감지! (실시간) "
-                    f"(order_id={order_id[:8]}...)"
-                )
-                await self._handle_external_buy_realtime(order_data)
-
-        except Exception as e:
-            logger.error(f"❌ myOrder 이벤트 처리 실패: {e}", exc_info=True)
-
-    async def _handle_external_buy_realtime(self, order_data: dict):
-        """
-        실행 중 수동 매수 처리 (실시간 알림)
-
-        Args:
-            order_data: myOrder 데이터
-
-        Note:
-            - 프로그램 실행 중 수동 매수만 알림
-            - 포지션 생성 + 텔레그램 즉시 알림
-        """
-        symbol = order_data.get('code')
-        price = float(order_data.get('price', 0))
-        executed_volume = float(order_data.get('executed_volume', 0))
-
-        logger.info(
-            f"🔔 [{symbol}] 수동 매수 처리: "
-            f"평단가={price:,.0f}원, 수량={executed_volume:.8f}개"
-        )
-
-        # 그룹 결정 (첫 번째 활성화된 그룹)
-        groups = self.group_manager.get_all_groups()
-        active_groups = [g for g in groups.values() if g.get('enabled', True)]
-
-        if not active_groups:
-            logger.warning(f"⚠️ [{symbol}] 활성화된 그룹 없음, 포지션 생성 불가")
-            return
-
-        group_id = active_groups[0]['group_id']
-
-        # 포지션 생성
-        try:
-            position = self.position_manager.create_position(
-                group_id=group_id,
-                symbol=symbol,
-                buy_price=price,
-                amount=executed_volume,
-                source="external"
-            )
-
-            logger.info(f"✅ [{symbol}] 수동 매수 포지션 생성 완료")
-
-            # 📱 텔레그램 즉시 알림! (실행 중 수동 매수)
-            if self.telegram_bot:
-                executed_funds = price * executed_volume
-
-                self.telegram_bot.send_message(
-                    f"ℹ️ [{symbol}] 수동 매수 감지! (실시간)\n\n"
-                    f"평단가: {price:,.0f}원\n"
-                    f"수량: {executed_volume:.8f}개\n"
-                    f"총액: {executed_funds:,.0f}원\n\n"
-                    f"⚠️ 이 포지션은 외부에서 매수되었습니다.\n"
-                    f"그룹: {group_id}\n"
-                    f"DCA/익절/손절이 적용됩니다."
-                )
-
-        except Exception as e:
-            logger.error(f"❌ [{symbol}] 수동 매수 포지션 생성 실패: {e}", exc_info=True)
 
 
 # 테스트 코드
