@@ -214,6 +214,15 @@ class GroupUnifiedSettingsDialog(QDialog):
     def _on_save_clicked(self):
         """저장 버튼 클릭 처리"""
         try:
+            # 1. 거래 실행 중이면 저장 불가
+            if self.is_trading_running:
+                QMessageBox.warning(
+                    self,
+                    "저장 불가",
+                    "거래가 실행 중입니다.\n정지 후 설정을 변경해주세요."
+                )
+                return
+
             logger.info(f"💾 그룹 {self.group_id} 통합 설정 저장 시작...")
 
             # 탭1: 자동매수 설정 수집
@@ -242,6 +251,64 @@ class GroupUnifiedSettingsDialog(QDialog):
 
             group = groups[self.group_id]
 
+            # 2. 기존 설정 가져오기 (변경 감지용)
+            old_dca_levels = group.get("dca_settings", {}).get("levels", [])
+            old_profit_levels = group.get("profit_settings", {}).get("levels", [])
+            old_loss_levels = group.get("loss_settings", {}).get("levels", [])
+
+            # 3. 변경 감지
+            dca_changed = old_dca_levels != dca_levels
+            profit_changed = old_profit_levels != profit_levels
+            loss_changed = old_loss_levels != loss_levels
+
+            changed_items = []
+            if dca_changed:
+                changed_items.append("DCA")
+            if profit_changed:
+                changed_items.append("익절")
+            if loss_changed:
+                changed_items.append("손절")
+
+            # 4. 변경된 항목이 있으면 확인 다이얼로그
+            if changed_items:
+                if not self.position_manager:
+                    result = QMessageBox.warning(
+                        self,
+                        "경고",
+                        f"변경된 항목: {', '.join(changed_items)}\n\n"
+                        "position_manager가 없어 레벨 실행 기록을 리셋할 수 없습니다.\n"
+                        "설정만 변경하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if result == QMessageBox.No:
+                        return
+                else:
+                    result = QMessageBox.question(
+                        self,
+                        "설정 변경 확인",
+                        f"변경된 항목: {', '.join(changed_items)}\n\n"
+                        f"해당 그룹의 모든 포지션에서 {', '.join(changed_items)} 실행 기록이 리셋됩니다.\n"
+                        "조건 충족 시 다시 실행될 수 있습니다.\n\n"
+                        "계속하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if result == QMessageBox.No:
+                        return
+
+            # 5. 레벨 리셋 (변경된 항목만)
+            reset_backup = {}
+            if self.position_manager and changed_items:
+                try:
+                    if dca_changed:
+                        reset_backup["dca"] = self._reset_group_levels("dca")
+                    if profit_changed:
+                        reset_backup["profit"] = self._reset_group_levels("profit")
+                    if loss_changed:
+                        reset_backup["loss"] = self._reset_group_levels("loss")
+                except Exception as e:
+                    self._rollback_reset(reset_backup)
+                    raise ValueError(f"레벨 리셋 실패: {e}")
+
             # 자동매수 설정 업데이트
             # autobuy_config는 이미 전체 buy_settings 구조 (mode, buy_amount_krw, auto_config)를 포함
             group["buy_settings"] = autobuy_config
@@ -265,9 +332,15 @@ class GroupUnifiedSettingsDialog(QDialog):
             group["loss_settings"]["mode"] = "auto" if len(loss_levels) > 0 else "disabled"
 
             # 저장
-            self.config_manager.save_config(config)
+            try:
+                self.config_manager.save_config(config)
+            except Exception as e:
+                self._rollback_reset(reset_backup)
+                raise ValueError(f"설정 저장 실패: {e}")
 
             logger.info(f"✅ 그룹 {self.group_id} 통합 설정 저장 완료")
+            if changed_items:
+                logger.info(f"🔄 리셋된 항목: {', '.join(changed_items)}")
 
             # 전략 정보 표시 개선
             mode = autobuy_config.get("mode", "auto")
@@ -282,6 +355,11 @@ class GroupUnifiedSettingsDialog(QDialog):
                 else:
                     strategy_info = f"V4 전략 - {auto_config.get('investment_style', 'N/A')}"
 
+            # 리셋 정보 추가
+            reset_info = ""
+            if changed_items:
+                reset_info = f"\n\n🔄 리셋된 실행 기록: {', '.join(changed_items)}"
+
             QMessageBox.information(
                 self,
                 "저장 완료",
@@ -290,6 +368,7 @@ class GroupUnifiedSettingsDialog(QDialog):
                 f"📈 DCA: {len(dca_levels)}개 레벨\n"
                 f"💰 익절: {len(profit_levels)}개 레벨\n"
                 f"🛑 손절: {len(loss_levels)}개 레벨"
+                f"{reset_info}"
             )
 
             # 설정 저장 시그널 발생
@@ -304,6 +383,54 @@ class GroupUnifiedSettingsDialog(QDialog):
                 "저장 실패",
                 f"설정 저장 중 오류가 발생했습니다:\n{e}"
             )
+
+    def _reset_group_levels(self, level_type: str) -> dict:
+        """
+        해당 그룹의 모든 포지션에서 레벨 실행 기록 리셋
+
+        Args:
+            level_type: "dca", "profit", "loss"
+
+        Returns:
+            롤백용 백업 데이터 {symbol: [executed_levels]}
+        """
+        field_name = f"{level_type}_levels_executed"
+        backup = {}
+
+        positions = self.position_manager.get_active_positions()
+
+        for symbol, position in positions.items():
+            if position.get("group_id") == self.group_id:
+                # 백업
+                backup[symbol] = position.get(field_name, []).copy()
+
+                # 리셋
+                self.position_manager.update_position(symbol, {
+                    field_name: []
+                })
+
+        logger.info(f"🔄 그룹 {self.group_id}의 {level_type} 레벨 실행 기록 리셋 ({len(backup)}개 포지션)")
+        return backup
+
+    def _rollback_reset(self, reset_backup: dict):
+        """
+        리셋 롤백 (실패 시 원복)
+
+        Args:
+            reset_backup: {level_type: {symbol: [executed_levels]}}
+        """
+        if not self.position_manager:
+            return
+
+        for level_type, positions_backup in reset_backup.items():
+            field_name = f"{level_type}_levels_executed"
+            for symbol, executed_levels in positions_backup.items():
+                try:
+                    self.position_manager.update_position(symbol, {
+                        field_name: executed_levels
+                    })
+                except Exception as e:
+                    logger.error(f"❌ 롤백 실패 {symbol}.{field_name}: {e}")
 
 
 if __name__ == "__main__":
