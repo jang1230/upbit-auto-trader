@@ -840,7 +840,8 @@ class PositionManager:
                     continue
 
                 # 🆕 기존 수량 저장 (변경 감지용)
-                existing_amount = position.get('total_amount', 0)
+                # None 값 방어: get()이 None을 반환할 수 있으므로 or 0 추가
+                existing_amount = position.get('total_amount') or 0
 
                 # 기존 포지션 업데이트
                 updates = {
