@@ -2340,10 +2340,11 @@ class V4TradingEngine:
                     return
 
             # 🆕 수동 매도 처리 (state='done' or 'cancel' and side='ask')
-            if state in ['done', 'cancel'] and ask_bid == 'ASK':
+            # 🔧 profit/loss 봇 주문은 Phase C (state=cancel 블록)에서 처리하므로 여기서 제외
+            if state in ['done', 'cancel'] and ask_bid == 'ASK' and not (is_bot and bot_order_type in ['profit', 'loss']):
                 # 🆕 identifier 기반 봇 주문 구분 (100% 정확)
                 if is_bot:
-                    # 봇 매도 주문 (profit/loss/immediate)은 별도 pending_order 처리에서 완료됨
+                    # profit/loss가 아닌 봇 매도 주문 (immediate 등)
                     logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), type={bot_order_type}, 별도 처리됨")
                     return
 
