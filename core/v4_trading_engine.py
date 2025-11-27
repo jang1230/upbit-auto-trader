@@ -2116,10 +2116,21 @@ class V4TradingEngine:
                         force_create_for_sync=(group_id == "group_null")
                     )
 
-                    # GUI 로그만 (텔레그램 알림 없음 - group_null은 DCA/익절/손절 미작동)
+                    # GUI 로그
                     total_krw = avg_price * executed_volume
                     group_name = "그룹 없음" if group_id == "group_null" else group_id
                     logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {executed_volume:.8f}개 | {group_name}")
+
+                    # 🆕 텔레그램 알림 (identifier로 수동 주문 확실히 구분 가능)
+                    self._send_telegram_alert(
+                        f"📱 [수동매수] 신규 매수 감지\n"
+                        f"코인: {symbol}\n"
+                        f"그룹: {group_name}\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"매수 금액: {total_krw:,.0f}원\n"
+                        f"매수 수량: {executed_volume:.8f}개\n"
+                        f"체결 가격: {avg_price:,.0f}원"
+                    )
 
                     # MyOrder 처리 완료 마킹 + 중복 방지
                     self._mark_processed_by_myorder(symbol)
@@ -2154,9 +2165,25 @@ class V4TradingEngine:
                                         'total_invested_krw': new_avg_price * new_balance
                                     })
 
-                                    # GUI 한 줄 요약 로그 (텔레그램 알림 없음 - 신규 매수만 알림)
+                                    # GUI 한 줄 요약 로그
                                     additional_krw = avg_price * executed_volume
                                     logger.info(f"[수동매수] 추가: {symbol} | {additional_krw:,.0f}원 | 평균가 {new_avg_price:,.0f}원")
+
+                                    # 🆕 텔레그램 알림 (identifier로 수동 주문 확실히 구분 가능)
+                                    group_id = position.get('group_id', 'unknown')
+                                    group_name = position.get('group_name', group_id)
+                                    self._send_telegram_alert(
+                                        f"📱 [수동매수] 추가 매수 감지\n"
+                                        f"코인: {symbol}\n"
+                                        f"그룹: {group_name}\n"
+                                        f"━━━━━━━━━━━━━━\n"
+                                        f"추가 금액: {additional_krw:,.0f}원\n"
+                                        f"추가 수량: {executed_volume:.8f}개\n"
+                                        f"체결 가격: {avg_price:,.0f}원\n"
+                                        f"━━━━━━━━━━━━━━\n"
+                                        f"평균 매수가: {new_avg_price:,.0f}원\n"
+                                        f"총 보유량: {new_balance:.8f}개"
+                                    )
                                     break
                         except Exception as e:
                             logger.error(f"❌ [수동] {symbol} 평균가 조회 실패: {e}")
@@ -2201,6 +2228,10 @@ class V4TradingEngine:
                     is_full_sell = remaining_amount < 0.00000001
                     profit_sign = "+" if profit_pct >= 0 else ""
 
+                    # 수익금 계산
+                    invested_krw = avg_buy_price * sell_volume
+                    profit_krw = sell_krw - invested_krw
+
                     if is_full_sell:
                         # 전체 매도 - 포지션 종료
                         self.position_manager.close_position(
@@ -2211,6 +2242,20 @@ class V4TradingEngine:
                         logger.info(
                             f"[수동매도] 전체: {symbol} | {sell_krw:,.0f}원 | "
                             f"{sell_volume:.8f}개 | {profit_sign}{profit_pct:.2f}% | {group_id}"
+                        )
+
+                        # 🆕 텔레그램 알림 (identifier로 수동 주문 확실히 구분 가능)
+                        self._send_telegram_alert(
+                            f"📱 [수동매도] 전체 매도 감지\n"
+                            f"코인: {symbol}\n"
+                            f"그룹: {group_id}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {sell_krw:,.0f}원\n"
+                            f"매도 수량: {sell_volume:.8f}개\n"
+                            f"체결 가격: {sell_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"수익금: {profit_krw:+,.0f}원\n"
+                            f"수익률: {profit_sign}{profit_pct:.2f}%"
                         )
                     else:
                         # 부분 매도 - 포지션 수량 업데이트
@@ -2223,6 +2268,22 @@ class V4TradingEngine:
                             f"[수동매도] 부분: {symbol} | {sell_krw:,.0f}원 | "
                             f"{sell_volume:.8f}개 | 잔여 {remaining_amount:.8f}개 | "
                             f"{profit_sign}{profit_pct:.2f}% | {group_id}"
+                        )
+
+                        # 🆕 텔레그램 알림 (identifier로 수동 주문 확실히 구분 가능)
+                        self._send_telegram_alert(
+                            f"📱 [수동매도] 부분 매도 감지\n"
+                            f"코인: {symbol}\n"
+                            f"그룹: {group_id}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {sell_krw:,.0f}원\n"
+                            f"매도 수량: {sell_volume:.8f}개\n"
+                            f"체결 가격: {sell_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"수익금: {profit_krw:+,.0f}원\n"
+                            f"수익률: {profit_sign}{profit_pct:.2f}%\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"잔여 수량: {remaining_amount:.8f}개"
                         )
 
                     # MyOrder 처리 완료 마킹
