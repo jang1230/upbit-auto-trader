@@ -962,7 +962,7 @@ class MyOrderWebSocket:
         # 메시지 큐에 추가 (메인 listen에서도 접근 가능)
         self.message_queue.put(data)
 
-        logger.debug(f"📩 MyOrder: {code} | uuid={order_uuid[:8]}... | state={state}")
+        logger.info(f"📩 MyOrder 수신: {code} | uuid={order_uuid[:8]}... | state={state}")
 
         # 등록된 콜백 호출
         if order_uuid in self.order_callbacks:
