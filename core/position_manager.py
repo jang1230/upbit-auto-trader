@@ -629,7 +629,10 @@ class PositionManager:
                     'total_amount': balance,
                     'avg_buy_price': avg_buy_price,
                     'locked_amount': locked,
-                    'total_invested_krw': avg_buy_price * balance
+                    'total_invested_krw': avg_buy_price * balance,
+                    # 🔧 Upbit에 잔고가 있으면 status를 active로 복구
+                    # (이전에 '전체 매도'로 잘못 처리되어 closed된 경우 복구)
+                    'status': 'active'
                 }
 
                 # 🔧 그룹 변경 감지 및 업데이트
@@ -639,6 +642,11 @@ class PositionManager:
                 if current_group_id and current_group_id != old_group_id:
                     updates['group_id'] = current_group_id
                     print(f"   🔄 그룹 변경 감지: {symbol} ({old_group_id} → {current_group_id})")
+
+                # 🔧 status 복구 감지 (closed → active)
+                old_status = position.get('status', 'active')
+                if old_status == 'closed':
+                    print(f"   🔄 상태 복구: {symbol} (closed → active)")
 
                 self.update_position(symbol, updates)
                 synced_positions.append(symbol)
