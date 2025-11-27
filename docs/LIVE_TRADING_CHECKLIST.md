@@ -207,7 +207,7 @@ cat data/virtual_balances.json | python -m json.tool
 #### Scenario 2: DCA Execution
 - [ ] Price drops to DCA level (e.g., -3%)
 - [ ] Additional buy executed
-- [ ] `dca_count` increased (0 → 1)
+- [ ] `dca_levels_executed` updated ([] → [0])
 - [ ] `avg_buy_price` updated (lowered)
 - [ ] `total_invested_krw` increased
 - [ ] **No duplicate execution** (Level 1 only once)

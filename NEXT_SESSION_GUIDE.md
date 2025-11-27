@@ -271,7 +271,7 @@ cat config/trading_config.json | jq '.groups.GROUP_ID.dca_settings'
 cat data/positions_live.json | jq '.SYMBOL'
 
 # 확인 사항:
-# - dca_count: 현재 DCA 횟수
+# - dca_levels_executed: 실행된 DCA 레벨 인덱스 배열 (예: [0, 1])
 # - pending_order: 대기 중인 주문 있는지
 # - avg_buy_price: 평균가가 0이 아닌지
 

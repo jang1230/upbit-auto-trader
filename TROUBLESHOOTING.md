@@ -198,14 +198,14 @@ git pull origin main
 
 3. 포지션 상태 확인:
 ```bash
-# dca_count가 증가하는지 확인
+# dca_levels_executed 배열 확인
 cat data/positions_live.json | grep -A 10 "KRW-BTC"
 ```
 
 **예상 정상 동작**:
-- DCA Level 1 실행 → `dca_count: 0 → 1`
-- 가격 추가 하락 → DCA Level 2 실행 → `dca_count: 1 → 2`
-- 각 레벨은 한 번만 실행됨
+- DCA Level 1 실행 → `dca_levels_executed: [] → [0]`
+- 가격 추가 하락 → DCA Level 2 실행 → `dca_levels_executed: [0] → [0, 1]`
+- 각 레벨은 한 번만 실행됨 (배열에 인덱스 추가)
 
 ---
 

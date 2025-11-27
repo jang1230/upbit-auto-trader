@@ -225,7 +225,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 **4. PositionManager** (`core/position_manager.py`, 656 lines)
 - Separate files: `positions_live.json`, `positions_dryrun.json`
 - CRUD operations: create, update, close positions
-- DCA management: `add_dca()`, track `dca_count`
+- DCA management: `add_dca()`, track `dca_levels_executed`
 - Upbit synchronization: `sync_with_upbit()`
 
 **5. TradeHistoryManager** (`core/trade_history_manager.py`, 479 lines)
