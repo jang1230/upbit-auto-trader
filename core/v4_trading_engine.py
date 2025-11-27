@@ -2218,11 +2218,25 @@ class V4TradingEngine:
                     else:
                         profit_pct = 0
 
-                    # 🔧 남은 수량 확인 (계산값 사용 - REST API 타이밍 이슈 해결)
-                    # REST API 조회 시 체결 반영 전이라 틀린 값이 나올 수 있음
-                    # WebSocket의 executed_volume이 정확하므로 계산으로 처리
-                    remaining_amount = max(0, current_amount - sell_volume)
-                    logger.debug(f"   📊 [수동매도] {symbol} 잔여 수량 계산: {current_amount:.8f} - {sell_volume:.8f} = {remaining_amount:.8f}")
+                    # 🔧 남은 수량 확인 (REST API로 정확한 잔고 조회)
+                    # MyAsset이 먼저 도착해서 position.total_amount가 이미 변경되었을 수 있음
+                    # 1.5초 대기 후 REST API로 실제 잔고 조회
+                    remaining_amount = 0
+                    if self.upbit_api:
+                        try:
+                            time.sleep(1.5)  # 체결 반영 대기
+                            currency = symbol.replace('KRW-', '')
+                            accounts = self.upbit_api.get_accounts()
+                            for acc in accounts:
+                                if acc['currency'] == currency:
+                                    remaining_amount = float(acc.get('balance', 0)) + float(acc.get('locked', 0))
+                                    logger.debug(f"   📊 [수동매도] {symbol} REST API 잔고 조회: {remaining_amount:.8f}개")
+                                    break
+                        except Exception as e:
+                            logger.warning(f"⚠️ [{symbol}] 잔고 조회 실패, 계산값 사용: {e}")
+                            remaining_amount = max(0, current_amount - sell_volume)
+                    else:
+                        remaining_amount = max(0, current_amount - sell_volume)
 
                     # 전체 매도 vs 부분 매도 판단
                     is_full_sell = remaining_amount < 0.00000001
