@@ -34,6 +34,10 @@ git reset --hard origin/claude/duplicate-branch-with-history-01MTwqcDbvrJd9TS6QC
 | `ec6b25e` | fix: DCA/익절 레벨 순서 검증 제거 - 사용자 자유 설정 허용 |
 | `a7af6b6` | fix: 익절/손절 후 포지션 에러 및 DCA 최소금액 체크 추가 |
 | `273c021` | fix: GUI 포지션 테이블 동기화 문제 수정 |
+| `772f4a5` | fix: 텔레그램 DCA/익절/손절 중복 메시지 수정 |
+| `64eadb5` | **fix: pending_buy Race Condition - order_uuid 체크 로직 개선** |
+| `7ad9503` | **fix: 신규 매수 race condition 버그 수정** |
+| `3976e6f` | docs: 2025-11-26 작업 요약 문서 추가 |
 
 ---
 
@@ -107,6 +111,30 @@ DCA/익절/손절 설정 변경 시 해당 레벨 실행 기록 초기화:
 
 - **물타기** (기존): 가격 하락 시 추가 매수 (음수 price_ratio: -3%, -6%)
 - **불타기** (신규): 가격 상승 시 추가 매수 (양수 price_ratio: +3%, +5%)
+
+---
+
+### 5. Race Condition 버그 수정 (`7ad9503`, `64eadb5`)
+
+**문제점**: 신규 매수 시 중복 매수 발생
+
+**원인**:
+- WebSocket에서 주문 완료 이벤트가 빠르게 연속 도착
+- `pending_buy` 체크와 주문 실행 사이에 시간 간격 존재
+- `order_uuid` 체크 없이 symbol만으로 중복 판단
+
+**해결**:
+- `order_uuid` 기반 중복 체크 추가
+- `processed_bot_order_uuids` set으로 이미 처리된 주문 추적
+- 동일 주문에 대한 중복 처리 방지
+
+---
+
+### 6. 텔레그램 중복 메시지 수정 (`772f4a5`)
+
+**문제점**: DCA/익절/손절 실행 시 텔레그램 메시지가 중복 발송됨
+
+**해결**: 메시지 발송 조건 정리 및 중복 호출 제거
 
 ---
 
