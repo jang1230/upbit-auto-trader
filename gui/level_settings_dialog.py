@@ -553,13 +553,8 @@ class LevelSettingsDialog(QDialog):
                     field_name: position.get(field_name, []).copy()
                 }
 
-                # 리셋할 필드
+                # 리셋할 필드 (dca_count 변수 제거됨 - dca_levels_executed 배열만 사용)
                 reset_fields = {field_name: []}
-
-                # DCA의 경우 dca_count도 함께 리셋
-                if level_type == "dca":
-                    backup[symbol]["dca_count"] = position.get("dca_count", 0)
-                    reset_fields["dca_count"] = 0
 
                 # 리셋
                 self.position_manager.update_position(symbol, reset_fields)

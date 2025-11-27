@@ -1206,11 +1206,10 @@ class V4TradingEngine:
                 # 계속 진행 (재시도)
 
         dca_levels = dca_settings.get("levels", [])
-        dca_count = position.get("dca_count", 0)
         dca_levels_executed = position.get("dca_levels_executed", [])
 
-        # 모든 DCA 레벨 소진
-        if dca_count >= len(dca_levels):
+        # 모든 DCA 레벨 소진 (dca_levels_executed 배열 길이로 체크)
+        if len(dca_levels_executed) >= len(dca_levels):
             return
 
         # 다음 DCA 레벨 확인
@@ -2203,7 +2202,6 @@ class V4TradingEngine:
                         'total_amount': final_balance,
                         'avg_buy_price': final_avg_price,
                         'total_invested_krw': final_avg_price * final_balance,
-                        'dca_count': position.get('dca_count', 0) + 1,
                         'dca_history': dca_history,
                         'dca_levels_executed': dca_levels_executed,
                         'pending_order': None
@@ -2754,7 +2752,6 @@ class V4TradingEngine:
                 updates['total_amount'] = final_balance
                 updates['avg_buy_price'] = final_avg_price
                 updates['total_invested_krw'] = final_avg_price * final_balance
-                updates['dca_count'] = position.get('dca_count', 0) + 1
                 updates['dca_history'] = dca_history
                 updates['dca_levels_executed'] = dca_levels_executed
 

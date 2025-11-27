@@ -238,7 +238,6 @@ class PositionManager:
             "current_value_krw": buy_amount_krw,
             "profit_krw": 0.0,
             "profit_pct": 0.0,
-            "dca_count": 0,
             "dca_history": [],
             "total_invested_krw": buy_amount_krw,
             "total_amount": entry_amount,
@@ -366,7 +365,6 @@ class PositionManager:
 
         # 업데이트
         updates = {
-            'dca_count': position['dca_count'] + 1,
             'dca_history': position['dca_history'],
             'total_amount': total_amount,
             'total_invested_krw': total_invested,
@@ -1164,7 +1162,7 @@ if __name__ == "__main__":
         dca_krw=138000,
         level=1
     )
-    print(f"   - DCA 횟수: {dca_pos['dca_count']}")
+    print(f"   - DCA 횟수: {len(dca_pos.get('dca_levels_executed', []))}")
     print(f"   - 평균가: {dca_pos['avg_buy_price']:,.0f}원")
     print()
 
