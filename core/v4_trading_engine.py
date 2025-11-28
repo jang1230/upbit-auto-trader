@@ -4263,6 +4263,7 @@ class V4TradingEngine:
             order_id: 주문 ID
         """
         if not self.on_trade_callback:
+            logger.warning(f"⚠️ on_trade_callback이 None입니다 - GUI 거래내역 업데이트 불가 ({symbol} {detail_type})")
             return
 
         try:
@@ -4285,7 +4286,7 @@ class V4TradingEngine:
             )
 
             self.on_trade_callback(trade)
-            logger.debug(f"📊 거래 이벤트 발생: {trade}")
+            logger.info(f"📊 GUI 거래내역 이벤트 전송: {symbol} {detail_type}")
         except Exception as e:
             logger.error(f"❌ 거래 이벤트 발생 오류: {e}")
 
