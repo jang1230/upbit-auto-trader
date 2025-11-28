@@ -178,6 +178,7 @@ class MainWindow(QMainWindow):
 
     # 🔧 스레드 안전한 GUI 업데이트용 Signal
     position_refresh_signal = Signal(str)  # 포지션 새로고침 (symbol)
+    trade_event_signal = Signal(object)  # 🆕 거래 내역 이벤트 (Trade 객체)
 
     def __init__(self):
         super().__init__()
@@ -256,6 +257,7 @@ class MainWindow(QMainWindow):
 
         # 🔧 스레드 안전한 Signal 연결 (백그라운드 → GUI)
         self.position_refresh_signal.connect(self._on_position_refresh_requested)
+        self.trade_event_signal.connect(self._on_trade_event_received)  # 🆕 거래 내역 Signal
 
         self._init_ui()
         self._init_menu()
@@ -2228,7 +2230,24 @@ class MainWindow(QMainWindow):
         거래 이벤트 콜백 (백그라운드 스레드에서 호출됨)
 
         V4TradingEngine에서 거래가 완료될 때 호출되어,
-        세션 거래 내역에 추가합니다.
+        Signal을 통해 GUI 스레드에 거래 내역 추가를 요청합니다.
+
+        Args:
+            trade: Trade 데이터 객체
+        """
+        try:
+            # 🔧 Signal을 통해 GUI 스레드에서 안전하게 처리
+            self.trade_event_signal.emit(trade)
+            logger.debug(f"📊 거래 내역 Signal emit: {trade}")
+        except Exception as e:
+            logger.error(f"❌ 거래 이벤트 콜백 오류: {e}")
+
+    def _on_trade_event_received(self, trade):
+        """
+        거래 내역 Signal 슬롯 (GUI 스레드에서 실행됨)
+
+        백그라운드 스레드에서 trade_event_signal이 emit되면
+        이 슬롯이 GUI 스레드에서 호출됩니다.
 
         Args:
             trade: Trade 데이터 객체
@@ -2237,14 +2256,13 @@ class MainWindow(QMainWindow):
             # 세션 거래 내역에 추가
             self.session_trades.append(trade)
 
-            # GUI 스레드에서 테이블 및 사이드바 업데이트 (QTimer.singleShot 사용)
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._update_trade_history_table)
-            QTimer.singleShot(0, self._update_sidebar_info)  # 🆕 사이드바 업데이트
+            # GUI 테이블 및 사이드바 업데이트 (이미 GUI 스레드)
+            self._update_trade_history_table()
+            self._update_sidebar_info()
 
-            logger.debug(f"📊 거래 내역 추가: {trade}")
+            logger.info(f"📊 거래 내역 추가 완료: {trade.symbol} {trade.detail_type}")
         except Exception as e:
-            logger.error(f"❌ 거래 이벤트 콜백 오류: {e}")
+            logger.error(f"❌ 거래 내역 처리 오류: {e}")
 
     def _on_backend_log(self, level: str, formatted_message: str):
         """
