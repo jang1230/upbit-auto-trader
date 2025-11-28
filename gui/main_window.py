@@ -1872,8 +1872,114 @@ class MainWindow(QMainWindow):
     def _update_status(self):
         """상태 정보 업데이트"""
         # 🔧 V4: 사이드바 전체 업데이트로 대체
-        pass
-    
+        self._update_sidebar_info()
+
+    def _update_sidebar_info(self):
+        """
+        🆕 V4: 사이드바 전체 업데이트 (거래 발생 시 호출)
+        """
+        try:
+            self._update_sidebar_account_info()
+            self._update_sidebar_group_info()
+            self._update_sidebar_trade_summary()
+        except Exception as e:
+            logger.error(f"❌ 사이드바 업데이트 오류: {e}")
+
+    def _update_sidebar_account_info(self):
+        """
+        🆕 V4: 계좌 정보 업데이트 (보유 KRW, 총 매수)
+        """
+        try:
+            # 보유 KRW: 엔진 상태에서 가져오기
+            if hasattr(self, 'v4_engine') and self.v4_engine:
+                krw_balance = getattr(self.v4_engine, 'krw_balance', 0)
+                self.krw_balance_label.setText(f"{krw_balance:,.0f}원")
+
+            # 총 매수: position_manager에서 집계
+            if hasattr(self, 'v4_position_manager') and self.v4_position_manager:
+                positions = self.v4_position_manager.get_all_positions()
+                total_invested = sum(
+                    pos.get('total_invested_krw', 0)
+                    for pos in positions.values()
+                    if pos.get('status') == 'active'
+                )
+                self.total_buy_label.setText(f"{total_invested:,.0f}원")
+        except Exception as e:
+            logger.error(f"❌ 계좌 정보 업데이트 오류: {e}")
+
+    def _update_sidebar_group_info(self):
+        """
+        🆕 V4: 그룹 현황 업데이트 (활성 그룹, 총 포지션, 그룹별 개수)
+        """
+        try:
+            if not hasattr(self, 'v4_position_manager') or not self.v4_position_manager:
+                return
+
+            positions = self.v4_position_manager.get_all_positions()
+            active_positions = {
+                symbol: pos for symbol, pos in positions.items()
+                if pos.get('status') == 'active'
+            }
+
+            # 그룹별 포지션 수 집계
+            group_counts = {}
+            for symbol, pos in active_positions.items():
+                group_id = pos.get('group_id', 'unknown')
+                if group_id not in group_counts:
+                    group_counts[group_id] = 0
+                group_counts[group_id] += 1
+
+            # 그룹 이름 가져오기
+            config = self.v4_config_manager.load_config() if hasattr(self, 'v4_config_manager') else {}
+            groups = config.get('groups', {})
+
+            # 라벨 업데이트
+            active_group_count = len(group_counts)
+            total_position_count = len(active_positions)
+
+            self.active_groups_label.setText(f"활성 그룹: {active_group_count}개")
+            self.total_positions_label.setText(f"총 포지션: {total_position_count}개")
+
+            # 그룹별 상세 정보
+            details_lines = []
+            for group_id, count in sorted(group_counts.items()):
+                group_name = groups.get(group_id, {}).get('name', group_id)
+                # 그룹명이 너무 길면 줄임
+                if len(group_name) > 10:
+                    group_name = group_name[:10] + "..."
+                details_lines.append(f"- {group_name}: {count}개")
+
+            self.group_details_label.setText("\n".join(details_lines))
+        except Exception as e:
+            logger.error(f"❌ 그룹 현황 업데이트 오류: {e}")
+
+    def _update_sidebar_trade_summary(self):
+        """
+        🆕 V4: 오늘의 거래 업데이트 (매수/매도 건수, 실현 손익)
+        """
+        try:
+            # session_trades에서 통계 계산
+            buy_count = sum(1 for t in self.session_trades if t.trade_type == 'buy')
+            sell_count = sum(1 for t in self.session_trades if t.trade_type == 'sell')
+            realized_pnl = sum(t.profit for t in self.session_trades if t.trade_type == 'sell')
+
+            # 라벨 업데이트
+            self.today_buy_count_label.setText(f"{buy_count}건")
+            self.today_sell_count_label.setText(f"{sell_count}건")
+
+            # 실현 손익 색상
+            if realized_pnl > 0:
+                self.today_realized_pnl_label.setText(f"+{realized_pnl:,.0f}원")
+                self.today_realized_pnl_label.setStyleSheet("color: red; font-weight: bold;")
+            elif realized_pnl < 0:
+                self.today_realized_pnl_label.setText(f"{realized_pnl:,.0f}원")
+                self.today_realized_pnl_label.setStyleSheet("color: blue; font-weight: bold;")
+            else:
+                self.today_realized_pnl_label.setText("0원")
+                self.today_realized_pnl_label.setStyleSheet("color: #666;")
+        except Exception as e:
+            logger.error(f"❌ 오늘의 거래 업데이트 오류: {e}")
+
     def _update_trade_history_table(self):
         """거래 내역 테이블 업데이트"""
         try:
