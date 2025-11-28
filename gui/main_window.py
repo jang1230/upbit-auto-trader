@@ -285,10 +285,10 @@ class MainWindow(QMainWindow):
         # 좌측 사이드바 (설정 영역) - 3.png 기준으로 좁게 조정
         # ========================================
         sidebar_widget = QWidget()
-        sidebar_widget.setMaximumWidth(200)
-        sidebar_widget.setMinimumWidth(180)
+        sidebar_widget.setMaximumWidth(240)
+        sidebar_widget.setMinimumWidth(220)
         sidebar_layout = QVBoxLayout(sidebar_widget)
-        sidebar_layout.setContentsMargins(6, 6, 6, 6)
+        sidebar_layout.setContentsMargins(8, 8, 8, 8)
         sidebar_layout.setSpacing(6)
 
         # 사이드바를 스크롤 가능하게 (설정이 많을 경우 대비)
@@ -296,8 +296,8 @@ class MainWindow(QMainWindow):
         sidebar_scroll.setWidget(sidebar_widget)
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sidebar_scroll.setMinimumWidth(180)
-        sidebar_scroll.setMaximumWidth(200)
+        sidebar_scroll.setMinimumWidth(220)
+        sidebar_scroll.setMaximumWidth(240)
 
         # 🔧 V4: 트레이딩 모드 선택 삭제 (그룹 시스템으로 대체)
 
