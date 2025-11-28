@@ -1795,8 +1795,8 @@ class MainWindow(QMainWindow):
                     self.mdd_label.setText("최대 낙폭: 0.00%")
                     self.mdd_label.setStyleSheet("color: gray;")
 
-                # 관리 중인 포지션 수 표시
-                self.price_label.setText(f"관리 중: {managed}개 포지션")
+                # 🆕 관리 중인 포지션 수 + 총평가손익 표시
+                self._update_total_profit_label(managed)
 
             else:
                 # ===== 완전 자동 모드 =====
@@ -2597,6 +2597,8 @@ class MainWindow(QMainWindow):
             # 각 포지션을 테이블에 추가
             row_idx = 0
             managed_count = 0  # 🔧 관찰 모드 제외한 관리 중인 포지션 카운트
+            total_profit_krw = 0  # 🆕 총평가손익
+            total_invested_krw = 0  # 🆕 총투자금액
             for symbol, pos in sorted_positions:
                 if pos.get("status") != "active":
                     continue  # 비활성 포지션은 스킵
@@ -2633,6 +2635,11 @@ class MainWindow(QMainWindow):
                 total_amount = pos.get("total_amount", 0)
                 profit_krw = pos.get("profit_krw", 0)
                 profit_pct = pos.get("profit_pct", 0)
+
+                # 🆕 총평가손익/총투자금액 누적 (관찰 모드 제외)
+                if not group.get("observation_only", False):
+                    total_profit_krw += profit_krw
+                    total_invested_krw += average_price * total_amount
 
                 # 테이블 행 추가
                 self.position_table.insertRow(row_idx)
@@ -2702,8 +2709,25 @@ class MainWindow(QMainWindow):
 
             logger.debug(f"✅ V4 포지션 로드 완료: {row_idx}개 (관리 중: {managed_count}개)")
 
-            # 🔧 관리 중인 포지션 개수 업데이트 (관찰 모드 제외)
-            self.price_label.setText(f"관리 중: {managed_count}개 포지션")
+            # 🆕 총평가수익률 계산
+            total_profit_pct = (total_profit_krw / total_invested_krw * 100) if total_invested_krw > 0 else 0
+
+            # 🆕 관리 중인 포지션 개수 + 총평가손익 업데이트 (HTML로 색상 적용)
+            if total_profit_krw >= 0:
+                # 수익: 빨간색
+                profit_color = "red"
+                profit_icon = "📈"
+            else:
+                # 손실: 파란색
+                profit_color = "blue"
+                profit_icon = "📉"
+
+            self.price_label.setText(
+                f"관리 중: {managed_count}개 포지션 | "
+                f"<span style='color:{profit_color}; font-weight:bold;'>"
+                f"💰 총손익: {total_profit_krw:+,.0f}원 ({profit_icon} {total_profit_pct:+.2f}%)"
+                f"</span>"
+            )
 
             # 🔧 WebSocket 시작 (포지션이 있을 때만)
             if row_idx > 0:
@@ -2712,6 +2736,65 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"❌ V4 포지션 로드 실패: {e}")
             self._add_log(f"⚠️ 포지션 로드 실패: {e}")
+
+    def _update_total_profit_label(self, managed_count: int = None):
+        """
+        🆕 총평가손익 라벨 업데이트 (포지션 테이블 기반)
+
+        Args:
+            managed_count: 관리 중인 포지션 수 (None이면 테이블에서 계산)
+        """
+        try:
+            # 포지션 테이블에서 총평가손익 계산
+            total_profit_krw = 0
+            total_invested_krw = 0
+            row_count = self.position_table.rowCount() if managed_count is None else managed_count
+
+            for row in range(self.position_table.rowCount()):
+                # 평균가 (6번 컬럼), 현재가 (7번 컬럼), 수량 (8번 컬럼), 평가손익 (9번 컬럼)
+                avg_price_item = self.position_table.item(row, 6)
+                amount_item = self.position_table.item(row, 8)
+                profit_item = self.position_table.item(row, 9)
+
+                if avg_price_item and amount_item and profit_item:
+                    try:
+                        avg_price = float(avg_price_item.text().replace(',', ''))
+                        amount = float(amount_item.text())
+                        profit = float(profit_item.text().replace(',', '').replace('+', ''))
+
+                        total_invested_krw += avg_price * amount
+                        total_profit_krw += profit
+                    except (ValueError, AttributeError):
+                        continue
+
+            # 총평가수익률 계산
+            total_profit_pct = (total_profit_krw / total_invested_krw * 100) if total_invested_krw > 0 else 0
+
+            # 색상 및 아이콘 결정
+            if total_profit_krw >= 0:
+                profit_color = "red"
+                profit_icon = "📈"
+            else:
+                profit_color = "blue"
+                profit_icon = "📉"
+
+            # 관리 중 포지션 수 (없으면 테이블 행 수 사용)
+            if managed_count is None:
+                managed_count = self.position_table.rowCount()
+
+            # 라벨 업데이트 (HTML 형식)
+            self.price_label.setText(
+                f"관리 중: {managed_count}개 포지션 | "
+                f"<span style='color:{profit_color}; font-weight:bold;'>"
+                f"💰 총손익: {total_profit_krw:+,.0f}원 ({profit_icon} {total_profit_pct:+.2f}%)"
+                f"</span>"
+            )
+
+        except Exception as e:
+            logger.error(f"❌ 총평가손익 라벨 업데이트 오류: {e}")
+            # 오류 시 기본 라벨 표시
+            if managed_count is not None:
+                self.price_label.setText(f"관리 중: {managed_count}개 포지션")
 
     def _start_price_websocket(self, symbols: list):
         """
