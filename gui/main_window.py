@@ -2274,9 +2274,10 @@ class MainWindow(QMainWindow):
             # 세션 거래 내역에 추가
             self.session_trades.append(trade)
 
-            # GUI 스레드에서 테이블 업데이트 (QTimer.singleShot 사용)
+            # GUI 스레드에서 테이블 및 사이드바 업데이트 (QTimer.singleShot 사용)
             from PySide6.QtCore import QTimer
             QTimer.singleShot(0, self._update_trade_history_table)
+            QTimer.singleShot(0, self._update_sidebar_info)  # 🆕 사이드바 업데이트
 
             logger.debug(f"📊 거래 내역 추가: {trade}")
         except Exception as e:
@@ -2825,6 +2826,9 @@ class MainWindow(QMainWindow):
             # 🔧 WebSocket 시작 (포지션이 있을 때만)
             if row_idx > 0:
                 self._start_price_websocket(list(positions.keys()))
+
+            # 🆕 사이드바 초기 업데이트
+            self._update_sidebar_info()
 
         except Exception as e:
             logger.error(f"❌ V4 포지션 로드 실패: {e}")
