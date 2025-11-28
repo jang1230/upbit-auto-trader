@@ -285,8 +285,8 @@ class MainWindow(QMainWindow):
         # 좌측 사이드바 (설정 영역) - 3.png 기준으로 좁게 조정
         # ========================================
         sidebar_widget = QWidget()
-        sidebar_widget.setMaximumWidth(200)  # 더 좁게 (3.png 참고)
-        sidebar_widget.setMinimumWidth(180)
+        sidebar_widget.setMaximumWidth(240)  # V4: 그룹 현황 등 표시를 위해 확대
+        sidebar_widget.setMinimumWidth(220)
         sidebar_layout = QVBoxLayout(sidebar_widget)
         sidebar_layout.setContentsMargins(3, 5, 3, 5)
         sidebar_layout.setSpacing(8)
@@ -1053,6 +1053,8 @@ class MainWindow(QMainWindow):
             self.is_running = True
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
+            self.status_label.setText("▶ 실행 중")
+            self.status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
             self.statusbar.showMessage("실행 중")
 
             # 🔧 4단계: V4 WebSocket 데이터를 GUI로 전달하는 타이머 시작
@@ -1890,10 +1892,24 @@ class MainWindow(QMainWindow):
         🆕 V4: 계좌 정보 업데이트 (보유 KRW, 총 매수)
         """
         try:
-            # 보유 KRW: 엔진 상태에서 가져오기
+            # 보유 KRW: 엔진의 balance_cache에서 가져오기
             if hasattr(self, 'v4_engine') and self.v4_engine:
-                krw_balance = getattr(self.v4_engine, 'krw_balance', 0)
-                self.krw_balance_label.setText(f"{krw_balance:,.0f}원")
+                balance_cache = getattr(self.v4_engine, 'balance_cache', {})
+                krw_balance = balance_cache.get('krw', 0)
+                if krw_balance > 0:
+                    self.krw_balance_label.setText(f"{krw_balance:,.0f}원")
+
+            # 대안: Upbit API에서 직접 가져오기
+            if hasattr(self, 'upbit_api') and self.upbit_api:
+                try:
+                    accounts = self.upbit_api.get_accounts()
+                    for account in accounts:
+                        if account.get('currency') == 'KRW':
+                            krw_balance = float(account.get('balance', 0))
+                            self.krw_balance_label.setText(f"{krw_balance:,.0f}원")
+                            break
+                except Exception:
+                    pass  # API 에러 시 무시
 
             # 총 매수: position_manager에서 집계
             if hasattr(self, 'v4_position_manager') and self.v4_position_manager:
