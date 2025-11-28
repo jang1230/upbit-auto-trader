@@ -296,6 +296,8 @@ class MainWindow(QMainWindow):
         sidebar_scroll.setWidget(sidebar_widget)
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sidebar_scroll.setMinimumWidth(260)  # 스플리터가 좁히지 못하도록 설정
+        sidebar_scroll.setMaximumWidth(280)
 
         # 🔧 V4: 트레이딩 모드 선택 삭제 (그룹 시스템으로 대체)
 
