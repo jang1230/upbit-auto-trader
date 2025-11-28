@@ -1046,6 +1046,10 @@ class MainWindow(QMainWindow):
             self.v4_engine.on_position_created_callback = self._on_position_created
             logger.info("✅ 포지션 생성 콜백 등록 완료")
 
+            # 🆕 2-3단계: 거래 내역 콜백 등록 (세션 거래 기록용)
+            self.v4_engine.on_trade_callback = self._on_trade_event
+            logger.info("✅ 거래 내역 콜백 등록 완료")
+
             # 엔진을 백그라운드 스레드에서 시작 (GUI 블로킹 방지)
             def run_engine():
                 try:
@@ -2096,6 +2100,28 @@ class MainWindow(QMainWindow):
             self._load_v4_positions()
         except Exception as e:
             logger.error(f"❌ GUI 포지션 새로고침 오류: {e}")
+
+    def _on_trade_event(self, trade):
+        """
+        거래 이벤트 콜백 (백그라운드 스레드에서 호출됨)
+
+        V4TradingEngine에서 거래가 완료될 때 호출되어,
+        세션 거래 내역에 추가합니다.
+
+        Args:
+            trade: Trade 데이터 객체
+        """
+        try:
+            # 세션 거래 내역에 추가
+            self.session_trades.append(trade)
+
+            # GUI 스레드에서 테이블 업데이트 (QTimer.singleShot 사용)
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._update_trade_history_table)
+
+            logger.debug(f"📊 거래 내역 추가: {trade}")
+        except Exception as e:
+            logger.error(f"❌ 거래 이벤트 콜백 오류: {e}")
 
     def _on_backend_log(self, level: str, formatted_message: str):
         """

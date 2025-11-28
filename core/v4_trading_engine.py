@@ -211,6 +211,7 @@ class V4TradingEngine:
         # 🔧 GUI 콜백 (중복 알림 방지용)
         self.on_auto_sell_callback = None  # 자동 매도 실행 시 호출 (익절/손절/DCA 매도)
         self.on_position_created_callback = None  # 포지션 생성 시 호출 (GUI 새로고침용)
+        self.on_trade_callback = None  # 🆕 거래 내역 콜백 (GUI 세션 거래 기록용)
 
         # 스레드
         self.main_thread = None
@@ -1320,6 +1321,18 @@ class V4TradingEngine:
                 dry_run=True
             )
 
+            # 🆕 GUI 거래 내역 이벤트
+            self._emit_trade_event(
+                group_name=group.get("name", "Unknown"),
+                symbol=symbol,
+                trade_type='buy',
+                detail_type='자동매수',
+                price=position.get("avg_buy_price"),
+                quantity=position.get("total_amount"),
+                amount=buy_amount,
+                reason='신호 발생 (Dry-run)'
+            )
+
             # 텔레그램 알림
             self._send_telegram_alert(
                 f"✅ [Dry-run] 매수 완료\n"
@@ -1556,6 +1569,18 @@ class V4TradingEngine:
                     total_krw=dca_amount,
                     dry_run=self.dry_run,
                     dca_level=dca_level_num  # 추가 정보
+                )
+
+                # 🆕 GUI 거래 내역 이벤트
+                self._emit_trade_event(
+                    group_name=group.get("name", "Unknown"),
+                    symbol=symbol,
+                    trade_type='buy',
+                    detail_type=f'DCA L{dca_level_num}',
+                    price=position.get("avg_buy_price"),
+                    quantity=dca_quantity,
+                    amount=dca_amount,
+                    reason=f'{trigger_pct:.1f}% 하락 (Dry-run)'
                 )
 
             else:
@@ -2069,6 +2094,22 @@ class V4TradingEngine:
                     profit_loss=profit  # 추가 정보
                 )
 
+                # 🆕 GUI 거래 내역 이벤트
+                profit_pct = (profit / position.get('total_invested_krw', 1) * 100) if position.get('total_invested_krw', 0) > 0 else 0
+                detail_type_kr = f"익절 L{level_index}" if reason == "profit" else f"손절 L{level_index}"
+                self._emit_trade_event(
+                    group_name=group.get("name", "Unknown"),
+                    symbol=symbol,
+                    trade_type='sell',
+                    detail_type=detail_type_kr,
+                    price=current_price,
+                    quantity=sell_amount,
+                    amount=sell_value,
+                    profit=profit,
+                    profit_pct=profit_pct,
+                    reason=f'{trigger_pct:+.1f}% 도달 (Dry-run)'
+                )
+
                 # 텔레그램 알림 (Dry-run)
                 emoji = "🎉" if profit > 0 else "😢"
                 self._send_telegram_alert(
@@ -2209,6 +2250,19 @@ class V4TradingEngine:
                         dry_run=False
                     )
 
+                    # 🆕 GUI 거래 내역 이벤트
+                    self._emit_trade_event(
+                        group_name=group_name,
+                        symbol=symbol,
+                        trade_type='buy',
+                        detail_type='자동매수',
+                        price=final_avg_price,
+                        quantity=final_balance,
+                        amount=buy_amount_krw,
+                        reason='신호 발생',
+                        order_id=order_uuid
+                    )
+
                     # 🔧 GUI 완료 로그 (한 줄 요약)
                     logger.info(f"[자동매수완료] {symbol} | {buy_amount_krw:,.0f}원 | {final_balance:.8f}개 | {final_avg_price:,.0f}원")
 
@@ -2285,6 +2339,19 @@ class V4TradingEngine:
                         f"체결 가격: {avg_price:,.0f}원"
                     )
 
+                    # 🆕 GUI 거래 내역 이벤트
+                    self._emit_trade_event(
+                        group_name=group_name,
+                        symbol=symbol,
+                        trade_type='buy',
+                        detail_type='수동매수',
+                        price=avg_price,
+                        quantity=executed_volume,
+                        amount=total_krw,
+                        reason='수동 신규 매수',
+                        order_id=order_uuid
+                    )
+
                     # MyOrder 처리 완료 마킹 + 중복 방지
                     self._mark_processed_by_myorder(symbol)
                     self.processed_bot_order_uuids.add(order_uuid)
@@ -2336,6 +2403,19 @@ class V4TradingEngine:
                                         f"━━━━━━━━━━━━━━\n"
                                         f"평균 매수가: {new_avg_price:,.0f}원\n"
                                         f"총 보유량: {new_balance:.8f}개"
+                                    )
+
+                                    # 🆕 GUI 거래 내역 이벤트
+                                    self._emit_trade_event(
+                                        group_name=group_name,
+                                        symbol=symbol,
+                                        trade_type='buy',
+                                        detail_type='수동매수',
+                                        price=avg_price,
+                                        quantity=executed_volume,
+                                        amount=additional_krw,
+                                        reason='수동 추가 매수',
+                                        order_id=order_uuid
                                     )
                                     break
                         except Exception as e:
@@ -2437,6 +2517,21 @@ class V4TradingEngine:
                             f"수익금: {profit_krw:+,.0f}원\n"
                             f"수익률: {profit_sign}{profit_pct:.2f}%"
                         )
+
+                        # 🆕 GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_id,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type='수동매도',
+                            price=sell_price,
+                            quantity=sell_volume,
+                            amount=sell_krw,
+                            profit=profit_krw,
+                            profit_pct=profit_pct,
+                            reason='수동 전체 매도',
+                            order_id=order_uuid
+                        )
                     else:
                         # 부분 매도 - 포지션 수량 업데이트
                         new_total_invested = avg_buy_price * remaining_amount
@@ -2464,6 +2559,21 @@ class V4TradingEngine:
                             f"수익률: {profit_sign}{profit_pct:.2f}%\n"
                             f"━━━━━━━━━━━━━━\n"
                             f"잔여 수량: {remaining_amount:.8f}개"
+                        )
+
+                        # 🆕 GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_id,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type='수동매도',
+                            price=sell_price,
+                            quantity=sell_volume,
+                            amount=sell_krw,
+                            profit=profit_krw,
+                            profit_pct=profit_pct,
+                            reason='수동 부분 매도',
+                            order_id=order_uuid
                         )
 
                     # MyOrder 처리 완료 마킹
@@ -2668,6 +2778,19 @@ class V4TradingEngine:
                         f"총 보유량: {final_balance:.8f}개"
                     )
 
+                    # 🆕 GUI 거래 내역 이벤트
+                    self._emit_trade_event(
+                        group_name=group_name,
+                        symbol=symbol,
+                        trade_type='buy',
+                        detail_type=f'DCA L{level_index + 1}',
+                        price=avg_price,
+                        quantity=executed_volume,
+                        amount=dca_value_krw,
+                        reason=f'{pending_order.get("trigger_pct", 0):.1f}% 하락',
+                        order_id=order_uuid
+                    )
+
                     # MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                     self._mark_processed_by_myorder(symbol)
 
@@ -2794,6 +2917,22 @@ class V4TradingEngine:
                                 f"━━━━━━━━━━━━━━\n"
                                 f"포지션 전체 종료됨"
                             )
+
+                            # 🆕 GUI 거래 내역 이벤트
+                            detail_type_kr = f"익절 L{level_index + 1}" if order_type == 'profit' else f"손절 L{level_index + 1}"
+                            self._emit_trade_event(
+                                group_name=group_name,
+                                symbol=symbol,
+                                trade_type='sell',
+                                detail_type=detail_type_kr,
+                                price=avg_price,
+                                quantity=executed_volume,
+                                amount=sell_amount_krw,
+                                profit=profit_krw,
+                                profit_pct=actual_profit_pct,
+                                reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달',
+                                order_id=order_uuid
+                            )
                         else:
                             # 남은 금액 충분 → 수량만 감소
                             logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
@@ -2846,6 +2985,22 @@ class V4TradingEngine:
                                 f"━━━━━━━━━━━━━━\n"
                                 f"남은 수량: {remaining_amount:.8f}개\n"
                                 f"남은 금액: {remaining_value:,.0f}원"
+                            )
+
+                            # 🆕 GUI 거래 내역 이벤트
+                            detail_type_kr = f"익절 L{level_index + 1}" if order_type == 'profit' else f"손절 L{level_index + 1}"
+                            self._emit_trade_event(
+                                group_name=group_name,
+                                symbol=symbol,
+                                trade_type='sell',
+                                detail_type=detail_type_kr,
+                                price=avg_price,
+                                quantity=executed_volume,
+                                amount=sell_amount_krw,
+                                profit=profit_krw,
+                                profit_pct=actual_profit_pct,
+                                reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달 (부분)',
+                                order_id=order_uuid
                             )
 
                     # MyOrder 처리 완료 마킹
@@ -2960,6 +3115,21 @@ class V4TradingEngine:
                             f"포지션 전체 종료됨"
                         )
 
+                        # 🆕 GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_name,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type=f'익절 L{level_index + 1}',
+                            price=avg_price,
+                            quantity=executed_volume,
+                            amount=sell_amount_krw,
+                            profit=profit_krw,
+                            profit_pct=actual_profit_pct,
+                            reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달',
+                            order_id=order_uuid
+                        )
+
                         # 🔧 GUI 콜백 호출 (중복 알림 방지)
                         if self.on_auto_sell_callback:
                             self.on_auto_sell_callback(symbol, executed_volume)
@@ -3005,6 +3175,21 @@ class V4TradingEngine:
                             f"━━━━━━━━━━━━━━\n"
                             f"남은 수량: {remaining_amount:.8f}개\n"
                             f"남은 금액: {remaining_value:,.0f}원"
+                        )
+
+                        # 🆕 GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_name,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type=f'익절 L{level_index + 1}',
+                            price=avg_price,
+                            quantity=executed_volume,
+                            amount=sell_amount_krw,
+                            profit=profit_krw,
+                            profit_pct=actual_profit_pct,
+                            reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달 (부분)',
+                            order_id=order_uuid
                         )
 
                         # 🔧 GUI 콜백 호출 (중복 알림 방지)
@@ -3079,6 +3264,21 @@ class V4TradingEngine:
                             f"포지션 전체 종료됨"
                         )
 
+                        # 🆕 GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_name,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type=f'손절 L{level_index + 1}',
+                            price=avg_price,
+                            quantity=executed_volume,
+                            amount=sell_amount_krw,
+                            profit=profit_krw,
+                            profit_pct=loss_pct,
+                            reason=f'{loss_pct:+.1f}% 도달',
+                            order_id=order_uuid
+                        )
+
                         # 🔧 GUI 콜백 호출 (중복 알림 방지)
                         if self.on_auto_sell_callback:
                             self.on_auto_sell_callback(symbol, executed_volume)
@@ -3122,6 +3322,21 @@ class V4TradingEngine:
                             f"━━━━━━━━━━━━━━\n"
                             f"남은 수량: {remaining_amount:.8f}개\n"
                             f"남은 금액: {remaining_value:,.0f}원"
+                        )
+
+                        # 🆕 GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_name,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type=f'손절 L{level_index + 1}',
+                            price=avg_price,
+                            quantity=executed_volume,
+                            amount=sell_amount_krw,
+                            profit=profit_krw,
+                            profit_pct=loss_pct,
+                            reason=f'{loss_pct:+.1f}% 도달 (부분)',
+                            order_id=order_uuid
                         )
 
                         # 🔧 GUI 콜백 호출 (중복 알림 방지)
@@ -3225,6 +3440,19 @@ class V4TradingEngine:
                     f"━━━━━━━━━━━━━━\n"
                     f"평균 매수가: {final_avg_price:,.0f}원\n"
                     f"총 보유량: {final_balance:.8f}개"
+                )
+
+                # 🆕 GUI 거래 내역 이벤트
+                self._emit_trade_event(
+                    group_name=group_name,
+                    symbol=symbol,
+                    trade_type='buy',
+                    detail_type=f'DCA L{level_index + 1}',
+                    price=avg_price,
+                    quantity=executed_volume,
+                    amount=dca_value_krw,
+                    reason=f'{pending_order.get("trigger_pct", 0):.1f}% 하락',
+                    order_id=order_uuid
                 )
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
@@ -3861,6 +4089,63 @@ class V4TradingEngine:
             # 별도 스레드에서 동기 전송 (메인 루프 블로킹 방지)
             thread = threading.Thread(target=send_sync, daemon=True)
             thread.start()
+
+    def _emit_trade_event(
+        self,
+        group_name: str,
+        symbol: str,
+        trade_type: str,  # 'buy' or 'sell'
+        detail_type: str,  # '자동매수', 'DCA L1', '익절 L1', '손절', '수동매수', '수동매도'
+        price: float,
+        quantity: float,
+        amount: float,
+        profit: float = 0.0,
+        profit_pct: float = 0.0,
+        reason: str = "",
+        order_id: str = None
+    ):
+        """
+        거래 이벤트 발생 (GUI 세션 거래 내역 기록용)
+
+        Args:
+            group_name: 그룹명 (예: '2번 그룹', 'group_null')
+            symbol: 코인 심볼 (예: 'KRW-BTC')
+            trade_type: 'buy' or 'sell'
+            detail_type: 세부 유형 ('자동매수', 'DCA L1', '익절 L1', '손절', '수동매수', '수동매도')
+            price: 거래 가격
+            quantity: 거래 수량
+            amount: 거래 금액
+            profit: 손익 (매도 시)
+            profit_pct: 손익률 (매도 시)
+            reason: 거래 사유
+            order_id: 주문 ID
+        """
+        if not self.on_trade_callback:
+            return
+
+        try:
+            from datetime import datetime
+            from gui.trade_data import Trade
+
+            trade = Trade(
+                timestamp=datetime.now(),
+                symbol=symbol,
+                group=group_name,
+                trade_type=trade_type,
+                detail_type=detail_type,
+                price=price,
+                quantity=quantity,
+                amount=amount,
+                profit=profit,
+                profit_pct=profit_pct,
+                reason=reason,
+                order_id=order_id
+            )
+
+            self.on_trade_callback(trade)
+            logger.debug(f"📊 거래 이벤트 발생: {trade}")
+        except Exception as e:
+            logger.error(f"❌ 거래 이벤트 발생 오류: {e}")
 
     def _run_scheduler(self):
         """스케줄러 실행 (09:00 리셋 등)"""
