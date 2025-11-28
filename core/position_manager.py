@@ -807,6 +807,13 @@ class PositionManager:
                 # 명시적으로 0으로 업데이트된 경우 → 매도 완료
                 position = self.get_position(symbol)
                 if position:
+                    # 🔧 pending_order 체크: 주문 진행 중이면 MyAsset(잔고0) 스킵
+                    pending_order = position.get('pending_order')
+                    if pending_order:
+                        order_type = pending_order.get('type')
+                        logger.info(f"   ⏭️ {symbol} pending_order({order_type}) 진행 중 → MyAsset(잔고0) 스킵")
+                        continue
+
                     # 🆕 봇 매도 체크 (10초 이내면 수동매도 알림 스킵)
                     if symbol in self.recent_bot_sells:
                         elapsed = time.time() - self.recent_bot_sells[symbol]
