@@ -2355,6 +2355,12 @@ class V4TradingEngine:
                     logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), type={bot_order_type}, 별도 처리됨")
                     return
 
+                # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
+                if order_uuid in self.processed_bot_order_uuids:
+                    logger.debug(f"   ⏭️ {symbol} 수동매도 주문 {order_uuid[:8]}... 이미 처리됨 (state={state}) → 스킵")
+                    return
+                self.processed_bot_order_uuids.add(order_uuid)
+
                 position = self.position_manager.get_position(symbol)
 
                 # 수동 매도 처리
@@ -2364,6 +2370,12 @@ class V4TradingEngine:
                     group_id = position.get('group_id', 'unknown')
                     sell_price = float(avg_price) if avg_price else float(trade_price)
                     sell_volume = float(executed_volume)
+
+                    # 🔧 executed_volume이 0이면 스킵 (WebSocket 재연결 시 발생 가능)
+                    if sell_volume <= 0:
+                        logger.warning(f"⚠️ {symbol} 수동매도: executed_volume=0 → 스킵 (state={state})")
+                        return
+
                     sell_krw = sell_volume * sell_price
 
                     # 수익률 계산
