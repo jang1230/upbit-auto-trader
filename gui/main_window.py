@@ -537,17 +537,17 @@ class MainWindow(QMainWindow):
         self.session_trades_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.session_trades_table.setSelectionBehavior(QTableWidget.SelectRows)
 
-        # 컬럼 너비 설정 (9개)
+        # 컬럼 너비 설정 (9개) - 고정 너비로 균등하게 배치
         trade_header = self.session_trades_table.horizontalHeader()
-        trade_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 시각
-        trade_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 그룹
-        trade_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 심볼
-        trade_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 유형
-        trade_header.setSectionResizeMode(4, QHeaderView.Stretch)  # 가격
-        trade_header.setSectionResizeMode(5, QHeaderView.Stretch)  # 수량
-        trade_header.setSectionResizeMode(6, QHeaderView.Stretch)  # 금액
-        trade_header.setSectionResizeMode(7, QHeaderView.Stretch)  # 손익
-        trade_header.setSectionResizeMode(8, QHeaderView.Stretch)  # 사유
+        self.session_trades_table.setColumnWidth(0, 70)   # 시각 (HH:MM:SS)
+        self.session_trades_table.setColumnWidth(1, 90)   # 그룹
+        self.session_trades_table.setColumnWidth(2, 60)   # 심볼 (BTC, ETH)
+        self.session_trades_table.setColumnWidth(3, 80)   # 유형 (자동매수, DCA L1)
+        self.session_trades_table.setColumnWidth(4, 100)  # 가격
+        self.session_trades_table.setColumnWidth(5, 110)  # 수량 (소수점 8자리)
+        self.session_trades_table.setColumnWidth(6, 100)  # 금액
+        self.session_trades_table.setColumnWidth(7, 100)  # 손익
+        trade_header.setSectionResizeMode(8, QHeaderView.Stretch)  # 사유 (나머지 공간)
 
         # 정렬 활성화
         self.session_trades_table.setSortingEnabled(True)
