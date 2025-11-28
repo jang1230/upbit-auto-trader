@@ -357,27 +357,6 @@ class MainWindow(QMainWindow):
         group_info_group.setLayout(group_info_layout)
         sidebar_layout.addWidget(group_info_group)
 
-        # 🔧 4. 오늘의 거래 패널 (V4 신규)
-        trade_summary_group = QGroupBox("📈 오늘의 거래")
-        trade_summary_layout = QFormLayout()
-
-        self.today_buy_count_label = QLabel("0건")
-        self.today_buy_count_label.setFont(QFont("Consolas", 9))
-        self.today_buy_count_label.setStyleSheet("color: #F44336;")
-        trade_summary_layout.addRow("매수:", self.today_buy_count_label)
-
-        self.today_sell_count_label = QLabel("0건")
-        self.today_sell_count_label.setFont(QFont("Consolas", 9))
-        self.today_sell_count_label.setStyleSheet("color: #2196F3;")
-        trade_summary_layout.addRow("매도:", self.today_sell_count_label)
-
-        self.today_realized_pnl_label = QLabel("0원")
-        self.today_realized_pnl_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        trade_summary_layout.addRow("실현 손익:", self.today_realized_pnl_label)
-
-        trade_summary_group.setLayout(trade_summary_layout)
-        sidebar_layout.addWidget(trade_summary_group)
-
         # 🔧 4. 실행 버튼들 (사이드바 하단)
         button_group = QGroupBox("⚙️ 제어")
         button_layout = QVBoxLayout()
@@ -1883,7 +1862,6 @@ class MainWindow(QMainWindow):
         try:
             self._update_sidebar_account_info()
             self._update_sidebar_group_info()
-            self._update_sidebar_trade_summary()
         except Exception as e:
             logger.error(f"❌ 사이드바 업데이트 오류: {e}")
 
@@ -1968,33 +1946,6 @@ class MainWindow(QMainWindow):
             self.group_details_label.setText("\n".join(details_lines))
         except Exception as e:
             logger.error(f"❌ 그룹 현황 업데이트 오류: {e}")
-
-    def _update_sidebar_trade_summary(self):
-        """
-        🆕 V4: 오늘의 거래 업데이트 (매수/매도 건수, 실현 손익)
-        """
-        try:
-            # session_trades에서 통계 계산
-            buy_count = sum(1 for t in self.session_trades if t.trade_type == 'buy')
-            sell_count = sum(1 for t in self.session_trades if t.trade_type == 'sell')
-            realized_pnl = sum(t.profit for t in self.session_trades if t.trade_type == 'sell')
-
-            # 라벨 업데이트
-            self.today_buy_count_label.setText(f"{buy_count}건")
-            self.today_sell_count_label.setText(f"{sell_count}건")
-
-            # 실현 손익 색상
-            if realized_pnl > 0:
-                self.today_realized_pnl_label.setText(f"+{realized_pnl:,.0f}원")
-                self.today_realized_pnl_label.setStyleSheet("color: red; font-weight: bold;")
-            elif realized_pnl < 0:
-                self.today_realized_pnl_label.setText(f"{realized_pnl:,.0f}원")
-                self.today_realized_pnl_label.setStyleSheet("color: blue; font-weight: bold;")
-            else:
-                self.today_realized_pnl_label.setText("0원")
-                self.today_realized_pnl_label.setStyleSheet("color: #666;")
-        except Exception as e:
-            logger.error(f"❌ 오늘의 거래 업데이트 오류: {e}")
 
     def _update_trade_history_table(self):
         """거래 내역 테이블 업데이트"""
