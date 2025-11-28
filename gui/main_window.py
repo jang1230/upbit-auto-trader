@@ -490,40 +490,68 @@ class MainWindow(QMainWindow):
         trade_history_widget = QWidget()
         trade_history_layout = QVBoxLayout(trade_history_widget)
         trade_history_layout.setContentsMargins(5, 5, 5, 5)
-        
+
+        # 🔧 거래 내역 상단: 요약 라벨 + 내보내기 버튼 (수평 레이아웃)
+        trade_header_layout = QHBoxLayout()
+
         # 거래 내역 요약 정보
         self.trade_summary_label = QLabel("총 0건 | 매수: 0건, 매도: 0건 | 누적 손익: 0원 (0.00%)")
         self.trade_summary_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
         self.trade_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
-        trade_history_layout.addWidget(self.trade_summary_label)
-        
-        # 거래 내역 테이블 생성
+        trade_header_layout.addWidget(self.trade_summary_label, stretch=1)
+
+        # 🆕 내보내기 버튼
+        self.export_trades_btn = QPushButton("📥 내보내기")
+        self.export_trades_btn.setFixedWidth(100)
+        self.export_trades_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        self.export_trades_btn.clicked.connect(self._export_session_trades)
+        trade_header_layout.addWidget(self.export_trades_btn)
+
+        trade_history_layout.addLayout(trade_header_layout)
+
+        # 거래 내역 테이블 생성 (9개 컬럼 - 그룹 추가)
         self.session_trades_table = QTableWidget()
-        self.session_trades_table.setColumnCount(8)
+        self.session_trades_table.setColumnCount(9)
         self.session_trades_table.setHorizontalHeaderLabels([
-            "시각", "심볼", "유형", "가격", "수량", "금액", "손익", "사유"
+            "시각", "그룹", "심볼", "유형", "가격", "수량", "금액", "손익", "사유"
         ])
-        
+
         # 테이블 스타일 설정
         self.session_trades_table.setFont(QFont("Consolas", 9))
         self.session_trades_table.setAlternatingRowColors(True)
         self.session_trades_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.session_trades_table.setSelectionBehavior(QTableWidget.SelectRows)
-        
-        # 컬럼 너비 설정
+
+        # 컬럼 너비 설정 (9개)
         trade_header = self.session_trades_table.horizontalHeader()
         trade_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 시각
-        trade_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 심볼
-        trade_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 유형
-        trade_header.setSectionResizeMode(3, QHeaderView.Stretch)  # 가격
-        trade_header.setSectionResizeMode(4, QHeaderView.Stretch)  # 수량
-        trade_header.setSectionResizeMode(5, QHeaderView.Stretch)  # 금액
-        trade_header.setSectionResizeMode(6, QHeaderView.Stretch)  # 손익
-        trade_header.setSectionResizeMode(7, QHeaderView.Stretch)  # 사유
-        
+        trade_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 그룹
+        trade_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 심볼
+        trade_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 유형
+        trade_header.setSectionResizeMode(4, QHeaderView.Stretch)  # 가격
+        trade_header.setSectionResizeMode(5, QHeaderView.Stretch)  # 수량
+        trade_header.setSectionResizeMode(6, QHeaderView.Stretch)  # 금액
+        trade_header.setSectionResizeMode(7, QHeaderView.Stretch)  # 손익
+        trade_header.setSectionResizeMode(8, QHeaderView.Stretch)  # 사유
+
         # 정렬 활성화
         self.session_trades_table.setSortingEnabled(True)
-        
+
         trade_history_layout.addWidget(self.session_trades_table)
         
         # 탭에 위젯 추가
@@ -1888,44 +1916,49 @@ class MainWindow(QMainWindow):
             else:
                 self.trade_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
             
-            # 각 거래 내역 추가
+            # 각 거래 내역 추가 (9개 컬럼)
             for row, trade in enumerate(self.session_trades):
-                # 시각
+                # 0: 시각
                 time_item = QTableWidgetItem(trade.get_time_str())
                 time_item.setTextAlignment(Qt.AlignCenter)
                 self.session_trades_table.setItem(row, 0, time_item)
-                
-                # 심볼
+
+                # 1: 그룹 (🆕)
+                group_item = QTableWidgetItem(trade.group)
+                group_item.setTextAlignment(Qt.AlignCenter)
+                self.session_trades_table.setItem(row, 1, group_item)
+
+                # 2: 심볼
                 symbol_item = QTableWidgetItem(trade.get_symbol_short())
                 symbol_item.setFont(QFont("Consolas", 9, QFont.Bold))
                 symbol_item.setTextAlignment(Qt.AlignCenter)
-                self.session_trades_table.setItem(row, 1, symbol_item)
-                
-                # 유형 (매수/매도)
+                self.session_trades_table.setItem(row, 2, symbol_item)
+
+                # 3: 유형 (detail_type: 자동매수, DCA L1, 익절 L1 등)
                 type_item = QTableWidgetItem(f"{trade.get_type_emoji()} {trade.get_type_text()}")
                 type_item.setTextAlignment(Qt.AlignCenter)
                 if trade.trade_type == 'buy':
                     type_item.setForeground(Qt.red)
                 else:
                     type_item.setForeground(Qt.blue)
-                self.session_trades_table.setItem(row, 2, type_item)
-                
-                # 가격
+                self.session_trades_table.setItem(row, 3, type_item)
+
+                # 4: 가격
                 price_item = QTableWidgetItem(f"{trade.price:,.0f}")
                 price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.session_trades_table.setItem(row, 3, price_item)
-                
-                # 수량
+                self.session_trades_table.setItem(row, 4, price_item)
+
+                # 5: 수량
                 qty_item = QTableWidgetItem(f"{trade.quantity:.8f}")
                 qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.session_trades_table.setItem(row, 4, qty_item)
-                
-                # 금액
+                self.session_trades_table.setItem(row, 5, qty_item)
+
+                # 6: 금액
                 amount_item = QTableWidgetItem(f"{trade.amount:,.0f}")
                 amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.session_trades_table.setItem(row, 5, amount_item)
-                
-                # 손익
+                self.session_trades_table.setItem(row, 6, amount_item)
+
+                # 7: 손익
                 if trade.trade_type == 'sell':
                     profit_text = f"{trade.profit:+,.0f} ({trade.profit_pct:+.2f}%)"
                     profit_item = QTableWidgetItem(profit_text)
@@ -1939,18 +1972,27 @@ class MainWindow(QMainWindow):
                 else:
                     profit_item = QTableWidgetItem("-")
                     profit_item.setTextAlignment(Qt.AlignCenter)
-                self.session_trades_table.setItem(row, 6, profit_item)
-                
-                # 사유
+                self.session_trades_table.setItem(row, 7, profit_item)
+
+                # 8: 사유
                 reason_item = QTableWidgetItem(trade.reason)
                 reason_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                self.session_trades_table.setItem(row, 7, reason_item)
+                self.session_trades_table.setItem(row, 8, reason_item)
             
             # 정렬 다시 활성화
             self.session_trades_table.setSortingEnabled(True)
             
         except Exception as e:
             self._add_log(f"⚠️ 거래 내역 테이블 업데이트 오류: {e}")
+
+    def _export_session_trades(self):
+        """세션 거래 내역을 CSV 파일로 내보내기 (4단계에서 구현)"""
+        if not self.session_trades:
+            QMessageBox.information(self, "내보내기", "내보낼 거래 내역이 없습니다.")
+            return
+
+        # TODO: 4단계에서 구현
+        QMessageBox.information(self, "내보내기", f"총 {len(self.session_trades)}건의 거래 내역을 내보냅니다.\n(4단계에서 구현 예정)")
 
     def _add_log(self, message: str):
         """로그 추가 (최대 1000줄 유지)"""
