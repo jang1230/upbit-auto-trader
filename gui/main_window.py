@@ -1990,13 +1990,79 @@ class MainWindow(QMainWindow):
             self._add_log(f"⚠️ 거래 내역 테이블 업데이트 오류: {e}")
 
     def _export_session_trades(self):
-        """세션 거래 내역을 CSV 파일로 내보내기 (4단계에서 구현)"""
+        """세션 거래 내역을 CSV 파일로 내보내기"""
         if not self.session_trades:
             QMessageBox.information(self, "내보내기", "내보낼 거래 내역이 없습니다.")
             return
 
-        # TODO: 4단계에서 구현
-        QMessageBox.information(self, "내보내기", f"총 {len(self.session_trades)}건의 거래 내역을 내보냅니다.\n(4단계에서 구현 예정)")
+        from datetime import datetime
+        from PySide6.QtWidgets import QFileDialog
+        import csv
+
+        # 기본 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"거래내역_{timestamp}.csv"
+
+        # 파일 저장 다이얼로그
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "거래 내역 내보내기",
+            default_filename,
+            "CSV 파일 (*.csv);;모든 파일 (*.*)"
+        )
+
+        if not file_path:
+            return  # 사용자가 취소함
+
+        try:
+            # CSV 파일로 저장 (utf-8-sig: Excel에서 한글 깨짐 방지)
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+
+                # 헤더 작성
+                writer.writerow([
+                    '시각', '그룹', '심볼', '유형', '가격',
+                    '수량', '금액', '손익', '손익률(%)', '사유'
+                ])
+
+                # 데이터 작성
+                for trade in self.session_trades:
+                    writer.writerow([
+                        trade.get_time_str() if hasattr(trade, 'get_time_str') else trade.timestamp.strftime("%H:%M:%S"),
+                        trade.group,
+                        trade.get_symbol_short() if hasattr(trade, 'get_symbol_short') else trade.symbol.replace('KRW-', ''),
+                        trade.detail_type,
+                        f"{trade.price:,.0f}",
+                        f"{trade.quantity:.8f}",
+                        f"{trade.amount:,.0f}",
+                        f"{trade.profit:+,.0f}" if trade.profit != 0 else "",
+                        f"{trade.profit_pct:+.2f}" if trade.profit_pct != 0 else "",
+                        trade.reason
+                    ])
+
+            # 내보내기 요약 계산
+            buy_count = sum(1 for t in self.session_trades if t.trade_type == 'buy')
+            sell_count = sum(1 for t in self.session_trades if t.trade_type == 'sell')
+            total_profit = sum(t.profit for t in self.session_trades)
+
+            QMessageBox.information(
+                self,
+                "내보내기 완료",
+                f"거래 내역을 저장했습니다.\n\n"
+                f"📁 파일: {file_path}\n"
+                f"📊 총 {len(self.session_trades)}건 (매수: {buy_count}, 매도: {sell_count})\n"
+                f"💰 누적 손익: {total_profit:+,.0f}원"
+            )
+
+            logger.info(f"✅ 거래 내역 내보내기 완료: {file_path} ({len(self.session_trades)}건)")
+
+        except Exception as e:
+            logger.error(f"❌ 거래 내역 내보내기 오류: {e}")
+            QMessageBox.critical(
+                self,
+                "내보내기 실패",
+                f"거래 내역 내보내기에 실패했습니다.\n\n오류: {e}"
+            )
 
     def _add_log(self, message: str):
         """로그 추가 (최대 1000줄 유지)"""
