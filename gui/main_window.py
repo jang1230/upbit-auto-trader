@@ -373,25 +373,15 @@ class MainWindow(QMainWindow):
         global_settings_btn.clicked.connect(self._open_global_settings)
         button_layout.addWidget(global_settings_btn)
 
-        # 🔧 MyAsset 구독 상태 라벨
-        self.myasset_status_label = QLabel("🔄 실시간 감지 준비 중...")
-        self.myasset_status_label.setFont(QFont("맑은 고딕", 9))
-        self.myasset_status_label.setStyleSheet(
-            "padding: 8px; background-color: #FFF9C4; color: #F57F17; "
-            "border-radius: 3px; border: 1px solid #FBC02D;"
-        )
-        self.myasset_status_label.setWordWrap(True)
-        button_layout.addWidget(self.myasset_status_label)
-
         # 시작 버튼
-        self.start_btn = QPushButton("▶ DCA 시작")
+        self.start_btn = QPushButton("▶ 시작")
         self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
         self.start_btn.setEnabled(False)  # 🔧 초기에 비활성화 (MyAsset 준비 완료까지)
         self.start_btn.clicked.connect(self._start_trading)
         button_layout.addWidget(self.start_btn)
 
         # 중지 버튼
-        self.stop_btn = QPushButton("■ DCA 중지")
+        self.stop_btn = QPushButton("■ 중지")
         self.stop_btn.setStyleSheet("background-color: #f44336; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop_trading)
@@ -2289,7 +2279,6 @@ class MainWindow(QMainWindow):
 
         logger.info("🚀 [Init] 순차적 초기화 시작")
         self._add_log("🔄 초기화 시작...")
-        self.myasset_status_label.setText("🔄 초기화 중... (1/3) 예수금 조회")
 
         # 단계 1: 예수금 조회
         self._step1_load_balance()
@@ -2373,7 +2362,6 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger(__name__)
 
         logger.info("🔄 [Step 2] 보유 종목 조회 시작")
-        self.myasset_status_label.setText("🔄 초기화 중... (2/3) 보유 종목 조회")
         self._add_log("🔄 보유 종목 조회 중...")
 
         # ========================================
@@ -2481,7 +2469,6 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger(__name__)
 
         logger.info("🔄 [Step 3] 실시간 감지 준비 시작")
-        self.myasset_status_label.setText("🔄 초기화 중... (3/3) 실시간 감지 준비")
         self._add_log("🔄 실시간 감지 준비 중...")
 
         # 기존 _start_myasset_preparation() 로직 호출
@@ -2499,11 +2486,7 @@ class MainWindow(QMainWindow):
 
         if not access_key or not secret_key:
             # API 키 없으면 준비 실패
-            self.myasset_status_label.setText("⚠️ API 키 미설정 (Fallback 모드)")
-            self.myasset_status_label.setStyleSheet(
-                "padding: 8px; background-color: #FFCDD2; color: #C62828; "
-                "border-radius: 3px; border: 1px solid #E53935;"
-            )
+            self._add_log("⚠️ API 키 미설정 (Fallback 모드)")
             self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
             return
 
@@ -2511,7 +2494,6 @@ class MainWindow(QMainWindow):
         self.preparation_worker = MyAssetPreparationWorker(access_key, secret_key)
         self.preparation_worker.preparation_complete.connect(self._on_myasset_preparation_complete)
         self.preparation_worker.preparation_failed.connect(self._on_myasset_preparation_failed)
-        self.preparation_worker.status_update.connect(self._on_myasset_status_update)
         self.preparation_worker.start()
 
     def _on_myasset_preparation_complete(self):
@@ -2522,23 +2504,12 @@ class MainWindow(QMainWindow):
         self._add_log("ℹ️  참고: 프로그램 시작 직후 첫 매수는 1-3분 지연될 수 있습니다 (Upbit 정책)")
         self._add_log("   이후 매수부터는 즉시 감지됩니다 (평균 15-30초 이내)")
 
-        # 상태 라벨 업데이트
-        self.myasset_status_label.setText("✅ 실시간 감지 준비 완료!")
-        self.myasset_status_label.setStyleSheet(
-            "padding: 8px; background-color: #C8E6C9; color: #2E7D32; "
-            "border-radius: 3px; border: 1px solid #4CAF50;"
-        )
-
     def _on_myasset_preparation_failed(self, error_msg: str):
         """MyAsset 구독 준비 실패"""
         self.myasset_ready = False
         self.start_btn.setEnabled(True)  # 버튼은 활성화 (fallback 모드로 작동)
         self._add_log(f"⚠️ 실시간 감지 준비 실패: {error_msg}")
         self._add_log("   → Fallback polling 모드로 작동합니다 (60초마다 확인)")
-
-    def _on_myasset_status_update(self, status_msg: str):
-        """MyAsset 상태 업데이트"""
-        self.myasset_status_label.setText(status_msg)
 
     # ========================================
     # V4 GUI 핸들러
