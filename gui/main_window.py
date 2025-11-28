@@ -307,87 +307,76 @@ class MainWindow(QMainWindow):
         self.status_label.setFont(QFont("맑은 고딕", 11, QFont.Bold))
         status_layout.addWidget(self.status_label)
 
-        # 선택된 코인 개수로 초기화
-        selected_coin_count = len(self.config_manager.get_selected_coins())
-        self.symbol_label = QLabel(f"다중 코인 ({selected_coin_count}개)")
-        self.symbol_label.setFont(QFont("맑은 고딕", 9))
-        status_layout.addWidget(self.symbol_label)
+        # V4: Mode 표시 (Live/Dry-run | 준비 상태)
+        self.mode_label = QLabel("Mode: Live | 준비 완료")
+        self.mode_label.setFont(QFont("맑은 고딕", 9))
+        status_layout.addWidget(self.mode_label)
 
         status_group.setLayout(status_layout)
         sidebar_layout.addWidget(status_group)
 
         # 🔧 2. 계좌 정보 패널 (사이드바)
         account_group = QGroupBox("💰 계좌 정보")
-        account_layout = QVBoxLayout()
+        account_layout = QFormLayout()
 
+        self.krw_balance_label = QLabel("로딩 중...")
+        self.krw_balance_label.setFont(QFont("Consolas", 9, QFont.Bold))
+        self.krw_balance_label.setStyleSheet("color: #2196F3;")
+        account_layout.addRow("보유 KRW:", self.krw_balance_label)
+
+        self.total_buy_label = QLabel("로딩 중...")
+        self.total_buy_label.setFont(QFont("Consolas", 9))
+        account_layout.addRow("총 매수:", self.total_buy_label)
+
+        # 🔧 기존 코드 호환성 유지 (화면에 표시 안 함)
         self.total_asset_label = QLabel("총 자산: 로딩 중...")
-        self.total_asset_label.setFont(QFont("맑은 고딕", 9))
-        account_layout.addWidget(self.total_asset_label)
-
-        # 🔧 수익률/최대낙폭은 포지션 테이블 위에 표시 (중복 제거)
-        # 레이블은 생성하되 화면에 추가하지 않음 (기존 코드 호환성 유지)
         self.profit_label = QLabel("수익률: 0.00%")
         self.mdd_label = QLabel("최대 낙폭: 0.00%")
 
         account_group.setLayout(account_layout)
         sidebar_layout.addWidget(account_group)
 
-        # 🔧 3. DCA 전략 설정 (사이드바 - 읽기 전용 요약)
-        settings_group = QGroupBox("📊 DCA 전략")
-        settings_layout = QVBoxLayout()
+        # 🔧 3. 그룹 현황 패널 (V4 신규)
+        group_info_group = QGroupBox("📁 그룹 현황")
+        group_info_layout = QVBoxLayout()
 
-        # DCA 설정 요약 정보
-        summary_layout = QFormLayout()
+        self.active_groups_label = QLabel("활성 그룹: 0개")
+        self.active_groups_label.setFont(QFont("맑은 고딕", 9, QFont.Bold))
+        group_info_layout.addWidget(self.active_groups_label)
 
-        # 익절 목표 (읽기 전용)
-        if self.dca_config.is_multi_level_tp_enabled():
-            tp_count = len(self.dca_config.take_profit_levels)
-            tp_text = f"다단계 ({tp_count}레벨)"
-        else:
-            tp_text = f"+{self.dca_config.take_profit_pct}%"
+        self.total_positions_label = QLabel("총 포지션: 0개")
+        self.total_positions_label.setFont(QFont("맑은 고딕", 9))
+        group_info_layout.addWidget(self.total_positions_label)
 
-        self.take_profit_label = QLabel(tp_text)
-        self.take_profit_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.take_profit_label.setStyleSheet("color: #4CAF50;")
-        summary_layout.addRow("🎯 익절:", self.take_profit_label)
+        # 그룹별 포지션 수 표시 영역
+        self.group_details_label = QLabel("")
+        self.group_details_label.setFont(QFont("Consolas", 8))
+        self.group_details_label.setStyleSheet("color: #666; padding-left: 10px;")
+        group_info_layout.addWidget(self.group_details_label)
 
-        # 손절 방어 (읽기 전용)
-        if self.dca_config.is_multi_level_sl_enabled():
-            sl_count = len(self.dca_config.stop_loss_levels)
-            sl_text = f"다단계 ({sl_count}레벨)"
-        else:
-            sl_text = f"-{self.dca_config.stop_loss_pct}%"
+        group_info_group.setLayout(group_info_layout)
+        sidebar_layout.addWidget(group_info_group)
 
-        self.stop_loss_label = QLabel(sl_text)
-        self.stop_loss_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.stop_loss_label.setStyleSheet("color: #F44336;")
-        summary_layout.addRow("🛑 손절:", self.stop_loss_label)
+        # 🔧 4. 오늘의 거래 패널 (V4 신규)
+        trade_summary_group = QGroupBox("📈 오늘의 거래")
+        trade_summary_layout = QFormLayout()
 
-        # DCA 레벨 정보 (읽기 전용)
-        min_drop = min(level.drop_pct for level in self.dca_config.levels)
-        max_drop = max(level.drop_pct for level in self.dca_config.levels)
-        self.dca_levels_label = QLabel(f"{len(self.dca_config.levels)}단계 ({min_drop}%~{max_drop}%)")
-        self.dca_levels_label.setFont(QFont("Consolas", 9))
-        summary_layout.addRow("📊 레벨:", self.dca_levels_label)
+        self.today_buy_count_label = QLabel("0건")
+        self.today_buy_count_label.setFont(QFont("Consolas", 9))
+        self.today_buy_count_label.setStyleSheet("color: #F44336;")
+        trade_summary_layout.addRow("매수:", self.today_buy_count_label)
 
-        # 총 투자금 (읽기 전용)
-        total_investment = sum(level.order_amount for level in self.dca_config.levels)
-        self.total_investment_label = QLabel(f"{total_investment:,}원")
-        self.total_investment_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.total_investment_label.setStyleSheet("color: #2196F3;")
-        summary_layout.addRow("💰 투자금:", self.total_investment_label)
+        self.today_sell_count_label = QLabel("0건")
+        self.today_sell_count_label.setFont(QFont("Consolas", 9))
+        self.today_sell_count_label.setStyleSheet("color: #2196F3;")
+        trade_summary_layout.addRow("매도:", self.today_sell_count_label)
 
-        # DCA 활성화 상태 (읽기 전용)
-        self.dca_status_label = QLabel("✅ 활성화" if self.dca_config.enabled else "❌ 비활성화")
-        self.dca_status_label.setFont(QFont("Consolas", 9, QFont.Bold))
-        self.dca_status_label.setStyleSheet("color: #4CAF50;" if self.dca_config.enabled else "color: #999;")
-        summary_layout.addRow("⚙️ 상태:", self.dca_status_label)
+        self.today_realized_pnl_label = QLabel("0원")
+        self.today_realized_pnl_label.setFont(QFont("Consolas", 9, QFont.Bold))
+        trade_summary_layout.addRow("실현 손익:", self.today_realized_pnl_label)
 
-        settings_layout.addLayout(summary_layout)
-        settings_group.setLayout(settings_layout)
-        sidebar_layout.addWidget(settings_group)
-
-        # 🔧 V4: 완전 자동 모드 설정 삭제 (그룹 시스템으로 대체)
+        trade_summary_group.setLayout(trade_summary_layout)
+        sidebar_layout.addWidget(trade_summary_group)
 
         # 🔧 4. 실행 버튼들 (사이드바 하단)
         button_group = QGroupBox("⚙️ 제어")
@@ -785,8 +774,7 @@ class MainWindow(QMainWindow):
             coins_str = ", ".join([coin.replace('KRW-', '') for coin in coins])
             self._add_log(f"🎯 거래 코인 선택: {coins_str} ({len(coins)}개)")
 
-            # 🔧 사이드바 심볼 라벨 업데이트
-            self.symbol_label.setText(f"다중 코인 ({len(coins)}개)")
+            # 🔧 V4: 사이드바 그룹 현황 업데이트 (나중에 _update_sidebar_group_info()로 대체)
 
             # 🔧 포지션 테이블 초기화 (매수 완료 시에만 행 추가)
             self.position_table.setRowCount(0)
@@ -1883,9 +1871,8 @@ class MainWindow(QMainWindow):
 
     def _update_status(self):
         """상태 정보 업데이트"""
-        # 🔧 사이드바 심볼 정보 (선택된 코인 개수로 업데이트)
-        selected_coin_count = len(self.config_manager.get_selected_coins())
-        self.symbol_label.setText(f"다중 코인 ({selected_coin_count}개)")
+        # 🔧 V4: 사이드바 전체 업데이트로 대체
+        pass
     
     def _update_trade_history_table(self):
         """거래 내역 테이블 업데이트"""
