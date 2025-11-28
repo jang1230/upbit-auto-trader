@@ -1635,7 +1635,26 @@ class V4TradingEngine:
 
                     logger.info(f"   📝 {symbol} DCA 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
 
-                    # 3. pending_order 업데이트 (order_id 추가)
+                    # 3. PendingOrderManager에 저장 (거래내역 업데이트용 - Race Condition 방지)
+                    dca_price = current_price if avg_price == 0 else avg_price
+                    self.pending_order_mgr.add_order(
+                        order_id=order_uuid,
+                        symbol=symbol,
+                        side="bid",
+                        price=dca_price,
+                        amount=executed_volume,
+                        group_id=group_id,
+                        order_type="market",
+                        created_by="auto",
+                        # 거래내역 업데이트용 추가 필드
+                        trade_type="dca",
+                        dca_level=dca_level_index,
+                        group_name=group.get("name", "Unknown"),
+                        order_amount_krw=dca_amount,
+                        trigger_price=current_price
+                    )
+
+                    # 4. pending_order 업데이트 (order_id 추가) - 기존 호환성 유지
                     self.position_manager.update_position(symbol, {
                         "pending_order": {
                             "order_id": order_uuid,
@@ -1644,7 +1663,7 @@ class V4TradingEngine:
                             "timestamp": datetime.now().isoformat(),
                             "status": "waiting",  # 체결 대기
                             # DCA 정보 저장 (체결 후 add_dca 호출용)
-                            "dca_price": current_price if avg_price == 0 else avg_price,  # avg_price 0이면 현재가 사용
+                            "dca_price": dca_price,
                             "dca_amount": executed_volume,
                             "dca_value_krw": dca_amount,
                             "group_id": group_id,
@@ -1652,7 +1671,7 @@ class V4TradingEngine:
                         }
                     })
 
-                    # 4. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
+                    # 5. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
                     if self.myorder_ws:
                         self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
                         logger.info(f"   📡 {symbol} DCA 주문 {order_uuid[:8]}... 콜백 등록 완료")
@@ -2040,7 +2059,35 @@ class V4TradingEngine:
 
                     logger.debug(f"   📝 {symbol} 주문 생성: {order_uuid[:8]}... (수량: {executed_volume:.8f})")
 
-                    # 3. pending_order 업데이트 (order_id 추가)
+                    # 3. PendingOrderManager에 저장 (거래내역 업데이트용 - Race Condition 방지)
+                    sell_price = avg_price if avg_price > 0 else current_price
+                    extra_fields = {
+                        "trade_type": reason,  # "profit" or "loss"
+                        "group_name": group.get('name', 'Unknown'),
+                        "quantity_ratio": quantity_ratio,
+                        "order_amount_krw": sell_value_krw,
+                        "profit_pct": profit_pct,
+                        "trigger_price": current_price
+                    }
+                    # 익절/손절 레벨 구분
+                    if reason == "profit":
+                        extra_fields["profit_level"] = level_index
+                    else:
+                        extra_fields["loss_level"] = level_index
+
+                    self.pending_order_mgr.add_order(
+                        order_id=order_uuid,
+                        symbol=symbol,
+                        side="ask",
+                        price=sell_price,
+                        amount=sell_amount,
+                        group_id=group_id,
+                        order_type="market",
+                        created_by="auto",
+                        **extra_fields
+                    )
+
+                    # 4. pending_order 업데이트 (order_id 추가) - 기존 호환성 유지
                     self.position_manager.update_position(symbol, {
                         "pending_order": {
                             "order_id": order_uuid,
@@ -2057,7 +2104,7 @@ class V4TradingEngine:
                         }
                     })
 
-                    # 4. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
+                    # 5. MyOrderWebSocket 콜백 등록 (Live 모드에서만)
                     if self.myorder_ws:
                         self.myorder_ws.register_order_callback(order_uuid, self._on_order_completed)
                         logger.debug(f"   📡 {symbol} 주문 {order_uuid[:8]}... 콜백 등록 완료")
@@ -2123,6 +2170,91 @@ class V4TradingEngine:
         except Exception as e:
             logger.error(f"❌ {symbol} 매도 실행 오류: {e}", exc_info=True)
 
+    def _handle_pending_order_completed(self, pending_info: Dict, order_data: Dict):
+        """
+        PendingOrderManager 기반 거래내역 업데이트 (Race Condition 방지)
+
+        Args:
+            pending_info: PendingOrderManager에서 조회한 주문 정보
+            order_data: MyOrder WebSocket에서 전달된 체결 데이터
+        """
+        try:
+            symbol = pending_info.get('symbol')
+            trade_type = pending_info.get('trade_type')  # "dca", "profit", "loss"
+            group_name = pending_info.get('group_name', 'Unknown')
+            order_uuid = pending_info.get('order_id', '')[:8]
+
+            # MyOrder에서 온 체결 정보
+            executed_volume = float(order_data.get('executed_volume', 0))
+            avg_price = float(order_data.get('avg_price', 0))
+            state = order_data.get('state')
+
+            # 체결 수량이 0이면 스킵
+            if executed_volume <= 0:
+                logger.debug(f"   ⏭️ {symbol} 체결 수량 0 → 거래내역 스킵")
+                return
+
+            # 거래 금액 계산
+            amount_krw = avg_price * executed_volume
+
+            # detail_type 생성 (레벨 정보 포함)
+            if trade_type == "dca":
+                dca_level = pending_info.get('dca_level', 0)
+                detail_type = f"DCA L{dca_level + 1}"
+                trade_action = 'buy'
+                profit = 0.0
+                profit_pct = 0.0
+                reason = f"가격 하락 트리거 (state={state})"
+
+            elif trade_type == "profit":
+                profit_level = pending_info.get('profit_level', 0)
+                detail_type = f"익절 L{profit_level}"
+                trade_action = 'sell'
+                profit_pct = pending_info.get('profit_pct', 0)
+                # 대략적인 수익 계산 (정확한 값은 기존 로직에서 계산)
+                profit = amount_krw * (profit_pct / 100) if profit_pct else 0.0
+                reason = f"익절 트리거 (state={state})"
+
+            elif trade_type == "loss":
+                loss_level = pending_info.get('loss_level', 0)
+                detail_type = f"손절 L{loss_level}"
+                trade_action = 'sell'
+                profit_pct = pending_info.get('profit_pct', 0)
+                profit = amount_krw * (profit_pct / 100) if profit_pct else 0.0
+                reason = f"손절 트리거 (state={state})"
+
+            else:
+                # 알 수 없는 타입은 기본 처리
+                detail_type = trade_type or "Unknown"
+                trade_action = pending_info.get('side', 'bid')
+                trade_action = 'buy' if trade_action == 'bid' else 'sell'
+                profit = 0.0
+                profit_pct = 0.0
+                reason = f"체결 완료 (state={state})"
+
+            # 거래내역 업데이트 (_emit_trade_event 호출)
+            self._emit_trade_event(
+                group_name=group_name,
+                symbol=symbol,
+                trade_type=trade_action,
+                detail_type=detail_type,
+                price=avg_price,
+                quantity=executed_volume,
+                amount=amount_krw,
+                profit=profit,
+                profit_pct=profit_pct,
+                reason=reason,
+                order_id=pending_info.get('order_id')
+            )
+
+            logger.info(
+                f"✅ [거래내역] {symbol} {detail_type} 업데이트 완료 | "
+                f"{avg_price:,.0f}원 × {executed_volume:.8f}개 = {amount_krw:,.0f}원"
+            )
+
+        except Exception as e:
+            logger.error(f"❌ 거래내역 업데이트 오류: {e}", exc_info=True)
+
     def _on_order_completed(self, order_data: Dict):
         """
         주문 체결 완료 콜백 (MyOrderWebSocket에서 호출됨)
@@ -2159,6 +2291,16 @@ class V4TradingEngine:
             if state == 'wait':
                 logger.debug(f"   ⏳ 주문 {order_uuid[:8]}... 아직 대기 중")
                 return
+
+            # ========================================
+            # 🆕 PendingOrderManager 기반 거래내역 업데이트 (Race Condition 방지)
+            # ========================================
+            if state in ['done', 'cancel']:
+                pending_order_info = self.pending_order_mgr.get_order(order_uuid)
+                if pending_order_info:
+                    self._handle_pending_order_completed(pending_order_info, order_data)
+                    # PendingOrderManager에서 제거
+                    self.pending_order_mgr.remove_order(order_uuid)
 
             # 🔧 초기 매수 주문 체결 처리 (pending_buy 포지션 확인 - Race Condition 방지)
             pending_position = self.position_manager.get_position(symbol)

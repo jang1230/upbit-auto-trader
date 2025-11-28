@@ -67,7 +67,8 @@ class PendingOrderManager:
         amount: float,
         group_id: str,
         order_type: str = "limit",
-        created_by: str = "auto"
+        created_by: str = "auto",
+        **extra_fields
     ) -> None:
         """
         pending_order에 주문 추가
@@ -81,6 +82,16 @@ class PendingOrderManager:
             group_id: V4 그룹 ID
             order_type: "limit", "market" 등
             created_by: "auto" (프로그램) or "manual" (수동)
+            **extra_fields: 추가 필드 (거래내역 업데이트용)
+                - trade_type: "initial_buy", "dca", "profit", "loss"
+                - dca_level: DCA 레벨 (0-based)
+                - profit_level: 익절 레벨
+                - loss_level: 손절 레벨
+                - group_name: 그룹 이름
+                - trigger_price: 트리거 가격
+                - order_amount_krw: 주문 금액 (KRW)
+                - quantity_ratio: 매도 비율 (익절/손절)
+                - profit_pct: 수익률 (%)
 
         Example:
             >>> manager.add_order(
@@ -89,7 +100,10 @@ class PendingOrderManager:
             ...     side="bid",
             ...     price=1000.0,
             ...     amount=50.0,
-            ...     group_id="scalping_group"
+            ...     group_id="scalping_group",
+            ...     trade_type="dca",
+            ...     dca_level=2,
+            ...     group_name="스캘핑 그룹"
             ... )
         """
         order_data = {
@@ -104,12 +118,25 @@ class PendingOrderManager:
             "timestamp": datetime.now().isoformat()
         }
 
+        # 추가 필드 병합 (거래내역 업데이트용)
+        order_data.update(extra_fields)
+
         self.orders[order_id] = order_data
         self._save_to_file()
 
+        # 로그 메시지 개선
+        trade_type = extra_fields.get('trade_type', order_type)
+        level_info = ""
+        if 'dca_level' in extra_fields:
+            level_info = f" L{extra_fields['dca_level'] + 1}"
+        elif 'profit_level' in extra_fields:
+            level_info = f" L{extra_fields['profit_level']}"
+        elif 'loss_level' in extra_fields:
+            level_info = f" L{extra_fields['loss_level']}"
+
         logger.info(
-            f"pending_order 추가: {symbol} {side} "
-            f"{amount}@{price:,.0f} (order_id: {order_id[:8]}...)"
+            f"📝 pending_order 추가: {symbol} {trade_type}{level_info} "
+            f"(order_id: {order_id[:8]}...)"
         )
 
     def remove_order(self, order_id: str) -> bool:
