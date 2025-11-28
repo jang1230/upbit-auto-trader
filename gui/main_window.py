@@ -285,10 +285,10 @@ class MainWindow(QMainWindow):
         # 좌측 사이드바 (설정 영역) - 3.png 기준으로 좁게 조정
         # ========================================
         sidebar_widget = QWidget()
-        sidebar_widget.setMaximumWidth(240)  # V4: 그룹 현황 등 표시를 위해 확대
-        sidebar_widget.setMinimumWidth(220)
+        sidebar_widget.setMaximumWidth(280)  # V4: 버튼/라벨 잘림 방지
+        sidebar_widget.setMinimumWidth(260)
         sidebar_layout = QVBoxLayout(sidebar_widget)
-        sidebar_layout.setContentsMargins(3, 5, 3, 5)
+        sidebar_layout.setContentsMargins(8, 8, 8, 8)  # 마진 확대
         sidebar_layout.setSpacing(8)
 
         # 사이드바를 스크롤 가능하게 (설정이 많을 경우 대비)
@@ -383,13 +383,13 @@ class MainWindow(QMainWindow):
         button_layout = QVBoxLayout()
 
         # 🔧 V4: 그룹 관리 버튼 추가
-        group_management_btn = QPushButton("📁 그룹 관리")
+        group_management_btn = QPushButton("그룹 관리")
         group_management_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px; font-weight: bold;")
         group_management_btn.clicked.connect(self._open_group_management)
         button_layout.addWidget(group_management_btn)
 
         # 🔧 V4: 전역 설정 버튼 추가
-        global_settings_btn = QPushButton("⚙️ 전역 설정")
+        global_settings_btn = QPushButton("전역 설정")
         global_settings_btn.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px; font-weight: bold;")
         global_settings_btn.clicked.connect(self._open_global_settings)
         button_layout.addWidget(global_settings_btn)
@@ -405,14 +405,14 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(self.myasset_status_label)
 
         # 시작 버튼
-        self.start_btn = QPushButton("▶ 전체 DCA 시작")
+        self.start_btn = QPushButton("▶ DCA 시작")
         self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
         self.start_btn.setEnabled(False)  # 🔧 초기에 비활성화 (MyAsset 준비 완료까지)
         self.start_btn.clicked.connect(self._start_trading)
         button_layout.addWidget(self.start_btn)
 
         # 중지 버튼
-        self.stop_btn = QPushButton("■ 전체 DCA 중지")
+        self.stop_btn = QPushButton("■ DCA 중지")
         self.stop_btn.setStyleSheet("background-color: #f44336; color: white; padding: 10px; font-size: 13px; font-weight: bold;")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop_trading)
