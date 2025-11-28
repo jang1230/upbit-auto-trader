@@ -239,8 +239,8 @@ class MainWindow(QMainWindow):
         # 🔧 GUI 업데이트 throttling
         self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
 
-        # 🔧 거래 내역 저장
-        self.trade_history = []  # Trade 객체 리스트
+        # 🔧 세션 거래 내역 저장 (프로그램 재시작 시 리셋됨, 파일 저장 안 함)
+        self.session_trades = []  # Trade 객체 리스트 (세션 한정)
 
         # 🔧 자동 매도 중복 알림 방지 (즉시매도 + 익절 + 손절)
         self.recent_immediate_sells = {}  # {symbol: timestamp} - 봇이 자동으로 매도한 코인 추적 (10초간 수동매도 알림 차단)
@@ -498,20 +498,20 @@ class MainWindow(QMainWindow):
         trade_history_layout.addWidget(self.trade_summary_label)
         
         # 거래 내역 테이블 생성
-        self.trade_history_table = QTableWidget()
-        self.trade_history_table.setColumnCount(8)
-        self.trade_history_table.setHorizontalHeaderLabels([
+        self.session_trades_table = QTableWidget()
+        self.session_trades_table.setColumnCount(8)
+        self.session_trades_table.setHorizontalHeaderLabels([
             "시각", "심볼", "유형", "가격", "수량", "금액", "손익", "사유"
         ])
         
         # 테이블 스타일 설정
-        self.trade_history_table.setFont(QFont("Consolas", 9))
-        self.trade_history_table.setAlternatingRowColors(True)
-        self.trade_history_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.trade_history_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.session_trades_table.setFont(QFont("Consolas", 9))
+        self.session_trades_table.setAlternatingRowColors(True)
+        self.session_trades_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.session_trades_table.setSelectionBehavior(QTableWidget.SelectRows)
         
         # 컬럼 너비 설정
-        trade_header = self.trade_history_table.horizontalHeader()
+        trade_header = self.session_trades_table.horizontalHeader()
         trade_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 시각
         trade_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 심볼
         trade_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 유형
@@ -522,9 +522,9 @@ class MainWindow(QMainWindow):
         trade_header.setSectionResizeMode(7, QHeaderView.Stretch)  # 사유
         
         # 정렬 활성화
-        self.trade_history_table.setSortingEnabled(True)
+        self.session_trades_table.setSortingEnabled(True)
         
-        trade_history_layout.addWidget(self.trade_history_table)
+        trade_history_layout.addWidget(self.session_trades_table)
         
         # 탭에 위젯 추가
         tab_widget.addTab(position_widget, "📊 활성 포지션")
@@ -1482,7 +1482,7 @@ class MainWindow(QMainWindow):
             trade = Trade.from_dict(trade_data)
             
             # 거래 내역에 추가 (최신 거래가 위에 오도록)
-            self.trade_history.insert(0, trade)
+            self.session_trades.insert(0, trade)
             
             # 테이블 업데이트
             self._update_trade_history_table()
@@ -1859,19 +1859,19 @@ class MainWindow(QMainWindow):
         """거래 내역 테이블 업데이트"""
         try:
             # 정렬 비활성화 (업데이트 중)
-            self.trade_history_table.setSortingEnabled(False)
+            self.session_trades_table.setSortingEnabled(False)
             
             # 테이블 초기화
-            self.trade_history_table.setRowCount(len(self.trade_history))
+            self.session_trades_table.setRowCount(len(self.session_trades))
             
             # 거래 내역 통계 계산
-            total_trades = len(self.trade_history)
-            buy_count = sum(1 for t in self.trade_history if t.trade_type == 'buy')
-            sell_count = sum(1 for t in self.trade_history if t.trade_type == 'sell')
-            total_profit = sum(t.profit for t in self.trade_history if t.trade_type == 'sell')
+            total_trades = len(self.session_trades)
+            buy_count = sum(1 for t in self.session_trades if t.trade_type == 'buy')
+            sell_count = sum(1 for t in self.session_trades if t.trade_type == 'sell')
+            total_profit = sum(t.profit for t in self.session_trades if t.trade_type == 'sell')
             
             # 누적 수익률 계산 (총 매수 금액 대비)
-            total_buy_amount = sum(t.amount for t in self.trade_history if t.trade_type == 'buy')
+            total_buy_amount = sum(t.amount for t in self.session_trades if t.trade_type == 'buy')
             total_profit_pct = (total_profit / total_buy_amount * 100) if total_buy_amount > 0 else 0.0
             
             # 요약 정보 업데이트
@@ -1889,17 +1889,17 @@ class MainWindow(QMainWindow):
                 self.trade_summary_label.setStyleSheet("color: #666; padding: 5px; background-color: #f5f5f5; border-radius: 3px;")
             
             # 각 거래 내역 추가
-            for row, trade in enumerate(self.trade_history):
+            for row, trade in enumerate(self.session_trades):
                 # 시각
                 time_item = QTableWidgetItem(trade.get_time_str())
                 time_item.setTextAlignment(Qt.AlignCenter)
-                self.trade_history_table.setItem(row, 0, time_item)
+                self.session_trades_table.setItem(row, 0, time_item)
                 
                 # 심볼
                 symbol_item = QTableWidgetItem(trade.get_symbol_short())
                 symbol_item.setFont(QFont("Consolas", 9, QFont.Bold))
                 symbol_item.setTextAlignment(Qt.AlignCenter)
-                self.trade_history_table.setItem(row, 1, symbol_item)
+                self.session_trades_table.setItem(row, 1, symbol_item)
                 
                 # 유형 (매수/매도)
                 type_item = QTableWidgetItem(f"{trade.get_type_emoji()} {trade.get_type_text()}")
@@ -1908,22 +1908,22 @@ class MainWindow(QMainWindow):
                     type_item.setForeground(Qt.red)
                 else:
                     type_item.setForeground(Qt.blue)
-                self.trade_history_table.setItem(row, 2, type_item)
+                self.session_trades_table.setItem(row, 2, type_item)
                 
                 # 가격
                 price_item = QTableWidgetItem(f"{trade.price:,.0f}")
                 price_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.trade_history_table.setItem(row, 3, price_item)
+                self.session_trades_table.setItem(row, 3, price_item)
                 
                 # 수량
                 qty_item = QTableWidgetItem(f"{trade.quantity:.8f}")
                 qty_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.trade_history_table.setItem(row, 4, qty_item)
+                self.session_trades_table.setItem(row, 4, qty_item)
                 
                 # 금액
                 amount_item = QTableWidgetItem(f"{trade.amount:,.0f}")
                 amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.trade_history_table.setItem(row, 5, amount_item)
+                self.session_trades_table.setItem(row, 5, amount_item)
                 
                 # 손익
                 if trade.trade_type == 'sell':
@@ -1939,15 +1939,15 @@ class MainWindow(QMainWindow):
                 else:
                     profit_item = QTableWidgetItem("-")
                     profit_item.setTextAlignment(Qt.AlignCenter)
-                self.trade_history_table.setItem(row, 6, profit_item)
+                self.session_trades_table.setItem(row, 6, profit_item)
                 
                 # 사유
                 reason_item = QTableWidgetItem(trade.reason)
                 reason_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                self.trade_history_table.setItem(row, 7, reason_item)
+                self.session_trades_table.setItem(row, 7, reason_item)
             
             # 정렬 다시 활성화
-            self.trade_history_table.setSortingEnabled(True)
+            self.session_trades_table.setSortingEnabled(True)
             
         except Exception as e:
             self._add_log(f"⚠️ 거래 내역 테이블 업데이트 오류: {e}")
