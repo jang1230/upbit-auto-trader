@@ -303,11 +303,12 @@ class PositionManager:
 
         position = self.positions[symbol]
 
-        # 현재 평가액 계산
+        # 현재 평가액 계산 (매도 수수료 0.05% 반영)
         total_amount = position['total_amount']
-        current_value_krw = current_price * total_amount
+        SELL_FEE_RATE = 0.0005  # 업비트 매도 수수료 0.05%
+        current_value_krw = current_price * total_amount * (1 - SELL_FEE_RATE)
 
-        # 수익 계산
+        # 수익 계산 (매도 시 실현 가능한 손익)
         total_invested = position['total_invested_krw']
         profit_krw = current_value_krw - total_invested
         profit_pct = (profit_krw / total_invested) * 100 if total_invested > 0 else 0

@@ -2975,6 +2975,9 @@ class MainWindow(QMainWindow):
 
                 break
 
+            # 🆕 총평가손익 라벨 실시간 업데이트
+            self._update_total_profit_label()
+
         except Exception as e:
             logger.error(f"❌ 가격 업데이트 처리 오류: {e}", exc_info=True)
 
