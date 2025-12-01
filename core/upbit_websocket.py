@@ -942,12 +942,23 @@ class MyOrderWebSocket:
 
             # JSON_LIST 형식 처리 (배열의 모든 요소를 순회)
             if isinstance(data, list):
+                # 🔍 [DEBUG] 배열 내용 로깅
+                myorder_items = [item for item in data if item.get('type') == 'myOrder']
+                if myorder_items:
+                    logger.info(f"🔍 [DEBUG] JSON_LIST 수신: 총 {len(data)}개 항목, myOrder {len(myorder_items)}개")
+                    for i, item in enumerate(myorder_items):
+                        item_uuid = item.get('uuid', 'N/A')
+                        item_state = item.get('state', 'N/A')
+                        item_ts = item.get('timestamp', 'N/A')
+                        logger.info(f"   [{i}] uuid={item_uuid[:8] if item_uuid != 'N/A' else 'N/A'}... state={item_state} ts={item_ts}")
+
                 for item in data:
                     if item.get('type') == 'myOrder':
                         self._process_order_message(item)
             else:
                 # DEFAULT 형식 (단일 객체)
                 if data.get('type') == 'myOrder':
+                    logger.info(f"🔍 [DEBUG] DEFAULT 형식 수신 (단일 객체)")
                     self._process_order_message(data)
 
         except Exception as e:
