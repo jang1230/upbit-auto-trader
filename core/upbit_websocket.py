@@ -894,6 +894,11 @@ class MyOrderWebSocket:
         # 등록되지 않은 주문은 이 콜백으로 처리
         self.default_callback = None
 
+        # 🛡️ 메시지 중복 제거용 (TTL 기반)
+        # {(uuid, state, timestamp): received_time}
+        self._recent_messages = {}
+        self._dedup_ttl_seconds = 5  # 5초간 기억
+
         logger.info("✅ MyOrderWebSocket 초기화 완료")
 
     def _generate_jwt_token(self) -> str:
@@ -958,6 +963,25 @@ class MyOrderWebSocket:
         order_uuid = data.get('uuid')
         state = data.get('state')
         code = data.get('code')
+        timestamp = data.get('timestamp')
+
+        # 🛡️ 중복 메시지 필터링 (uuid + state + timestamp 조합)
+        msg_key = (order_uuid, state, timestamp)
+        now = time.time()
+
+        # TTL 지난 메시지 정리 (메모리 관리)
+        expired_keys = [k for k, v in self._recent_messages.items()
+                        if now - v > self._dedup_ttl_seconds]
+        for k in expired_keys:
+            del self._recent_messages[k]
+
+        # 중복 체크
+        if msg_key in self._recent_messages:
+            logger.debug(f"⏭️ 중복 메시지 스킵: {code} | uuid={order_uuid[:8]}... | state={state}")
+            return
+
+        # 최근 메시지 기록
+        self._recent_messages[msg_key] = now
 
         # 메시지 큐에 추가 (메인 listen에서도 접근 가능)
         self.message_queue.put(data)

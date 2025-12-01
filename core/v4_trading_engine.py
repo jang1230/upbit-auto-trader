@@ -2264,16 +2264,13 @@ class V4TradingEngine:
                 - avg_price: 평균 체결 가격
         """
         try:
-            # 🔍 [DEBUG] MyOrder WebSocket 전체 데이터 출력
-            import json
-            logger.info(f"🔍 [MyOrder DEBUG] 전체 데이터:\n{json.dumps(order_data, indent=2, ensure_ascii=False, default=str)}")
-
             order_uuid = order_data.get('uuid')
             symbol = order_data.get('code')
             state = order_data.get('state')
             ask_bid = order_data.get('ask_bid')
             executed_volume = order_data.get('executed_volume', 0)
             remaining_volume = float(order_data.get('remaining_volume') or 0)  # 🆕 주문 잔량 (None 대응)
+            remaining_fee = float(order_data.get('remaining_fee') or 0)  # 🆕 남은 수수료 (시장가 완료 판단용)
             avg_price = order_data.get('avg_price', 0)
             trade_price = order_data.get('price', 0)  # ✅ 실제 체결가 (state='trade'일 때)
 
@@ -2326,14 +2323,18 @@ class V4TradingEngine:
                 if pending_order_uuid is None:
                     self.position_manager.update_position(symbol, {'order_uuid': order_uuid})
                     logger.debug(f"   🔧 {symbol} Race Condition 감지: order_uuid 업데이트 ({order_uuid[:8]}...)")
-                # 🔧 Phase D: 체결 완료 판단 (state + remaining_volume 이중 체크)
+                # 🔧 Phase D: 체결 완료 판단 (state + remaining_volume/remaining_fee 이중 체크)
                 # - done: 완전 체결 → 처리
                 # - cancel + remaining_volume ≈ 0: 미세 잔량 발생 → 처리
+                # - 시장가 주문: remaining_volume=null이므로 remaining_fee로 판단
                 should_process = False
                 if state == 'done':
                     should_process = True
-                elif state == 'cancel' and remaining_volume < 0.00000001:
-                    should_process = True
+                elif state == 'cancel':
+                    # 시장가 주문은 remaining_volume=null, remaining_fee로 체결 완료 판단
+                    is_completed = (remaining_volume < 0.00000001 or remaining_fee < 0.00000001)
+                    if is_completed:
+                        should_process = True
 
                 if should_process:
                     # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵
@@ -2785,11 +2786,12 @@ class V4TradingEngine:
 
                 return  # 최종 처리는 state='done'에서
 
-            # 체결 후 미세 잔량 발생 처리 (state=cancel + remaining_volume ≈ 0)
+            # 체결 후 미세 잔량 발생 처리 (state=cancel + remaining_volume/remaining_fee ≈ 0)
             # Upbit: 체결 후 소수점 단위 등으로 미세 잔량 발생 시 계좌 반환 + state=cancel
-            # remaining_volume 체크로 실제 체결 완료인지 확인
-            if state in ['cancel', 'prevented'] and remaining_volume < 0.00000001:
-                logger.debug(f"   📋 주문 {order_uuid[:8]}... 체결 완료 (state={state}, rv={remaining_volume:.8f})")
+            # remaining_volume 또는 remaining_fee로 실제 체결 완료인지 확인 (시장가 주문은 remaining_volume=null)
+            is_completed = (remaining_volume < 0.00000001 or remaining_fee < 0.00000001)
+            if state in ['cancel', 'prevented'] and is_completed:
+                logger.debug(f"   📋 주문 {order_uuid[:8]}... 체결 완료 (state={state}, rv={remaining_volume:.8f}, rf={remaining_fee:.8f})")
 
                 # pending_order 정리
                 position = self.position_manager.get_position(symbol)
