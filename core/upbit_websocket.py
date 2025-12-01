@@ -898,6 +898,7 @@ class MyOrderWebSocket:
         # {(uuid, state, timestamp): received_time}
         self._recent_messages = {}
         self._dedup_ttl_seconds = 5  # 5초간 기억
+        self._dedup_lock = threading.Lock()  # Race Condition 방지
 
         logger.info("✅ MyOrderWebSocket 초기화 완료")
 
@@ -977,22 +978,25 @@ class MyOrderWebSocket:
         timestamp = data.get('timestamp')
 
         # 🛡️ 중복 메시지 필터링 (uuid + state + timestamp 조합)
+        # Lock으로 Race Condition 방지 (동시에 같은 메시지 2개 도착 시)
         msg_key = (order_uuid, state, timestamp)
-        now = time.time()
 
-        # TTL 지난 메시지 정리 (메모리 관리)
-        expired_keys = [k for k, v in self._recent_messages.items()
-                        if now - v > self._dedup_ttl_seconds]
-        for k in expired_keys:
-            del self._recent_messages[k]
+        with self._dedup_lock:
+            now = time.time()
 
-        # 중복 체크
-        if msg_key in self._recent_messages:
-            logger.debug(f"⏭️ 중복 메시지 스킵: {code} | uuid={order_uuid[:8]}... | state={state}")
-            return
+            # TTL 지난 메시지 정리 (메모리 관리)
+            expired_keys = [k for k, v in self._recent_messages.items()
+                            if now - v > self._dedup_ttl_seconds]
+            for k in expired_keys:
+                del self._recent_messages[k]
 
-        # 최근 메시지 기록
-        self._recent_messages[msg_key] = now
+            # 중복 체크
+            if msg_key in self._recent_messages:
+                logger.info(f"⏭️ 중복 메시지 스킵: {code} | uuid={order_uuid[:8]}... | state={state}")
+                return
+
+            # 최근 메시지 기록
+            self._recent_messages[msg_key] = now
 
         # 메시지 큐에 추가 (메인 listen에서도 접근 가능)
         self.message_queue.put(data)
