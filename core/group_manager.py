@@ -173,13 +173,14 @@ class GroupManager:
         if not group:
             raise GroupNotFoundError(f"그룹을 찾을 수 없습니다: {group_id}")
 
-        # 그룹의 모든 코인에 대해 활성 포지션 group_id를 None으로 설정
+        # 그룹의 모든 코인에 대해 활성 포지션 group_id를 group_null로 설정
+        # (None이 아닌 "group_null"로 설정해야 sync_with_upbit()에서 삭제되지 않음)
         coins = group.get('coins', [])
         for symbol in coins:
             position = self.position_manager.get_position(symbol)
             if position and position.get('status') == 'active':
-                self.position_manager.update_position(symbol, {'group_id': None})
-                print(f"  ↳ 활성 포지션의 그룹 ID 제거: {symbol} (그룹 삭제로 인해)")
+                self.position_manager.update_position(symbol, {'group_id': 'group_null'})
+                print(f"  ↳ 활성 포지션 → group_null: {symbol} (그룹 삭제로 인해)")
 
         # 그룹 삭제
         self.config_manager.remove_group(group_id)
@@ -305,11 +306,12 @@ class GroupManager:
             coins.remove(symbol)
             result = self.update_group_settings(group_id, {'coins': coins})
 
-            # 활성 포지션이 있으면 group_id를 None으로 설정
+            # 활성 포지션이 있으면 group_id를 group_null로 설정
+            # (None이 아닌 "group_null"로 설정해야 sync_with_upbit()에서 삭제되지 않음)
             position = self.position_manager.get_position(symbol)
             if position and position.get('status') == 'active':
-                self.position_manager.update_position(symbol, {'group_id': None})
-                print(f"  ↳ 활성 포지션의 그룹 ID 제거: {symbol}")
+                self.position_manager.update_position(symbol, {'group_id': 'group_null'})
+                print(f"  ↳ 활성 포지션 → group_null: {symbol}")
 
             return result
 
