@@ -1572,6 +1572,7 @@ class V4TradingEngine:
                 )
 
                 # 🆕 GUI 거래 내역 이벤트
+                price_ratio = level.get("price_ratio", 0)
                 self._emit_trade_event(
                     group_name=group.get("name", "Unknown"),
                     symbol=symbol,
@@ -1580,7 +1581,7 @@ class V4TradingEngine:
                     price=position.get("avg_buy_price"),
                     quantity=dca_quantity,
                     amount=dca_amount,
-                    reason=f'{trigger_pct:.1f}% 하락 (Dry-run)'
+                    reason=f'{price_ratio:+.0f}% 도달'
                 )
 
             else:
@@ -1594,6 +1595,7 @@ class V4TradingEngine:
                     return
 
                 # 1. pending_order 먼저 저장 (주문 전) - Bug #1 수정
+                price_ratio = level.get("price_ratio", 0)  # DCA 트리거 설정값
                 self.position_manager.update_position(symbol, {
                     "pending_order": {
                         "type": "dca",
@@ -1602,7 +1604,8 @@ class V4TradingEngine:
                         "status": "preparing",  # 주문 준비 중
                         "group_id": group_id,
                         "group_name": group.get("name", "Unknown"),
-                        "expected_price": current_price  # 예상 체결가 저장
+                        "expected_price": current_price,  # 예상 체결가 저장
+                        "trigger_pct": price_ratio  # DCA 트리거 설정값 저장
                     }
                 })
                 logger.info(f"   📝 {symbol} DCA 레벨 {dca_level_num} pending_order 사전 저장 완료 (예상가: {current_price:,.0f}원)")
@@ -1781,7 +1784,7 @@ class V4TradingEngine:
                 logger.info(f"[익절] {symbol} 레벨{level_index} 도달 (+{profit_pct:.2f}%) → 매도 주문")
 
                 if profit_settings.get("mode") == "auto":
-                    self._execute_sell(symbol, group_id, group, "profit", quantity_ratio, level_index, profit_pct)
+                    self._execute_sell(symbol, group_id, group, "profit", quantity_ratio, level_index, profit_pct, target_pct)
                 else:
                     self._send_telegram_alert(
                         f"🎯 익절 알림 (레벨 {level_index})\n"
@@ -1883,7 +1886,7 @@ class V4TradingEngine:
                 logger.info(f"[손절] {symbol} 레벨{level_index} 도달 ({profit_pct:.2f}%) → 매도 주문")
 
                 if loss_settings.get("mode") == "auto":
-                    self._execute_sell(symbol, group_id, group, "loss", quantity_ratio, level_index, profit_pct)
+                    self._execute_sell(symbol, group_id, group, "loss", quantity_ratio, level_index, profit_pct, stop_pct)
                 else:
                     self._send_telegram_alert(
                         f"🛑 손절 알림 (레벨 {level_index})\n"
@@ -1903,7 +1906,8 @@ class V4TradingEngine:
         reason: str,  # "profit" or "loss"
         quantity_ratio: float = 1.0,  # 판매 비율 (1.0 = 전량)
         level_index: int = 0,  # 익절/손절 레벨 인덱스
-        profit_pct: float = 0.0  # 수익률 (%)
+        profit_pct: float = 0.0,  # 현재 수익률 (%)
+        trigger_pct: float = 0.0  # 트리거 설정값 (%)
     ):
         """매도 실행 (주문 체결 확인 포함)"""
         if self.observation_mode:
@@ -2026,7 +2030,8 @@ class V4TradingEngine:
                         "group_name": group.get('name', 'Unknown'),
                         "sell_amount_krw": sell_value_krw,
                         "sell_amount": sell_amount,
-                        "profit_pct": profit_pct  # 수익률 (%)
+                        "profit_pct": profit_pct,  # 현재 수익률 (%)
+                        "trigger_pct": trigger_pct  # 트리거 설정값 (%)
                     }
                 })
                 logger.debug(f"   📝 {symbol} {reason} 레벨 {level_index} pending_order 사전 저장 완료")
@@ -2142,8 +2147,9 @@ class V4TradingEngine:
                 )
 
                 # 🆕 GUI 거래 내역 이벤트
-                profit_pct = (profit / position.get('total_invested_krw', 1) * 100) if position.get('total_invested_krw', 0) > 0 else 0
-                detail_type_kr = f"익절 L{level_index}" if reason == "profit" else f"손절 L{level_index}"
+                actual_profit_pct = (profit / position.get('total_invested_krw', 1) * 100) if position.get('total_invested_krw', 0) > 0 else 0
+                detail_type_kr = f"익절 L{level_index + 1}" if reason == "profit" else f"손절 L{level_index + 1}"
+                sell_type = "(전량)" if quantity_ratio >= 0.99 else "(부분)"
                 self._emit_trade_event(
                     group_name=group.get("name", "Unknown"),
                     symbol=symbol,
@@ -2153,8 +2159,8 @@ class V4TradingEngine:
                     quantity=sell_amount,
                     amount=sell_value,
                     profit=profit,
-                    profit_pct=profit_pct,
-                    reason=f'{trigger_pct:+.1f}% 도달 (Dry-run)'
+                    profit_pct=actual_profit_pct,
+                    reason=f'{trigger_pct:+.0f}% 도달 {sell_type}'
                 )
 
                 # 텔레그램 알림 (Dry-run)
@@ -2232,23 +2238,10 @@ class V4TradingEngine:
                 profit_pct = 0.0
                 reason = f"체결 완료 (state={state})"
 
-            # 거래내역 업데이트 (_emit_trade_event 호출)
-            self._emit_trade_event(
-                group_name=group_name,
-                symbol=symbol,
-                trade_type=trade_action,
-                detail_type=detail_type,
-                price=avg_price,
-                quantity=executed_volume,
-                amount=amount_krw,
-                profit=profit,
-                profit_pct=profit_pct,
-                reason=reason,
-                order_id=pending_info.get('order_id')
-            )
-
-            logger.info(
-                f"✅ [거래내역] {symbol} {detail_type} 업데이트 완료 | "
+            # 🔧 거래내역은 기존 position 기반 로직에서 처리 (중복 방지)
+            # _emit_trade_event()는 DCA/익절/손절 완료 블록에서만 호출
+            logger.debug(
+                f"📋 [PendingOrder] {symbol} {detail_type} 체결 확인 | "
                 f"{avg_price:,.0f}원 × {executed_volume:.8f}개 = {amount_krw:,.0f}원"
             )
 
@@ -2490,7 +2483,7 @@ class V4TradingEngine:
                         price=avg_price,
                         quantity=executed_volume,
                         amount=total_krw,
-                        reason='수동 신규 매수',
+                        reason='수동 매수',
                         order_id=order_uuid
                     )
 
@@ -2556,7 +2549,7 @@ class V4TradingEngine:
                                         price=avg_price,
                                         quantity=executed_volume,
                                         amount=additional_krw,
-                                        reason='수동 추가 매수',
+                                        reason='수동 매수',
                                         order_id=order_uuid
                                     )
                                     break
@@ -2921,6 +2914,7 @@ class V4TradingEngine:
                     )
 
                     # 🆕 GUI 거래 내역 이벤트
+                    trigger_pct = pending_order.get("trigger_pct", 0)
                     self._emit_trade_event(
                         group_name=group_name,
                         symbol=symbol,
@@ -2929,7 +2923,7 @@ class V4TradingEngine:
                         price=avg_price,
                         quantity=executed_volume,
                         amount=dca_value_krw,
-                        reason=f'{pending_order.get("trigger_pct", 0):.1f}% 하락',
+                        reason=f'{trigger_pct:+.0f}% 도달',
                         order_id=order_uuid
                     )
 
@@ -3062,6 +3056,7 @@ class V4TradingEngine:
 
                             # 🆕 GUI 거래 내역 이벤트
                             detail_type_kr = f"익절 L{level_index + 1}" if order_type == 'profit' else f"손절 L{level_index + 1}"
+                            trigger_pct = pending_order.get("trigger_pct", 0)
                             self._emit_trade_event(
                                 group_name=group_name,
                                 symbol=symbol,
@@ -3072,7 +3067,7 @@ class V4TradingEngine:
                                 amount=sell_amount_krw,
                                 profit=profit_krw,
                                 profit_pct=actual_profit_pct,
-                                reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달',
+                                reason=f'{trigger_pct:+.0f}% 도달 (전량)',
                                 order_id=order_uuid
                             )
                         else:
@@ -3131,6 +3126,7 @@ class V4TradingEngine:
 
                             # 🆕 GUI 거래 내역 이벤트
                             detail_type_kr = f"익절 L{level_index + 1}" if order_type == 'profit' else f"손절 L{level_index + 1}"
+                            trigger_pct = pending_order.get("trigger_pct", 0)
                             self._emit_trade_event(
                                 group_name=group_name,
                                 symbol=symbol,
@@ -3141,7 +3137,7 @@ class V4TradingEngine:
                                 amount=sell_amount_krw,
                                 profit=profit_krw,
                                 profit_pct=actual_profit_pct,
-                                reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달 (부분)',
+                                reason=f'{trigger_pct:+.0f}% 도달 (부분)',
                                 order_id=order_uuid
                             )
 
@@ -3258,6 +3254,7 @@ class V4TradingEngine:
                         )
 
                         # 🆕 GUI 거래 내역 이벤트
+                        trigger_pct = pending_order.get("trigger_pct", 0)
                         self._emit_trade_event(
                             group_name=group_name,
                             symbol=symbol,
@@ -3268,7 +3265,7 @@ class V4TradingEngine:
                             amount=sell_amount_krw,
                             profit=profit_krw,
                             profit_pct=actual_profit_pct,
-                            reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달',
+                            reason=f'{trigger_pct:+.0f}% 도달 (전량)',
                             order_id=order_uuid
                         )
 
@@ -3320,6 +3317,7 @@ class V4TradingEngine:
                         )
 
                         # 🆕 GUI 거래 내역 이벤트
+                        trigger_pct = pending_order.get("trigger_pct", 0)
                         self._emit_trade_event(
                             group_name=group_name,
                             symbol=symbol,
@@ -3330,7 +3328,7 @@ class V4TradingEngine:
                             amount=sell_amount_krw,
                             profit=profit_krw,
                             profit_pct=actual_profit_pct,
-                            reason=f'{pending_order.get("profit_pct", 0):+.1f}% 도달 (부분)',
+                            reason=f'{trigger_pct:+.0f}% 도달 (부분)',
                             order_id=order_uuid
                         )
 
@@ -3407,6 +3405,7 @@ class V4TradingEngine:
                         )
 
                         # 🆕 GUI 거래 내역 이벤트
+                        trigger_pct = pending_order.get("trigger_pct", 0)
                         self._emit_trade_event(
                             group_name=group_name,
                             symbol=symbol,
@@ -3417,7 +3416,7 @@ class V4TradingEngine:
                             amount=sell_amount_krw,
                             profit=profit_krw,
                             profit_pct=loss_pct,
-                            reason=f'{loss_pct:+.1f}% 도달',
+                            reason=f'{trigger_pct:+.0f}% 도달 (전량)',
                             order_id=order_uuid
                         )
 
@@ -3467,6 +3466,7 @@ class V4TradingEngine:
                         )
 
                         # 🆕 GUI 거래 내역 이벤트
+                        trigger_pct = pending_order.get("trigger_pct", 0)
                         self._emit_trade_event(
                             group_name=group_name,
                             symbol=symbol,
@@ -3477,7 +3477,7 @@ class V4TradingEngine:
                             amount=sell_amount_krw,
                             profit=profit_krw,
                             profit_pct=loss_pct,
-                            reason=f'{loss_pct:+.1f}% 도달 (부분)',
+                            reason=f'{trigger_pct:+.0f}% 도달 (부분)',
                             order_id=order_uuid
                         )
 
@@ -3585,6 +3585,7 @@ class V4TradingEngine:
                 )
 
                 # 🆕 GUI 거래 내역 이벤트
+                trigger_pct = pending_order.get("trigger_pct", 0)
                 self._emit_trade_event(
                     group_name=group_name,
                     symbol=symbol,
@@ -3593,7 +3594,7 @@ class V4TradingEngine:
                     price=avg_price,
                     quantity=executed_volume,
                     amount=dca_value_krw,
-                    reason=f'{pending_order.get("trigger_pct", 0):.1f}% 하락',
+                    reason=f'{trigger_pct:+.0f}% 도달',
                     order_id=order_uuid
                 )
 
