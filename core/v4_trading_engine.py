@@ -3020,7 +3020,11 @@ class V4TradingEngine:
                         if remaining_value < MIN_ORDER_KRW:
                             # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
                             logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
-                            self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
+                            # 🔧 포지션 존재 여부 재확인 (race condition 방지)
+                            if self.position_manager.get_position(symbol):
+                                self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
+                            else:
+                                logger.debug(f"   ⏭️ {symbol} 포지션 이미 종료됨 → close_position 스킵")
 
                             # 거래 기록
                             sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
@@ -3224,7 +3228,11 @@ class V4TradingEngine:
                     if remaining_value < MIN_ORDER_KRW:
                         # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
                         logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
-                        self.position_manager.close_position(symbol, close_price=avg_price, close_reason="profit")
+                        # 🔧 포지션 존재 여부 재확인 (race condition 방지)
+                        if self.position_manager.get_position(symbol):
+                            self.position_manager.close_position(symbol, close_price=avg_price, close_reason="profit")
+                        else:
+                            logger.debug(f"   ⏭️ {symbol} 포지션 이미 종료됨 → close_position 스킵")
 
                         # 거래 기록
                         sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
@@ -3377,7 +3385,11 @@ class V4TradingEngine:
                     if remaining_value < MIN_ORDER_KRW:
                         # 남은 금액이 최소 주문 금액 미만 → 포지션 종료
                         logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < 최소 {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
-                        self.position_manager.close_position(symbol, close_price=avg_price, close_reason="loss")
+                        # 🔧 포지션 존재 여부 재확인 (race condition 방지)
+                        if self.position_manager.get_position(symbol):
+                            self.position_manager.close_position(symbol, close_price=avg_price, close_reason="loss")
+                        else:
+                            logger.debug(f"   ⏭️ {symbol} 포지션 이미 종료됨 → close_position 스킵")
 
                         # 거래 기록
                         sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
