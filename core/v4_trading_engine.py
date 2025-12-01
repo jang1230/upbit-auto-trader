@@ -2264,6 +2264,10 @@ class V4TradingEngine:
                 - avg_price: 평균 체결 가격
         """
         try:
+            # 🔍 [DEBUG] MyOrder WebSocket 전체 데이터 출력
+            import json
+            logger.info(f"🔍 [MyOrder DEBUG] 전체 데이터:\n{json.dumps(order_data, indent=2, ensure_ascii=False, default=str)}")
+
             order_uuid = order_data.get('uuid')
             symbol = order_data.get('code')
             state = order_data.get('state')
