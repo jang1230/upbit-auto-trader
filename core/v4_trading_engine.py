@@ -2269,7 +2269,7 @@ class V4TradingEngine:
             state = order_data.get('state')
             ask_bid = order_data.get('ask_bid')
             executed_volume = order_data.get('executed_volume', 0)
-            remaining_volume = float(order_data.get('remaining_volume', 0))  # 🆕 주문 잔량
+            remaining_volume = float(order_data.get('remaining_volume') or 0)  # 🆕 주문 잔량 (None 대응)
             avg_price = order_data.get('avg_price', 0)
             trade_price = order_data.get('price', 0)  # ✅ 실제 체결가 (state='trade'일 때)
 
