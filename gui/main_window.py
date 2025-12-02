@@ -3306,6 +3306,29 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.warning(f"거래 내역 기록 실패: {e}")
 
+            # 8-1. GUI 세션 거래 내역에 추가 (session_trades)
+            try:
+                from gui.trade_data import Trade
+
+                trade = Trade(
+                    timestamp=datetime.now(),
+                    symbol=symbol,
+                    group=group_id if group_id else "group_null",
+                    trade_type='sell',
+                    detail_type='즉시매도',
+                    price=actual_sell_price,
+                    quantity=actual_sell_amount,
+                    amount=actual_sell_price * actual_sell_amount,
+                    profit=actual_profit_krw,
+                    profit_pct=actual_profit_pct,
+                    reason=close_reason
+                )
+                self.session_trades.insert(0, trade)
+                self._update_trade_history_table()
+                logger.info(f"📊 GUI 거래 내역 추가: {symbol} 즉시매도")
+            except Exception as e:
+                logger.warning(f"GUI 거래 내역 추가 실패: {e}")
+
             # 9. 포지션 테이블 새로고침
             self._load_v4_positions()
 
