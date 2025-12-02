@@ -1096,23 +1096,8 @@ class MainWindow(QMainWindow):
             self._add_log("✅ API 키 검증 성공")
             self.statusbar.showMessage("준비")
 
-        # Telegram 검증 (선택사항)
-        if not self.config_manager.validate_telegram_config():
-            reply = QMessageBox.question(
-                self,
-                "Telegram 미설정",
-                "Telegram 봇이 설정되지 않았습니다.\n"
-                "알림을 받을 수 없습니다.\n\n"
-                "그래도 계속하시겠습니까?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-
-            if reply == QMessageBox.No:
-                self._open_settings()
-                return
-
         # 🔧 V4: 아래 코드는 Phase 2 early return으로 인해 실행되지 않음
+        # 참고: Telegram 설정은 전역 설정에서 관리됨
         reply = QMessageBox.question(
             self,
             "🚨 실거래 모드 시작 확인",
@@ -1164,13 +1149,10 @@ class MainWindow(QMainWindow):
                 
                 # 🔧 V4: dry_run 설정은 V4 config에서 관리 (하드코딩 제거)
                 'dry_run': None,  # Phase 2 early return으로 실행되지 않음
-                
+
                 'access_key': self.config_manager.get_upbit_access_key(),
                 'secret_key': self.config_manager.get_upbit_secret_key(),
-                'telegram': {
-                    'token': self.config_manager.get_telegram_bot_token(),
-                    'chat_id': self.config_manager.get_telegram_chat_id()
-                },
+                # 참고: Telegram 설정은 전역 설정에서 관리됨
                 # DCA 설정
                 'dca_config': self.dca_config
             }
@@ -3360,8 +3342,15 @@ class MainWindow(QMainWindow):
             else:
                 # 방법 2: V4 엔진이 없으면 직접 전송 (동기 방식)
                 try:
-                    telegram_token = self.config_manager.get_telegram_bot_token()
-                    telegram_chat_id = self.config_manager.get_telegram_chat_id()
+                    # 전역 설정에서 Telegram 설정 가져오기
+                    telegram_token = ""
+                    telegram_chat_id = ""
+                    if hasattr(self, 'v4_config_manager') and self.v4_config_manager:
+                        config = self.v4_config_manager.load_config()
+                        telegram_config = config.get("global_settings", {}).get("telegram", {})
+                        if telegram_config.get("enabled", False):
+                            telegram_token = telegram_config.get("token", "")
+                            telegram_chat_id = telegram_config.get("chat_id", "")
 
                     if telegram_token and telegram_chat_id:
                         def send_telegram_sync():

@@ -54,10 +54,6 @@ SELECTED_COINS=KRW-BTC,KRW-ETH,KRW-XRP
 # Strategy Settings
 # 전략 타입: filtered_bb (권장), bb, rsi, macd
 STRATEGY_TYPE=filtered_bb
-
-# Telegram Bot (Phase 3.3)
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-TELEGRAM_CHAT_ID=your_telegram_chat_id_here
 """
         self.env_path.write_text(default_content, encoding='utf-8')
 
@@ -95,42 +91,6 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id_here
             return True
         except Exception as e:
             print(f"API 키 저장 실패: {e}")
-            return False
-
-    # ========================================
-    # Telegram 설정
-    # ========================================
-
-    def get_telegram_bot_token(self) -> str:
-        """Telegram Bot Token 조회"""
-        return os.getenv('TELEGRAM_BOT_TOKEN', '')
-
-    def get_telegram_chat_id(self) -> str:
-        """Telegram Chat ID 조회"""
-        return os.getenv('TELEGRAM_CHAT_ID', '')
-
-    def set_telegram_config(self, bot_token: str, chat_id: str) -> bool:
-        """
-        Telegram 설정 저장
-
-        Args:
-            bot_token: Bot Token
-            chat_id: Chat ID
-
-        Returns:
-            성공 여부
-        """
-        try:
-            set_key(str(self.env_path), 'TELEGRAM_BOT_TOKEN', bot_token)
-            set_key(str(self.env_path), 'TELEGRAM_CHAT_ID', chat_id)
-
-            # 환경 변수도 업데이트
-            os.environ['TELEGRAM_BOT_TOKEN'] = bot_token
-            os.environ['TELEGRAM_CHAT_ID'] = chat_id
-
-            return True
-        except Exception as e:
-            print(f"Telegram 설정 저장 실패: {e}")
             return False
 
     # ========================================
@@ -320,10 +280,6 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id_here
                 'access_key': self.get_upbit_access_key(),
                 'secret_key': self.get_upbit_secret_key()
             },
-            'telegram': {
-                'bot_token': self.get_telegram_bot_token(),
-                'chat_id': self.get_telegram_chat_id()
-            },
             'trading': {
                 'min_order_amount': self.get_min_order_amount(),
                 'order_timeout': self.get_order_timeout()
@@ -372,33 +328,6 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id_here
             # API 호출 실패 → 잘못된 키
             print(f"⚠️ API 키 검증 실패: {e}")
             return False
-
-    def validate_telegram_config(self) -> bool:
-        """
-        Telegram 설정 유효성 검사
-
-        Returns:
-            유효 여부
-        """
-        bot_token = self.get_telegram_bot_token()
-        chat_id = self.get_telegram_chat_id()
-
-        # 기본값이 아닌지 확인
-        if bot_token == 'your_telegram_bot_token_here' or not bot_token:
-            return False
-
-        if chat_id == 'your_telegram_chat_id_here' or not chat_id:
-            return False
-
-        # Bot Token 형식 확인 (숫자:영문숫자)
-        if ':' not in bot_token:
-            return False
-
-        # Chat ID는 숫자 또는 -로 시작하는 숫자
-        if not (chat_id.isdigit() or (chat_id.startswith('-') and chat_id[1:].isdigit())):
-            return False
-
-        return True
 
     def reload(self):
         """환경 변수 다시 로드"""

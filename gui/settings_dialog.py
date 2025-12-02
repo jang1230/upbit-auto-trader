@@ -43,7 +43,6 @@ class SettingsDialog(QDialog):
         # 탭 위젯
         self.tabs = QTabWidget()
         self.tabs.addTab(self._create_upbit_tab(), "📡 Upbit API")
-        self.tabs.addTab(self._create_telegram_tab(), "📱 Telegram")
         self.tabs.addTab(self._create_trading_tab(), "💱 거래 설정")
         self.tabs.addTab(self._create_strategy_tab(), "🎯 전략 설정")
 
@@ -126,63 +125,6 @@ class SettingsDialog(QDialog):
         info_label.setWordWrap(True)
         info_label.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
         layout.addWidget(info_label)
-
-        layout.addStretch()
-        return widget
-
-    # ========================================
-    # Telegram 탭
-    # ========================================
-
-    def _create_telegram_tab(self) -> QWidget:
-        """Telegram 탭 생성"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # Telegram 설정 그룹
-        telegram_group = QGroupBox("Bot 설정")
-        telegram_layout = QFormLayout()
-
-        self.bot_token_edit = QLineEdit()
-        self.bot_token_edit.setEchoMode(QLineEdit.Password)
-        self.bot_token_edit.setPlaceholderText("Bot Token을 입력하세요")
-        telegram_layout.addRow("Bot Token:", self.bot_token_edit)
-
-        # Bot Token 표시 버튼
-        bot_token_show_btn = QPushButton("👁️ 표시")
-        bot_token_show_btn.setCheckable(True)
-        bot_token_show_btn.clicked.connect(
-            lambda checked: self.bot_token_edit.setEchoMode(
-                QLineEdit.Normal if checked else QLineEdit.Password
-            )
-        )
-        telegram_layout.addRow("", bot_token_show_btn)
-
-        self.chat_id_edit = QLineEdit()
-        self.chat_id_edit.setPlaceholderText("Chat ID를 입력하세요")
-        telegram_layout.addRow("Chat ID:", self.chat_id_edit)
-
-        telegram_group.setLayout(telegram_layout)
-        layout.addWidget(telegram_group)
-
-        # 안내 메시지
-        info_label = QLabel(
-            "💡 <b>Telegram 봇 설정 방법:</b><br>"
-            "1. Telegram 앱에서 @BotFather 검색<br>"
-            "2. /newbot 명령어로 봇 생성<br>"
-            "3. Bot Token 복사<br>"
-            "4. @userinfobot에게 메시지 전송하여 Chat ID 확인<br><br>"
-            "📖 <a href='https://github.com/your-repo/docs/TELEGRAM_설정_가이드.md'>상세 가이드 보기</a>"
-        )
-        info_label.setOpenExternalLinks(True)
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
-        layout.addWidget(info_label)
-
-        # 테스트 버튼
-        test_telegram_btn = QPushButton("📱 알림 테스트 전송")
-        test_telegram_btn.clicked.connect(self._test_telegram)
-        layout.addWidget(test_telegram_btn)
 
         layout.addStretch()
         return widget
@@ -452,10 +394,6 @@ XRP: +14.42% (84회 거래, 승률 52.4%)
         self.access_key_edit.setText(self.config_manager.get_upbit_access_key())
         self.secret_key_edit.setText(self.config_manager.get_upbit_secret_key())
 
-        # Telegram
-        self.bot_token_edit.setText(self.config_manager.get_telegram_bot_token())
-        self.chat_id_edit.setText(self.config_manager.get_telegram_chat_id())
-
         # Trading
         self.min_order_amount_spin.setValue(self.config_manager.get_min_order_amount())
         self.order_timeout_spin.setValue(self.config_manager.get_order_timeout())
@@ -482,16 +420,6 @@ XRP: +14.42% (84회 거래, 승률 52.4%)
 
             if not success:
                 QMessageBox.warning(self, "저장 실패", "Upbit API 키 저장에 실패했습니다.")
-                return
-
-            # Telegram 저장
-            success = self.config_manager.set_telegram_config(
-                self.bot_token_edit.text().strip(),
-                self.chat_id_edit.text().strip()
-            )
-
-            if not success:
-                QMessageBox.warning(self, "저장 실패", "Telegram 설정 저장에 실패했습니다.")
                 return
 
             # Trading 설정 저장
@@ -545,8 +473,6 @@ XRP: +14.42% (84회 거래, 승률 52.4%)
 
         if current_tab == 0:  # Upbit API
             self._test_upbit()
-        elif current_tab == 1:  # Telegram
-            self._test_telegram()
         else:
             QMessageBox.information(self, "안내", "해당 탭에는 테스트 기능이 없습니다.")
 
@@ -596,55 +522,6 @@ XRP: +14.42% (84회 거래, 승률 52.4%)
                 "연결 실패",
                 f"❌ Upbit API 연결 실패:\n{str(e)}\n\n"
                 f"API 키를 확인하세요."
-            )
-
-    def _test_telegram(self):
-        """Telegram 알림 테스트"""
-        bot_token = self.bot_token_edit.text().strip()
-        chat_id = self.chat_id_edit.text().strip()
-
-        if not bot_token or not chat_id:
-            QMessageBox.warning(self, "입력 오류", "Bot Token과 Chat ID를 입력하세요.")
-            return
-
-        # 형식 검증
-        if ':' not in bot_token:
-            QMessageBox.warning(
-                self,
-                "형식 오류",
-                "Bot Token 형식이 올바르지 않습니다.\n"
-                "형식: 숫자:영문숫자 (예: 123456789:ABC-DEF1234)"
-            )
-            return
-
-        # 실제 Telegram 테스트
-        try:
-            import asyncio
-            from core.telegram_bot import TelegramBot
-
-            async def send_test_message():
-                bot = TelegramBot(bot_token, chat_id)
-                await bot.send_message(
-                    "🧪 **테스트 메시지**\n\n"
-                    "Upbit DCA Trader GUI에서 전송한 테스트 알림입니다.\n"
-                    "이 메시지가 보이면 설정이 올바릅니다! ✅"
-                )
-
-            asyncio.run(send_test_message())
-
-            QMessageBox.information(
-                self,
-                "전송 성공",
-                "✅ Telegram 테스트 메시지 전송 성공!\n\n"
-                "Telegram 앱에서 메시지를 확인하세요."
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "전송 실패",
-                f"❌ Telegram 메시지 전송 실패:\n{str(e)}\n\n"
-                "Bot Token과 Chat ID를 확인하세요."
             )
 
 
