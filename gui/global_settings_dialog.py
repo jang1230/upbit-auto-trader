@@ -295,6 +295,11 @@ class GlobalSettingsDialog(QDialog):
         info_label.setWordWrap(True)
         telegram_layout.addWidget(info_label)
 
+        # 테스트 버튼
+        self.telegram_test_btn = QPushButton("📱 알림 테스트 전송")
+        self.telegram_test_btn.clicked.connect(self._test_telegram)
+        telegram_layout.addWidget(self.telegram_test_btn)
+
         telegram_group.setLayout(telegram_layout)
         layout.addWidget(telegram_group)
 
@@ -382,6 +387,65 @@ class GlobalSettingsDialog(QDialog):
         """텔레그램 토글"""
         self.telegram_token_input.setEnabled(checked)
         self.telegram_chat_id_input.setEnabled(checked)
+        self.telegram_test_btn.setEnabled(checked)
+
+    def _test_telegram(self):
+        """텔레그램 알림 테스트"""
+        bot_token = self.telegram_token_input.text().strip()
+        chat_id = self.telegram_chat_id_input.text().strip()
+
+        if not bot_token or not chat_id:
+            QMessageBox.warning(self, "입력 오류", "Bot Token과 Chat ID를 입력하세요.")
+            return
+
+        # 형식 검증
+        if ':' not in bot_token:
+            QMessageBox.warning(
+                self,
+                "형식 오류",
+                "Bot Token 형식이 올바르지 않습니다.\n"
+                "형식: 숫자:영문숫자 (예: 123456789:ABC-DEF1234)"
+            )
+            return
+
+        # 실제 Telegram 테스트
+        try:
+            import requests
+
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            data = {
+                "chat_id": chat_id,
+                "text": "🧪 **테스트 메시지**\n\n"
+                        "Upbit DCA Trader에서 전송한 테스트 알림입니다.\n"
+                        "이 메시지가 보이면 설정이 올바릅니다! ✅",
+                "parse_mode": "Markdown"
+            }
+
+            response = requests.post(url, data=data, timeout=10)
+
+            if response.status_code == 200:
+                QMessageBox.information(
+                    self,
+                    "전송 성공",
+                    "✅ Telegram 테스트 메시지 전송 성공!\n\n"
+                    "Telegram 앱에서 메시지를 확인하세요."
+                )
+            else:
+                error_msg = response.json().get('description', '알 수 없는 오류')
+                QMessageBox.critical(
+                    self,
+                    "전송 실패",
+                    f"❌ Telegram 메시지 전송 실패:\n{error_msg}\n\n"
+                    "Bot Token과 Chat ID를 확인하세요."
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "전송 실패",
+                f"❌ Telegram 메시지 전송 실패:\n{str(e)}\n\n"
+                "네트워크 연결과 설정을 확인하세요."
+            )
 
     def _save_settings(self):
         """설정 저장"""
