@@ -1,8 +1,28 @@
 """
 전역 설정 다이얼로그
+- Upbit API 설정 (Access Key, Secret Key)
 - 거래 제한 (최대 포지션, 최소 잔고, 거래일 리셋)
 - 일일 손실 한도
 - 텔레그램 알림
+
+Dependencies (이 파일이 사용하는 모듈):
+    - gui/config_manager.py: ConfigManager (.env 파일 관리)
+    - core/config_manager.py: V4ConfigManager (전달받음, config.json)
+    - core/upbit_api.py: UpbitAPI (연결 테스트용)
+    - core/telegram_bot.py: TelegramNotifier (테스트 메시지용)
+
+Used by (이 파일을 사용하는 모듈):
+    - gui/main_window.py: _open_settings()에서 호출
+
+Key Components:
+    - GlobalSettingsDialog: 전역 설정 다이얼로그 클래스
+    - _create_upbit_api_tab(): Upbit API 설정 탭
+    - _create_trading_limits_tab(): 거래 제한 탭
+    - _create_loss_limit_tab(): 손실 한도 탭
+    - _create_telegram_tab(): 텔레그램 알림 탭
+    - _test_upbit(): Upbit API 연결 테스트
+    - _test_telegram(): 텔레그램 테스트 메시지 전송
+    - _save_settings(): 모든 설정 저장
 """
 
 from PySide6.QtWidgets import (

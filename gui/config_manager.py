@@ -1,6 +1,28 @@
 """
 GUI Configuration Manager
-.env 파일 및 설정 관리
+.env 파일 관리 (Upbit API Key, 선택된 코인)
+
+Dependencies (이 파일이 사용하는 모듈):
+    - python-dotenv: load_dotenv, set_key
+    - core/upbit_api.py: UpbitAPI (API 키 검증용)
+
+Used by (이 파일을 사용하는 모듈):
+    - gui/main_window.py: API 키 로드, 설정 리로드
+    - gui/global_settings_dialog.py: Upbit API 설정 저장/로드
+
+Key Components:
+    - ConfigManager: .env 파일 관리 클래스
+    - get_upbit_access_key(): Access Key 조회
+    - get_upbit_secret_key(): Secret Key 조회
+    - set_upbit_keys(): API 키 저장
+    - get_selected_coins(): 선택된 코인 리스트 조회
+    - set_selected_coins(): 선택된 코인 저장
+    - validate_upbit_keys(): API 키 유효성 검사 (실제 API 호출)
+    - reload(): 환경 변수 다시 로드
+
+Note:
+    이 파일은 .env 파일만 관리합니다.
+    config.json은 core/config_manager.py에서 관리합니다.
 """
 
 import os

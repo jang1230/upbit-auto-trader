@@ -1,5 +1,5 @@
 """
-V4 거래 엔진
+V4 거래 엔진 (핵심 오케스트레이터)
 
 역할:
 - 모든 V4 컴포넌트 통합
@@ -7,6 +7,37 @@ V4 거래 엔진
 - 실시간 포지션 관리
 - 전역 제약 확인
 - 일일 스냅샷 및 리셋
+
+Dependencies (이 파일이 사용하는 모듈):
+    - core/config_manager.py: ConfigManager (설정 로드)
+    - core/group_manager.py: GroupManager (그룹 관리)
+    - core/position_manager.py: PositionManager (포지션 CRUD)
+    - core/trade_history_manager.py: TradeHistoryManager (거래 기록)
+    - core/daily_loss_tracker.py: DailyLossTracker (일일 손실 추적)
+    - core/pending_order_manager.py: PendingOrderManager (대기 주문)
+    - core/upbit_api.py: UpbitAPI (REST API)
+    - core/upbit_websocket.py: WebSocket 연결
+    - core/telegram_bot.py: TelegramNotifier (알림)
+    - core/strategies/v4_auto_buy_strategy.py: V4AutoBuyStrategy
+
+Used by (이 파일을 사용하는 모듈):
+    - gui/main_window.py: V4TradingEngine 인스턴스 생성/관리
+    - gui/semi_auto_worker.py: 백그라운드 트레이딩
+
+Key Components:
+    - V4TradingEngine: 메인 거래 엔진 클래스
+    - start(): 엔진 시작
+    - stop(): 엔진 중지
+    - process_buy(): 매수 주문 처리
+    - process_sell(): 매도 주문 처리
+    - _on_myorder_message(): MyOrder WebSocket 메시지 처리 (Phase B)
+    - _on_myasset_changed(): MyAsset WebSocket 메시지 처리
+
+주문 처리 흐름 (Phase A-B-C-D):
+    Phase A: 주문 요청 → Upbit API
+    Phase B: MyOrder WebSocket 수신 (state: wait → done)
+    Phase C: 포지션 업데이트 (REST API fallback)
+    Phase D: GUI 업데이트 + 텔레그램 알림
 """
 
 import logging

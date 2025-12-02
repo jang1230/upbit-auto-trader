@@ -64,6 +64,50 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 └────────────────┘ └─────────────────────┘ └──────────────┘
 ```
 
+## GUI 컴포넌트 관계도
+
+```
+MainWindow (gui/main_window.py)
+│
+├── 설정 관리
+│   ├── ConfigManager (gui/config_manager.py) ─────→ .env 파일
+│   │   └── Upbit API Key, Selected Coins
+│   └── V4ConfigManager (core/config_manager.py) ─→ config/trading_config.json
+│       └── 그룹, 텔레그램, 손실한도 설정
+│
+├── 다이얼로그
+│   ├── GlobalSettingsDialog (gui/global_settings_dialog.py)
+│   │   ├── Upbit API 탭 → ConfigManager (.env)
+│   │   ├── 거래 제한 탭 → V4ConfigManager
+│   │   ├── 손실 한도 탭 → V4ConfigManager
+│   │   └── 텔레그램 탭 → V4ConfigManager
+│   │
+│   ├── GroupManagementDialog (gui/group_management_dialog.py)
+│   │   └── GroupUnifiedSettingsDialog (gui/group_unified_settings_dialog.py)
+│   │       ├── AutoBuySettingsDialogV2 (gui/auto_buy_settings_dialog_v2.py)
+│   │       └── LevelSettingsDialog (gui/level_settings_dialog.py)
+│   │
+│   └── DcaSimulatorDialog (gui/dca_simulator.py)
+│
+├── 워커 (백그라운드 스레드)
+│   ├── SemiAutoWorker (gui/semi_auto_worker.py)
+│   ├── PriceWebSocketWorker (gui/price_websocket_worker.py)
+│   └── MyAssetWebSocketWorker (gui/myasset_websocket_worker.py)
+│
+└── 유틸리티
+    ├── LoggingHandler (gui/logging_handler.py)
+    └── TradeData (gui/trade_data.py)
+```
+
+## 설정 파일 구분
+
+| 설정 파일 | 관리 클래스 | 저장 내용 |
+|----------|------------|----------|
+| `.env` | `gui/config_manager.py` | Upbit API Key, 선택된 코인 |
+| `config/trading_config.json` | `core/config_manager.py` | 그룹, 전략, 텔레그램, 손실한도 |
+| `data/positions_*.json` | `core/position_manager.py` | 포지션 상태 |
+| `data/trade_history.json` | `core/trade_history_manager.py` | 거래 기록 |
+
 ## 핵심 모듈 (파일별 수정 횟수)
 
 | 순위 | 파일 | 수정 횟수 | 역할 |

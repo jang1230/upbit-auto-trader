@@ -1,5 +1,5 @@
 """
-V4 포지션 관리자
+V4 포지션 관리자 (data/positions_*.json)
 
 역할:
 - Live/Dry-run 포지션 별도 관리
@@ -7,6 +7,28 @@ V4 포지션 관리자
 - 그룹별 포지션 조회
 - 가상 잔고 관리 (Dry-run용)
 - Upbit API 동기화 (Live 모드)
+
+Dependencies (이 파일이 사용하는 모듈):
+    - core/upbit_api.py: UpbitAPI (Live 모드 동기화)
+
+Used by (이 파일을 사용하는 모듈):
+    - core/v4_trading_engine.py: 포지션 CRUD
+    - gui/main_window.py: 포지션 테이블 표시
+    - gui/group_management_dialog.py: 그룹별 포지션 조회
+
+Key Components:
+    - PositionManager: 포지션 관리 클래스
+    - create_position(): 새 포지션 생성
+    - get_position(): 포지션 조회
+    - update_position(): 포지션 업데이트 (DCA 추가 등)
+    - delete_position(): 포지션 삭제 (매도 완료)
+    - get_positions_by_group(): 그룹별 포지션 조회
+    - sync_with_upbit(): Upbit API와 동기화 (Live 모드)
+
+파일 구조:
+    - data/positions_live.json: Live 모드 포지션
+    - data/positions_dryrun.json: Dry-run 모드 포지션
+    - data/virtual_balances.json: Dry-run 가상 잔고
 """
 
 import json

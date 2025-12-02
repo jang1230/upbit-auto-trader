@@ -1,6 +1,26 @@
 """
 그룹 관리 다이얼로그
 V4 그룹 시스템의 그룹 생성/삭제/수정 UI
+
+Dependencies (이 파일이 사용하는 모듈):
+    - gui/group_unified_settings_dialog.py: GroupUnifiedSettingsDialog (그룹 설정)
+    - gui/manual_buy_dialog.py: ManualBuyDialog (수동 매수)
+    - core/config_manager.py: V4ConfigManager (전달받음)
+    - core/group_manager.py: GroupManager (전달받음)
+    - core/position_manager.py: PositionManager (전달받음)
+
+Used by (이 파일을 사용하는 모듈):
+    - gui/main_window.py: _open_group_management()에서 호출
+
+Key Components:
+    - GroupManagementDialog: 그룹 관리 다이얼로그 클래스
+    - _create_new_group(): 새 그룹 생성
+    - _delete_group(): 그룹 삭제
+    - _open_group_settings(): 그룹 설정 다이얼로그 열기
+    - _open_manual_buy(): 수동 매수 다이얼로그 열기
+
+Signals:
+    - group_changed: 그룹 변경 시 MainWindow에 알림
 """
 
 import logging

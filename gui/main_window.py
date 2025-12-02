@@ -1,6 +1,31 @@
 """
 Main Window - 메인 화면
 Upbit DCA Trader GUI 메인 윈도우
+
+Dependencies (이 파일이 사용하는 모듈):
+    - gui/config_manager.py: ConfigManager (.env 설정)
+    - gui/global_settings_dialog.py: GlobalSettingsDialog (전역 설정 다이얼로그)
+    - gui/group_management_dialog.py: GroupManagementDialog (그룹 관리)
+    - gui/dca_simulator.py: DcaSimulatorDialog (DCA 시뮬레이터)
+    - gui/trading_worker.py: TradingEngineWorker
+    - gui/semi_auto_worker.py: SemiAutoWorker
+    - gui/price_websocket_worker.py: PriceWebSocketWorker
+    - gui/myasset_websocket_worker.py: MyAssetWebSocketWorker
+    - core/config_manager.py: V4ConfigManager (config.json)
+    - core/v4_trading_engine.py: V4TradingEngine
+    - core/upbit_api.py: UpbitAPI
+
+Used by (이 파일을 사용하는 모듈):
+    - main.py: 앱 진입점
+
+Key Components:
+    - MainWindow: 메인 GUI 클래스
+    - _init_ui(): UI 초기화 (사이드바 + 메인 패널)
+    - _open_settings(): 전역 설정 다이얼로그 열기
+    - _open_group_management(): 그룹 관리 다이얼로그 열기
+    - _start_trading(): V4 트레이딩 시작
+    - _stop_trading(): V4 트레이딩 중지
+    - _toggle_mode(): Live/Dry-run 모드 전환
 """
 
 import sys

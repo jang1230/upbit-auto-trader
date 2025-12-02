@@ -1,11 +1,32 @@
 """
-V4 설정 관리자
+V4 설정 관리자 (config/trading_config.json)
 
 역할:
 - trading_config.json 로드/저장
 - JSON 스키마 검증
 - V3 → V4 마이그레이션
 - 기본 설정 생성
+
+Dependencies (이 파일이 사용하는 모듈):
+    - (없음 - 독립적인 모듈)
+
+Used by (이 파일을 사용하는 모듈):
+    - gui/main_window.py: V4ConfigManager로 사용
+    - gui/global_settings_dialog.py: 전역 설정 저장/로드
+    - gui/group_management_dialog.py: 그룹 설정
+    - core/v4_trading_engine.py: 설정 로드
+    - core/group_manager.py: 그룹 설정 접근
+
+Key Components:
+    - ConfigManager: V4 설정 관리 클래스
+    - load_config(): trading_config.json 로드
+    - save_config(): trading_config.json 저장
+    - validate_config(): JSON 스키마 검증
+    - migrate_v3_to_v4(): V3 → V4 마이그레이션
+
+Note:
+    이 파일은 config/trading_config.json을 관리합니다.
+    .env 파일은 gui/config_manager.py에서 관리합니다.
 """
 
 import json
