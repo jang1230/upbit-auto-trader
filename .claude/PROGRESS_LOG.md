@@ -5,6 +5,37 @@
 
 ---
 
+## 2025-12-02 세션 2
+
+### 작업 내용
+1. **DailyLossTracker 완전 제거** (`f258baa`)
+   - 일일 손실 한도 → 포지션 손실 한도로 변경
+   - 24시간 암호화폐 시장에 적합한 실시간 모니터링 방식
+   - 파일: core/daily_loss_tracker.py 삭제 (329줄)
+
+2. **문서 업데이트** (`f258baa`)
+   - CLAUDE.md, README.md, PROJECT_CONTEXT.md
+   - FAQ.md, TROUBLESHOOTING.md, ENVIRONMENT_SETUP.md
+   - .claude/FEATURE_LIST.json
+
+3. **CLAUDE.md 최적화**
+   - 946줄 → 143줄로 축소 (85% 감소)
+   - 중복 내용 제거 (PROJECT_CONTEXT.md와 중복)
+   - 2025/12/02 추가 내용 유지 (Upbit 문서 참조, 하네스 시스템)
+
+### 변경된 파일
+- `CLAUDE.md` (축소)
+- `core/telegram_bot.py`
+- `gui/main_window.py`
+- `.claude/PROJECT_CONTEXT.md`
+- `.claude/FEATURE_LIST.json`
+
+### 다음 세션 권장 작업
+1. 통합 테스트 시나리오 작성
+2. Dry-run 1주일 테스트 시작
+
+---
+
 ## 2025-12-02 (최신)
 
 ### 작업 내용
@@ -230,8 +261,7 @@ Phase 4: V4TradingEngine에 Adaptive Polling 통합
 
 #### Phase 2: 백엔드 핵심
 - GroupManager
-- DailyLossTracker
-- V4AutoBuyStrategy
+- V4AutoBuyStrategy (DailyLossTracker는 제거됨)
 - V4TradingEngine
 
 ---
