@@ -30,7 +30,7 @@ Upbit DCA Trader 사용 중 자주 발생하는 질문과 답변 모음
 | 코인별 설정 | 불가능 (모두 동일) | 가능 (그룹별 독립) |
 | 포지션 파일 | 1개 (positions.json) | 2개 (live/dryrun 분리) |
 | 자동매수 전략 | 수동 지표 설정 | 프리셋 (Conservative/Balanced/Aggressive) |
-| 일일 손실 제한 | 없음 | 있음 (09:00 리셋) |
+| 포지션 손실 한도 | 없음 | 있음 (실시간 모니터링) |
 
 ---
 
@@ -133,28 +133,27 @@ Upbit DCA Trader 사용 중 자주 발생하는 질문과 답변 모음
 
 ---
 
-### Q8. 일일 손실 제한은 어떻게 계산되나요?
+### Q8. 포지션 손실 한도는 어떻게 작동하나요?
 
-**A**: 2가지 방식이 있습니다.
+**A**: 개별 포지션의 손익률을 실시간 모니터링합니다.
 
-**1. daily_only** (권장):
-- 매일 09:00 시점의 총 자산을 기준으로 계산
-- 하루 단위 손실만 추적
-- 예: 09:00에 1,000만원 → 10% 손실 = 100만원까지 허용
+**작동 방식**:
+- 각 포지션의 현재 수익률을 계산
+- 설정된 손실률(예: -10%)에 도달 시 지정된 동작 실행
+- 24시간 암호화폐 시장에 적합한 리스크 관리
 
-**2. total_account**:
-- 초기 자본 대비 총 손실률 계산
-- 프로그램 시작 후 누적 손실 추적
-- 예: 초기 1,000만원 → 현재 900만원 = -10%
+**옵션**:
+- `alert`: 텔레그램으로 경고 알림만 전송
+- `liquidate`: 해당 포지션 자동 청산
 
 **설정**:
 ```json
 {
-  "daily_loss_limit": {
+  "position_loss_limit": {
     "enabled": true,
-    "loss_pct": 10.0,
-    "action": "alert",  // 알림만: "alert", 청산: "liquidate"
-    "calculation_method": "daily_only"  // 또는 "total_account"
+    "limit_pct": -10.0,
+    "action": "alert",
+    "exclude_observation_groups": true
   }
 }
 ```

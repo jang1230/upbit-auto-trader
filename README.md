@@ -24,7 +24,7 @@
   - 📈 익절 레벨 (수익 실현 자동화)
   - 📉 손절 레벨 (손실 제한)
 
-- **일일 손실 제한** (09:00 자동 리셋)
+- **포지션 손실 한도** - 24시간 암호화폐 시장에 적합한 손실 관리
 - **실시간 모니터링** - PySide6 GUI + Telegram 알림
 - **Live/Dry-run 분리** - 테스트와 실거래 완전 분리
 
@@ -94,7 +94,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 | 매수 전략 | 단일 전략 | **그룹별 프리셋** (Conservative/Balanced/Aggressive) |
 | DCA 설정 | 전역 설정 | **그룹별 독립 설정** |
 | 익절/손절 | 단일 레벨 | **다단계 레벨 지원** |
-| 일일 손실 한도 | 없음 | **09:00 기준 스냅샷 추적** |
+| 포지션 손실 한도 | 없음 | **24시간 시장에 적합한 포지션 기반** |
 | 포지션 파일 | 1개 | **2개 (live/dryrun 분리)** |
 
 📖 **V4 상세 문서**: [DESIGN_V4_COMPLETE.md](docs/DESIGN_V4_COMPLETE.md) (172KB, 18개 섹션)
@@ -166,15 +166,13 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 }
 ```
 
-### 4. 일일 손실 제한
+### 4. 포지션 손실 한도
 
-- **매일 09:00 자동 리셋**
+- **24시간 암호화폐 시장에 적합** (일일 리셋 없음)
 - **손실률 도달 시**:
-  - `alert`: 텔레그램 알림만
-  - `liquidate`: 전량 청산
-- **계산 방식**:
-  - `daily_only`: 09:00 기준 손실률 (권장)
-  - `total_account`: 초기 자본 대비 손실률
+  - `alert`: 텔레그램 알림 + 매수 중단
+  - `liquidate`: 전량 청산 + 매수 중단
+- **관찰 그룹 제외**: 관찰 전용 그룹은 손실 계산에서 제외 가능
 
 ---
 
@@ -193,7 +191,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 │  - ConfigManager (trading_config)   │
 │  - PositionManager (live/dryrun)    │
 │  - TradeHistoryManager              │
-│  - DailyLossTracker                 │
+│  - Position Loss Limit              │
 └────────┬────────────────────────────┘
          │
 ┌────────▼───────┐  ┌─────────────┐  ┌──────────────┐
@@ -210,7 +208,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 - Position monitoring (60-second polling)
 - Auto-buy strategy execution
 - DCA/Profit/Loss trigger logic
-- Daily loss tracker integration
+- Position loss limit enforcement
 
 **2. GroupManager** (`core/group_manager.py`, 578 lines)
 - Group lifecycle: create, delete, update
@@ -232,12 +230,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 - Records all trades to `data/trade_history.json`
 - Group-level statistics calculation
 
-**6. DailyLossTracker** (`core/daily_loss_tracker.py`, 329 lines)
-- Daily loss limit enforcement
-- 09:00 auto-reset with snapshot
-- Callback architecture (alert/liquidate)
-
-**7. V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
+**6. V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
 - Preset-based auto-buy: Conservative (4H), Balanced (1H), Aggressive (15min)
 - Technical indicators: RSI, MACD, Volume
 - Group-level strategy assignment
@@ -411,7 +404,7 @@ V3 Phase 문서는 `docs/archive/` 폴더로 이동되었습니다.
 | 설정 파일 | 2개 분리 | 1개 통합 |
 | 코인별 설정 | 불가능 (모두 동일) | 가능 (그룹별 독립) |
 | 포지션 파일 | 1개 | 2개 (live/dryrun 분리) |
-| 일일 손실 제한 | 없음 | 있음 (09:00 리셋) |
+| 포지션 손실 한도 | 없음 | 있음 (24시간 시장 적합) |
 
 ### Q2. 그룹을 최대 몇 개까지 만들 수 있나요?
 
@@ -450,12 +443,13 @@ V3 Phase 문서는 `docs/archive/` 폴더로 이동되었습니다.
 1. Dry-run으로 1주일 테스트
 2. 만족스러우면 Live로 전환
 
-### Q7. 일일 손실 제한은 어떻게 계산되나요?
+### Q7. 포지션 손실 한도는 어떻게 작동하나요?
 
-**A**: 2가지 방식이 있습니다.
+**A**: 개별 포지션의 손익률을 실시간 모니터링합니다.
 
-1. **daily_only** (권장): 매일 09:00 시점의 총 자산 대비
-2. **total_account**: 초기 자본 대비 총 손실률
+- 설정된 손실률(예: -10%)에 도달하면 `alert` 또는 `liquidate` 실행
+- 24시간 암호화폐 시장에 적합한 리스크 관리 방식
+- `exclude_observation_groups`: 관찰 전용 그룹 제외 옵션
 
 ### Q8. V3 설정을 V4로 자동 마이그레이션할 수 있나요?
 
@@ -520,7 +514,7 @@ V3 Phase 문서는 `docs/archive/` 폴더로 이동되었습니다.
 
 ### V4 (2025-01, 현재)
 - ✅ **Phase 1 완료**: 데이터 구조 (ConfigManager, PositionManager, TradeHistoryManager)
-- ✅ **Phase 2 완료**: 백엔드 핵심 (GroupManager, DailyLossTracker, V4AutoBuyStrategy, V4TradingEngine)
+- ✅ **Phase 2 완료**: 백엔드 핵심 (GroupManager, V4AutoBuyStrategy, V4TradingEngine)
 - ⏳ **Phase 3 진행 중**: GUI 리팩토링
 - ⏳ **Phase 4 대기 중**: 통합 테스트
 - ⏳ **Phase 5 대기 중**: V3→V4 마이그레이션 및 배포

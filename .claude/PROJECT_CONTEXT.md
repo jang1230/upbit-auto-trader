@@ -35,7 +35,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 | 코인 관리 | 전역 설정 | 그룹별 독립 관리 |
 | 매수 전략 | 단일 전략 | 프리셋 3종 (Conservative/Balanced/Aggressive) |
 | DCA/익절/손절 | 단일 레벨 | 다단계 레벨 |
-| 일일 손실 한도 | 없음 | 09:00 자동 리셋 |
+| 포지션 손실 한도 | 없음 | 실시간 모니터링 |
 | 포지션 파일 | 1개 | 2개 (live/dryrun 분리) |
 | WebSocket | 기본 | MyOrder + MyAsset Private 채널 |
 
@@ -52,7 +52,7 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 │  - ConfigManager (trading_config)   │
 │  - PositionManager (live/dryrun)    │
 │  - TradeHistoryManager              │
-│  - DailyLossTracker                 │
+│  - PositionLossLimit                │
 │  - PendingOrderManager              │
 └────────┬────────────────────────────┘
          │
@@ -143,7 +143,7 @@ upbit-auto-trader/
 │   ├── config_manager.py            # 설정 관리 (512 lines)
 │   ├── position_manager.py          # 포지션 관리 (656 lines)
 │   ├── trade_history_manager.py     # 거래 기록 (479 lines)
-│   ├── daily_loss_tracker.py        # 일일 손실 (329 lines)
+│   ├── (삭제됨)                      # daily_loss_tracker.py 제거됨
 │   ├── pending_order_manager.py     # 대기 주문 관리
 │   ├── balance_polling_manager.py   # 잔고 폴링
 │   ├── upbit_websocket.py           # WebSocket

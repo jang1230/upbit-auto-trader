@@ -33,7 +33,7 @@ upbit_dca_trader/
 │   ├── positions_dryrun.json      # Dry-run mode positions
 │   ├── trade_history.json         # Trade records
 │   ├── virtual_balances.json      # Dry-run balances
-│   ├── daily_snapshot.json        # Daily loss tracking
+│   ├── pending_orders.json        # Pending order tracking
 │   └── historical/                # Downloaded market data
 └── logs/                          # Application logs
 ```
@@ -331,23 +331,23 @@ On first run, V4 will:
 
 5. Save all settings
 
-### Step 4: Set Daily Loss Limit
+### Step 4: Set Position Loss Limit
 
 1. **Edit `config/trading_config.json`**:
 ```json
 {
-  "daily_loss_limit": {
+  "position_loss_limit": {
     "enabled": true,
-    "loss_pct": 10.0,
+    "limit_pct": -10.0,
     "action": "alert",
-    "calculation_method": "daily_only"
+    "exclude_observation_groups": true
   }
 }
 ```
 
 **Options**:
-- `action`: "alert" (notify only) or "liquidate" (sell all)
-- `calculation_method`: "daily_only" (09:00 reset) or "total_account" (cumulative)
+- `action`: "alert" (notify only) or "liquidate" (auto-sell position)
+- `exclude_observation_groups`: Exclude observation-only groups from loss limit
 
 ### Step 5: Set Mode (Dry-run or Live)
 
@@ -408,11 +408,11 @@ On first run, V4 will:
       }
     }
   },
-  "daily_loss_limit": {
+  "position_loss_limit": {
     "enabled": true,
-    "loss_pct": 10.0,
+    "limit_pct": -10.0,
     "action": "alert",
-    "calculation_method": "daily_only"
+    "exclude_observation_groups": true
   }
 }
 ```

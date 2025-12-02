@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Group-based configuration** - Unlimited independent trading groups
 - **Separate Live/Dry-run** position files
 - **Preset-based auto-buy** strategies (Conservative/Balanced/Aggressive)
-- **Daily loss limit** with 09:00 auto-reset
+- **Position loss limit** - 포지션 손실 한도 (24시간 암호화폐 시장에 적합)
 - **Multi-level DCA/Profit/Loss** - Independent settings per group
 - **Real-time trading** - WebSocket + REST API
 - **Telegram notifications**
@@ -308,26 +308,7 @@ V4 introduces a group-based trading system, replacing V3's 2-mode limitation (se
      group_mgr.add_coin_to_group("scalping_group", "KRW-XRP")
      ```
 
-5. **DailyLossTracker** (`core/daily_loss_tracker.py`, 329 lines)
-   - Daily loss limit enforcement with 09:00 reset
-   - Snapshot-based loss calculation
-   - Callback architecture for alerts and liquidation
-   - Two calculation methods: `daily_only` (09:00 baseline) or `total_account` (initial capital)
-   - Interface:
-     ```python
-     tracker = DailyLossTracker(
-         config=config['daily_loss_limit'],
-         get_valuation_fn=lambda: total_position_value,
-         get_krw_balance_fn=lambda: krw_balance,
-         send_alert_fn=telegram_alert,
-         liquidate_fn=liquidate_all_positions
-     )
-     tracker.check_and_reset()  # Call in main loop
-     if tracker.is_limit_reached():
-         # Stop trading
-     ```
-
-6. **V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
+5. **V4AutoBuyStrategy** (`core/strategies/v4_auto_buy_strategy.py`, 456 lines)
    - Preset-based auto-buy strategy: Conservative (4H), Balanced (1H), Aggressive (15min)
    - Technical indicators: RSI (oversold detection), MACD (golden cross), Volume (surge detection)
    - Group-level strategy assignment
@@ -342,14 +323,13 @@ V4 introduces a group-based trading system, replacing V3's 2-mode limitation (se
      indicators = strategy.get_indicator_values(candles)
      ```
 
-7. **V4TradingEngine** (`core/v4_trading_engine.py`, 930 lines)
+6. **V4TradingEngine** (`core/v4_trading_engine.py`, 930 lines)
    - Integrates all V4 components
    - Group-level trading loops
    - Position monitoring (60-second polling)
    - Auto-buy strategy execution
    - DCA/Profit/Loss trigger logic
-   - Daily loss tracker integration
-   - Scheduled tasks (daily reset, snapshot creation)
+   - Position loss limit enforcement
    - Interface:
      ```python
      engine = V4TradingEngine(config, upbit_api, telegram_bot)
@@ -365,8 +345,8 @@ ConfigManager → GroupManager → V4TradingEngine
                PositionManager ← WebSocket
                       ↓              ↓
                TradeHistory     V4AutoBuyStrategy
-                      ↓              ↓
-               DailyLossTracker  → Risk Check → Order Execution
+                                     ↓
+                              Risk Check → Order Execution
 ```
 
 ### V4 Configuration Structure
@@ -401,10 +381,11 @@ ConfigManager → GroupManager → V4TradingEngine
       }
     }
   },
-  "daily_loss_limit": {
+  "position_loss_limit": {
     "enabled": true,
-    "loss_pct": 10.0,
-    "action": "alert"
+    "limit_pct": -10.0,
+    "action": "alert",
+    "exclude_observation_groups": true
   }
 }
 ```
@@ -421,7 +402,6 @@ ConfigManager → GroupManager → V4TradingEngine
 - `data/positions_dryrun.json` - Dry-run mode positions
 - `data/trade_history.json` - All trade records
 - `data/virtual_balances.json` - Dry-run mode balances
-- `data/daily_snapshot.json` - Daily loss tracking snapshot
 
 **Ignored Files** (`.gitignore`):
 - All runtime data files above
@@ -817,25 +797,17 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
    - Key features: Create/delete groups, add/remove/move coins, validation
    - Usage: `GroupManager(config_mgr, pos_mgr).create_group(...)`
 
-7. **core/daily_loss_tracker.py** (329 lines)
-   - Purpose: Daily loss limit enforcement with 09:00 reset
-   - Key features: Snapshot-based tracking, callback architecture, alert/liquidate
-   - Usage: `DailyLossTracker(config, get_valuation_fn, ...).check_and_reset()`
-
-8. **core/strategies/v4_auto_buy_strategy.py** (456 lines)
+7. **core/strategies/v4_auto_buy_strategy.py** (456 lines)
    - Purpose: Preset-based auto-buy strategy for groups
    - Key features: 3 presets (Conservative/Balanced/Aggressive), RSI+MACD+Volume
    - Usage: `V4AutoBuyStrategy(symbol, investment_style="balanced")`
 
-9. **core/strategies/__init__.py** (extended)
+8. **core/strategies/__init__.py** (extended)
    - Added: V4AutoBuyStrategy to module exports
-
-10. **.gitignore** (updated)
-    - Added: `data/daily_snapshot.json` to runtime data exclusions
 
 **Phase 2: Core Engine (100% Complete)** ✅
 
-11. **core/v4_trading_engine.py** (930 lines)
+9. **core/v4_trading_engine.py** (930 lines)
     - Status: ✅ Complete
     - Purpose: Main trading loop integrating all V4 components
     - Key Features:
@@ -844,8 +816,7 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
       - Auto-buy strategy execution
       - DCA trigger logic (price drop detection)
       - Profit/loss trigger logic
-      - Daily loss tracker integration
-      - Scheduled tasks (09:00 reset)
+      - Position loss limit enforcement
     - API Integration:
       - ✅ pyupbit 제거 완료 (2025-01-26)
       - ✅ Official Upbit REST API 사용
@@ -853,7 +824,7 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 
 **Phase 2: API Best Practice 적용 (100% Complete)** ✅
 
-12. **Rate Limit 버그 수정** (2025-01-26)
+10. **Rate Limit 버그 수정** (2025-01-26)
     - REST API 그룹명 불일치 수정
       - "trades" → "trade", "candles" → "candle"
       - `Remaining-Req` 헤더 동기화 정상화
@@ -862,7 +833,7 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
       - Window-based deque 알고리즘
     - File: core/upbit_api.py, core/upbit_websocket.py
 
-13. **커뮤니티 라이브러리 제거** (2025-01-26)
+11. **커뮤니티 라이브러리 제거** (2025-01-26)
     - 실거래 코어에서 pyupbit 완전 제거
       - core/v4_trading_engine.py
       - core/upbit_websocket.py (CandleWebSocket)
@@ -880,11 +851,11 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 
 **Key Architectural Decisions**:
 1. **Dictionary-based groups**: Flexible, unlimited groups without array constraints
-2. **Callback architecture**: DailyLossTracker uses callbacks for maximum flexibility
-3. **Separate files**: Live/dry-run positions stored separately for isolation
-4. **Preset system**: V4AutoBuyStrategy uses presets for ease of use
-5. **Upbit sync**: PositionManager can sync with Upbit API for initial state
-6. **Official API only**: No community libraries in production core (pyupbit only for backtesting)
+2. **Separate files**: Live/dry-run positions stored separately for isolation
+3. **Preset system**: V4AutoBuyStrategy uses presets for ease of use
+4. **Upbit sync**: PositionManager can sync with Upbit API for initial state
+5. **Official API only**: No community libraries in production core (pyupbit only for backtesting)
+6. **Position loss limit**: 24시간 암호화폐 시장에 적합한 포지션 기반 손실 관리
 
 **Optional Improvements (Not Blocking)**:
 - ⏳ WebSocket 실시간 통합 (현재 60초 폴링 사용 중, 동작은 정상)

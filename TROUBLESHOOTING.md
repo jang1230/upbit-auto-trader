@@ -116,55 +116,32 @@ echo '{"positions": {}}' > data/positions_dryrun.json
 
 ---
 
-### 일일 손실 제한 문제
-
-#### 문제: 09:00에 리셋이 안 됨
-
-**증상**: 어제 손실이 계속 누적됨
-
-**원인**:
-- 프로그램이 09:00에 실행 중이 아님
-- `daily_snapshot.json`이 손상됨
-
-**해결**:
-
-1. 프로그램이 09:00에 실행 중인지 확인
-2. 스냅샷 파일 확인:
-```bash
-cat data/daily_snapshot.json
-```
-
-3. 수동 리셋:
-```bash
-rm data/daily_snapshot.json
-# 프로그램 재시작 → 자동으로 새 스냅샷 생성
-```
-
----
+### 포지션 손실 한도 문제
 
 #### 문제: 손실 한도 도달했는데 거래가 계속됨
 
-**증상**: `daily_loss_limit` 설정했는데 무시됨
+**증상**: `position_loss_limit` 설정했는데 무시됨
 
 **원인**:
-- `action`이 "alert"로 설정됨 (거래 중지 안 함)
+- `action`이 "alert"로 설정됨 (알림만 전송)
 - `enabled`가 false
+- 관찰 모드 그룹이 제외됨
 
 **해결**:
 
 1. 설정 확인:
 ```bash
-grep -A 5 "daily_loss_limit" config/trading_config.json
+grep -A 5 "position_loss_limit" config/trading_config.json
 ```
 
 2. 설정 변경:
 ```json
 {
-  "daily_loss_limit": {
+  "position_loss_limit": {
     "enabled": true,
-    "loss_pct": 10.0,
-    "action": "liquidate",  // ← 거래 중지하려면 "liquidate"
-    "calculation_method": "daily_only"
+    "limit_pct": -10.0,
+    "action": "liquidate",  // ← 자동 청산하려면 "liquidate"
+    "exclude_observation_groups": true
   }
 }
 ```

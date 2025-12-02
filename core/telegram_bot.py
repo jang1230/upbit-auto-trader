@@ -177,7 +177,7 @@ class TelegramBot:
         리스크 관리 이벤트 알림
         
         Args:
-            event_type: 이벤트 타입 ('stop_loss', 'take_profit', 'daily_loss_limit')
+            event_type: 이벤트 타입 ('stop_loss', 'take_profit', 'position_loss_limit')
             details: 이벤트 상세 정보
         """
         if event_type == 'stop_loss':
@@ -186,9 +186,9 @@ class TelegramBot:
         elif event_type == 'take_profit':
             emoji = "🎯"
             title = "타겟 프라이스 달성"
-        elif event_type == 'daily_loss_limit':
+        elif event_type == 'position_loss_limit':
             emoji = "⛔"
-            title = "일일 손실 한도 도달"
+            title = "포지션 손실 한도 도달"
         elif event_type == 'trailing_stop':
             emoji = "📉"
             title = "트레일링 스톱 발동"

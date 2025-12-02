@@ -96,9 +96,10 @@
     {
       "id": "F004",
       "category": "core",
-      "description": "일일 손실 한도 (09:00 자동 리셋)",
+      "description": "포지션 손실 한도 (실시간 모니터링)",
       "status": "done",
-      "files": ["core/daily_loss_tracker.py"]
+      "files": ["core/v4_trading_engine.py"],
+      "notes": "DailyLossTracker 제거됨 (2025-12), position_loss_limit로 대체"
     },
     {
       "id": "F005",

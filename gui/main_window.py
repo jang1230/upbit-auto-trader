@@ -274,7 +274,6 @@ class MainWindow(QMainWindow):
         # 🔧 모든 DCA 관련 설정은 self.dca_config에서 가져옴
         self.stop_loss_pct = self.dca_config.stop_loss_pct
         self.take_profit_pct = self.dca_config.take_profit_pct
-        self.max_daily_loss_pct = 10.0  # 일일 최대 손실은 별도 관리
 
         self.setWindowTitle("Upbit DCA Trader V4")
         self.setMinimumSize(1600, 850)  # V4: 그룹 시스템으로 화면 확대
@@ -694,11 +693,6 @@ class MainWindow(QMainWindow):
         """익절 % 변경"""
         self.take_profit_pct = value
         self._add_log(f"⚙️ 익절: {value}%")
-
-    def _on_daily_loss_changed(self, value: float):
-        """일일 최대 손실 % 변경"""
-        self.max_daily_loss_pct = value
-        self._add_log(f"⚙️ 일일 최대 손실: {value}%")
 
     def _on_order_amount_changed(self, value: int):
         """주문 금액 변경 - Deprecated: Use Advanced DCA Dialog"""
@@ -1134,8 +1128,7 @@ class MainWindow(QMainWindow):
                 },
                 'risk_management': {
                     'stop_loss_pct': self.dca_config.stop_loss_pct,
-                    'take_profit_pct': self.dca_config.take_profit_pct,
-                    'max_daily_loss_pct': self.max_daily_loss_pct
+                    'take_profit_pct': self.dca_config.take_profit_pct
                 },
                 # 코인당 주문 금액
                 'order_amount': self.dca_config.levels[0].order_amount if self.dca_config.levels else 100000,
@@ -2138,7 +2131,6 @@ class MainWindow(QMainWindow):
                 "core.order_manager",
                 "core.position_manager",
                 "core.risk_manager",
-                "core.daily_loss_tracker",
                 "core.strategies",
                 "core.upbit_api",
             ]
@@ -3397,8 +3389,7 @@ class MainWindow(QMainWindow):
         dialog = GlobalSettingsDialog(self.v4_config_manager, parent=self)
         if dialog.exec() == QDialog.Accepted:
             logger.info("✅ 전역 설정 저장 완료")
-            # 설정 변경 후 필요한 동작 (예: DailyLossTracker 재시작 등)
-            # TODO: V4TradingEngine 연동 시 처리
+            # 설정 변경 후 V4TradingEngine에 반영됨 (다음 거래 루프에서 적용)
 
     # ========================================
     # Step 7: 모드 전환 (Live ↔ Dry-run)
