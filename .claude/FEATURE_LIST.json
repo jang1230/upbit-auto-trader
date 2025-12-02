@@ -1,0 +1,371 @@
+{
+  "project": "upbit-auto-trader",
+  "version": "V4",
+  "last_updated": "2025-12-01",
+  "total_commits": 499,
+  "current_branch": "claude/duplicate-branch-history-0182BCX6kFJuNtc2y14sG1K9",
+
+  "development_phases": {
+    "v3_legacy": {
+      "period": "2025-10-24 ~ 2025-10-31",
+      "status": "done",
+      "description": "V3 semi_auto_manager, GUI 최적화, Live 트레이딩",
+      "key_commits": [
+        "feat: Enable live trading mode (dry_run=False)",
+        "feat: Add multi-level take-profit and stop-loss support",
+        "perf: Implement batch GUI updates to eliminate freezing",
+        "fix: Optimize program shutdown to prevent freeze"
+      ]
+    },
+    "v4_design": {
+      "period": "2025-11-03 ~ 2025-11-07",
+      "status": "done",
+      "description": "V4 설계 문서, 스키마 정의",
+      "key_commits": [
+        "docs: Create V4 Implementation Plan (5 Phases, 32-42h)",
+        "docs: Complete Topic 9 - Auto-buy Logic Design",
+        "feat: Phase 1 - Core data structures and configuration (V4)"
+      ]
+    },
+    "v4_phase_1_2": {
+      "period": "2025-11-10 ~ 2025-11-14",
+      "status": "done",
+      "description": "데이터 구조, 백엔드 핵심 컴포넌트",
+      "key_commits": [
+        "feat: Phase 2 - Core backend components (4/5 complete)",
+        "feat: Add multi-level profit-taking and stop-loss"
+      ]
+    },
+    "v4_phase_3": {
+      "period": "2025-11-17 ~ 2025-11-21",
+      "status": "done",
+      "description": "GUI, WebSocket 개선, Real-time 시스템",
+      "key_commits": [
+        "feat: V4TradingEngine에 pending_order 복구 + Private WebSocket 통합",
+        "feat: Implement real-time candle aggregation system",
+        "feat: Minimize REST API calls and solve Rate Limit"
+      ]
+    },
+    "v4_stabilization": {
+      "period": "2025-11-24 ~ 2025-12-01",
+      "status": "done",
+      "description": "안정화, Race Condition, 중복 알림 수정",
+      "key_commits": [
+        "fix: Race Condition 방지를 위한 threading.Lock 추가",
+        "fix: 그룹 삭제/코인 제거 시 포지션 group_id를 group_null로 설정",
+        "feat: 거래 내역 CSV 내보내기 기능 구현"
+      ]
+    }
+  },
+
+  "file_change_ranking": [
+    {"rank": 1, "file": "core/v4_trading_engine.py", "changes": 134, "lines": "930+"},
+    {"rank": 2, "file": "gui/main_window.py", "changes": 102, "lines": "1500+"},
+    {"rank": 3, "file": "core/semi_auto_manager.py", "changes": 45, "lines": "600+"},
+    {"rank": 4, "file": "core/position_manager.py", "changes": 39, "lines": "656"},
+    {"rank": 5, "file": "core/upbit_websocket.py", "changes": 27, "lines": "900+"},
+    {"rank": 6, "file": "gui/auto_buy_settings_dialog_v2.py", "changes": 21},
+    {"rank": 7, "file": "gui/group_unified_settings_dialog.py", "changes": 18},
+    {"rank": 8, "file": "gui/group_management_dialog.py", "changes": 15},
+    {"rank": 9, "file": "core/upbit_api.py", "changes": 14},
+    {"rank": 10, "file": "gui/logging_handler.py", "changes": 13}
+  ],
+
+  "features": [
+    {
+      "id": "F001",
+      "category": "core",
+      "description": "무제한 그룹 생성/삭제/수정",
+      "status": "done",
+      "files": ["core/group_manager.py", "core/config_manager.py"]
+    },
+    {
+      "id": "F002",
+      "category": "core",
+      "description": "그룹별 DCA/익절/손절 다단계 레벨",
+      "status": "done",
+      "files": ["core/v4_trading_engine.py", "gui/level_settings_dialog.py"]
+    },
+    {
+      "id": "F003",
+      "category": "core",
+      "description": "3가지 자동매수 프리셋 (Conservative/Balanced/Aggressive)",
+      "status": "done",
+      "files": ["core/strategies/v4_auto_buy_strategy.py"]
+    },
+    {
+      "id": "F004",
+      "category": "core",
+      "description": "일일 손실 한도 (09:00 자동 리셋)",
+      "status": "done",
+      "files": ["core/daily_loss_tracker.py"]
+    },
+    {
+      "id": "F005",
+      "category": "core",
+      "description": "Live/Dry-run 포지션 분리",
+      "status": "done",
+      "files": ["core/position_manager.py"]
+    },
+    {
+      "id": "F006",
+      "category": "websocket",
+      "description": "MyOrder WebSocket (주문 상태 실시간 감지)",
+      "status": "done",
+      "files": ["core/upbit_websocket.py"],
+      "notes": "state: wait → done, identifier로 봇/수동 구분"
+    },
+    {
+      "id": "F007",
+      "category": "websocket",
+      "description": "MyAsset WebSocket (잔고 변경 실시간 감지)",
+      "status": "done",
+      "files": ["core/upbit_websocket.py", "gui/myasset_websocket_worker.py"]
+    },
+    {
+      "id": "F008",
+      "category": "websocket",
+      "description": "Price WebSocket (실시간 시세)",
+      "status": "done",
+      "files": ["core/upbit_websocket.py", "gui/price_websocket_worker.py"]
+    },
+    {
+      "id": "F009",
+      "category": "websocket",
+      "description": "메시지 중복 제거 (TTL 5초 + Lock)",
+      "status": "done",
+      "files": ["core/upbit_websocket.py"],
+      "commits": ["2f8a120", "5a93f34"]
+    },
+    {
+      "id": "F010",
+      "category": "core",
+      "description": "그룹 삭제 시 포지션 group_null 처리",
+      "status": "done",
+      "files": ["core/group_manager.py"],
+      "commits": ["b85fba1"]
+    },
+    {
+      "id": "F011",
+      "category": "core",
+      "description": "주문 처리 4단계 (Phase A-B-C-D)",
+      "status": "done",
+      "files": ["core/v4_trading_engine.py"],
+      "notes": "A:요청 → B:WebSocket → C:포지션 → D:GUI/알림"
+    },
+    {
+      "id": "F012",
+      "category": "core",
+      "description": "pending_order 복구 시스템",
+      "status": "done",
+      "files": ["core/v4_trading_engine.py", "core/pending_order_manager.py"]
+    },
+    {
+      "id": "F013",
+      "category": "core",
+      "description": "DCA 불타기(양수) 지원",
+      "status": "done",
+      "files": ["core/v4_trading_engine.py", "gui/level_settings_dialog.py"],
+      "commits": ["d49149a"]
+    },
+    {
+      "id": "F014",
+      "category": "core",
+      "description": "DCA 수량 비율 1~1000% 확장",
+      "status": "done",
+      "files": ["gui/level_settings_dialog.py"],
+      "commits": ["8159a2e"]
+    },
+    {
+      "id": "F015",
+      "category": "gui",
+      "description": "사이드바 실시간 연결 (총평가손익/수익률)",
+      "status": "done",
+      "files": ["gui/main_window.py"],
+      "commits": ["96faf20", "06e4c83", "f65ba66", "2dff0ca"]
+    },
+    {
+      "id": "F016",
+      "category": "gui",
+      "description": "거래 내역 테이블 (9개 컬럼)",
+      "status": "done",
+      "files": ["gui/main_window.py", "gui/trade_data.py"],
+      "commits": ["a47710c", "48f534e", "f146073"]
+    },
+    {
+      "id": "F017",
+      "category": "gui",
+      "description": "거래 내역 CSV 내보내기",
+      "status": "done",
+      "files": ["gui/main_window.py"],
+      "commits": ["54559d9"]
+    },
+    {
+      "id": "F018",
+      "category": "notification",
+      "description": "봇/수동 주문 구분 (identifier 기반)",
+      "status": "done",
+      "files": ["core/upbit_api.py", "core/v4_trading_engine.py"],
+      "commits": ["9b4a7be"]
+    },
+    {
+      "id": "F019",
+      "category": "notification",
+      "description": "봇 매도 후 수동매도 중복 알림 방지",
+      "status": "done",
+      "files": ["core/position_manager.py"],
+      "commits": ["b6890a7"],
+      "notes": "recent_bot_sells 10초 추적"
+    },
+    {
+      "id": "F020",
+      "category": "gui",
+      "description": "GUI 로그 필터링 (반복 로그 제거)",
+      "status": "done",
+      "files": ["gui/logging_handler.py"],
+      "commits": ["876f817", "bd27a64", "fb3664a"]
+    },
+    {
+      "id": "F021",
+      "category": "core",
+      "description": "Adaptive Polling (REST API Rate Limit 방지)",
+      "status": "done",
+      "files": ["core/balance_polling_manager.py", "core/v4_trading_engine.py"]
+    },
+    {
+      "id": "F022",
+      "category": "core",
+      "description": "실시간 캔들 집계 시스템",
+      "status": "done",
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "F023",
+      "category": "gui",
+      "description": "그룹 관리 대화창",
+      "status": "done",
+      "files": ["gui/group_management_dialog.py"]
+    },
+    {
+      "id": "F024",
+      "category": "gui",
+      "description": "그룹 통합 설정 대화창",
+      "status": "done",
+      "files": ["gui/group_unified_settings_dialog.py"]
+    },
+    {
+      "id": "F025",
+      "category": "test",
+      "description": "통합 테스트 시나리오",
+      "status": "planned",
+      "files": ["docs/TEST_SCENARIOS.md"]
+    },
+    {
+      "id": "F026",
+      "category": "deploy",
+      "description": "Dry-run 1주일 테스트",
+      "status": "planned"
+    },
+    {
+      "id": "F027",
+      "category": "deploy",
+      "description": "Live 소액 배포",
+      "status": "planned"
+    }
+  ],
+
+  "resolved_issues": [
+    {
+      "id": "I001",
+      "description": "WebSocket 동일 메시지 2회 수신 (Race Condition)",
+      "solution": "threading.Lock + TTL 기반 중복 제거 (5초)",
+      "commits": ["2f8a120", "5a93f34"],
+      "files": ["core/upbit_websocket.py"]
+    },
+    {
+      "id": "I002",
+      "description": "group_id=None 설정 시 sync_with_upbit()에서 포지션 삭제",
+      "solution": "group_null 문자열로 변경",
+      "commits": ["b85fba1"],
+      "files": ["core/group_manager.py"]
+    },
+    {
+      "id": "I003",
+      "description": "익절/손절 후 수동매도 중복 알림",
+      "solution": "recent_bot_sells 딕셔너리로 10초간 추적",
+      "commits": ["b6890a7"],
+      "files": ["core/position_manager.py"]
+    },
+    {
+      "id": "I004",
+      "description": "DCA/익절/손절 텔레그램 중복 메시지",
+      "solution": "UUID 등록 타이밍 개선",
+      "commits": ["772f4a5", "7451eaa", "948d303"],
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I005",
+      "description": "DCA Phase B에서 조기 return",
+      "solution": "Phase C 도달 조건 수정",
+      "commits": ["5e62981", "264277f"],
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I006",
+      "description": "GUI Race Condition (포지션 테이블 동기화)",
+      "solution": "Signal 패턴 + Lock + 콜백 동기화",
+      "commits": ["454b615", "d3c3aec"],
+      "files": ["gui/main_window.py", "core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I007",
+      "description": "REST API Rate Limit",
+      "solution": "Adaptive Polling + WebSocket 우선",
+      "files": ["core/balance_polling_manager.py"]
+    },
+    {
+      "id": "I008",
+      "description": "JWT 알고리즘 오류 (HS512 → HS256)",
+      "solution": "Upbit 공식 스펙 준수",
+      "files": ["core/upbit_api.py", "core/upbit_websocket.py"]
+    },
+    {
+      "id": "I009",
+      "description": "WebSocket 120초 Idle Timeout",
+      "solution": "PING/PONG keepalive 활성화",
+      "files": ["core/upbit_websocket.py"]
+    },
+    {
+      "id": "I010",
+      "description": "포지션 저장 시 dictionary iteration 에러",
+      "solution": "copy() 사용",
+      "commits": ["f2ec8de"],
+      "files": ["core/position_manager.py"]
+    }
+  ],
+
+  "next_priorities": [
+    "F025: 통합 테스트 시나리오 작성",
+    "F026: Dry-run 1주일 테스트",
+    "F027: Live 소액 배포"
+  ],
+
+  "code_patterns": {
+    "dedup_ttl": {
+      "description": "TTL 기반 중복 제거",
+      "example": "self._recent_messages = {}  # {(uuid, state, ts): time}"
+    },
+    "threading_lock": {
+      "description": "Race Condition 방지",
+      "example": "with self._dedup_lock: ..."
+    },
+    "group_null": {
+      "description": "그룹 없는 포지션 표시",
+      "example": "group_id = 'group_null'  # None 대신 사용"
+    },
+    "phase_abcd": {
+      "description": "주문 처리 4단계",
+      "example": "A:요청 → B:WebSocket → C:포지션 → D:GUI"
+    }
+  }
+}

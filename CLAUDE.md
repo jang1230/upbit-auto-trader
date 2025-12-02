@@ -895,3 +895,24 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 2. Phase 3: GUI redesign (3-tab structure, group management dialogs)
 3. Phase 4: Integration testing
 4. Phase 5: V3→V4 migration and deployment
+
+---
+
+## 하네스 시스템 (세션별 진행 관리)
+
+최근 작업 기록과 동적 정보는 `.claude/` 폴더에서 관리됩니다:
+
+| 파일 | 용도 |
+|------|------|
+| `.claude/PROGRESS_LOG.md` | 세션별 작업 기록, 최근 커밋 |
+| `.claude/FEATURE_LIST.json` | 기능 상태 (done/planned), 해결된 이슈 |
+| `.claude/SESSION_START.md` | 세션 시작 템플릿 |
+
+### 최근 중요 변경 (2025-12 기준)
+
+⚠️ **필수 규칙**:
+- `group_id`는 `None` 대신 `"group_null"` 문자열 사용
+- WebSocket 메시지 처리 시 `threading.Lock` 필수
+- 커밋: `fix:`, `feat:`, `refactor:`, `docs:` 형식
+
+📊 **현재 상태**: Phase 4 초입 (통합 테스트 + 안정화 단계)
