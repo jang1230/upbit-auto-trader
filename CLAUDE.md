@@ -898,6 +898,23 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 
 ---
 
+## Upbit 공식 문서 참조
+
+Upbit API 관련 질문 시 **웹사이트를 fetch하지 말고** 로컬 `upbit_docs/` 폴더의 문서를 참조하세요:
+
+| 폴더 | 내용 |
+|------|------|
+| `upbit_docs/reference/` | API 레퍼런스 (주문, 잔고, 캔들, WebSocket 등) |
+| `upbit_docs/docs/` | 가이드 문서 (개발환경, FAQ, 튜토리얼 등) |
+| `upbit_docs/changelog/` | API 변경 이력 |
+
+예시:
+- 주문 API → `upbit_docs/reference/new-order.md`
+- WebSocket 가이드 → `upbit_docs/reference/websocket-guide.md`
+- Rate Limit → `upbit_docs/reference/rate-limits.md`
+
+---
+
 ## 하네스 시스템 (세션별 진행 관리)
 
 프로젝트 컨텍스트와 작업 기록은 `.claude/` 폴더에서 관리됩니다:
