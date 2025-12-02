@@ -181,8 +181,9 @@ class V4TradingEngine:
 
         # 포지션 손실 한도
         self.position_loss_limit_config = self.global_settings.get("position_loss_limit", {})
-        self.loss_limit_reached = False  # 손실 한도 도달 플래그
+        self.loss_limit_reached = False  # 손실 한도 도달 플래그 (매수 중단용)
         self.loss_limit_reached_time = None  # 도달 시각
+        self.loss_limit_alert_sent = False  # 알림 발송 플래그 (alert 모드용, 중복 알림 방지)
 
         # 그룹별 전략 캐시
         self.strategies: Dict[str, Dict[str, Any]] = {}  # {group_id: {symbol: strategy}} (V4AutoBuyStrategy or ExpertStrategy)
@@ -3892,9 +3893,9 @@ class V4TradingEngine:
                     continue
 
                 # 수익률 계산
-                avg_price = position.get('avg_price', 0)
-                amount = position.get('amount', 0)
-                invested = position.get('total_invested', 0)
+                avg_price = position.get('avg_buy_price', 0)
+                amount = position.get('total_amount', 0)
+                invested = position.get('total_invested_krw', 0)
 
                 if invested == 0:
                     continue
@@ -4147,13 +4148,20 @@ class V4TradingEngine:
 
         Returns:
             bool: True면 한도 도달 (거래 중단), False면 정상
+
+        액션 종류:
+            - alert: 알림만 (매수 계속 가능)
+            - alert_stop: 알림 + 매수 중단 (프로그램 재시작 필요)
+            - liquidate: 전체 청산 + 매수 중단
         """
         # 설정 확인
         if not self.position_loss_limit_config.get("enabled", False):
             return False  # 비활성화 상태
 
-        # 이미 한도 도달한 경우
-        if self.loss_limit_reached:
+        action = self.position_loss_limit_config.get("action", "alert_stop")
+
+        # 이미 한도 도달한 경우 (alert_stop, liquidate만 해당)
+        if self.loss_limit_reached and action != "alert":
             logger.debug("⚠️ 이미 포지션 손실 한도 도달 상태 (재시작 필요)")
             return True
 
@@ -4167,6 +4175,16 @@ class V4TradingEngine:
 
         # 한도 체크
         if total_pct <= limit_pct:
+            # alert 모드: 알림만 보내고 매수 계속 (단, 알림은 1회만)
+            if action == "alert":
+                if not self.loss_limit_alert_sent:
+                    logger.warning(f"⚠️ 포지션 손실 한도 도달 (알림만)")
+                    logger.warning(f"   합산 수익률: {total_pct:.2f}% ≤ 한도: {limit_pct}%")
+                    self._send_loss_limit_alert(result, stop_trading=False)
+                    self.loss_limit_alert_sent = True
+                return False  # 매수 계속 가능
+
+            # alert_stop, liquidate: 매수 중단
             logger.error(f"🚨 포지션 손실 한도 도달!")
             logger.error(f"   합산 수익률: {total_pct:.2f}% ≤ 한도: {limit_pct}%")
             logger.error(f"   총 투자금: {result['total_invested']:,.0f}원")
@@ -4177,26 +4195,34 @@ class V4TradingEngine:
                 logger.error(f"   - {pos['symbol']}: {pos['profit_loss']:+,.0f}원 "
                            f"({pos['profit_loss_pct']:+.2f}%)")
 
-            # 플래그 설정
+            # 플래그 설정 (매수 중단)
             self.loss_limit_reached = True
             self.loss_limit_reached_time = datetime.now()
-
-            # 액션 실행
-            action = self.position_loss_limit_config.get("action", "alert")
 
             if action == "liquidate":
                 logger.error("🔴 전량 청산 시작...")
                 self._liquidate_all_positions(reason="포지션 손실 한도 도달")
-            elif action == "alert":
-                logger.warning("⚠️ 텔레그램 알림 발송...")
-                self._send_loss_limit_alert(result)
+            elif action == "alert_stop":
+                logger.warning("⚠️ 텔레그램 알림 발송 + 매수 중단...")
+                self._send_loss_limit_alert(result, stop_trading=True)
 
             return True
 
+        # 한도 이내로 회복된 경우 알림 플래그 리셋 (다시 한도 도달 시 알림 발송)
+        if self.loss_limit_alert_sent and total_pct > limit_pct:
+            self.loss_limit_alert_sent = False
+            logger.info(f"✅ 손실 한도 이내로 회복 ({total_pct:+.2f}% > {limit_pct}%)")
+
         return False
 
-    def _send_loss_limit_alert(self, result: dict):
-        """포지션 손실 한도 도달 알림"""
+    def _send_loss_limit_alert(self, result: dict, stop_trading: bool = True):
+        """
+        포지션 손실 한도 도달 알림
+
+        Args:
+            result: 손익 계산 결과
+            stop_trading: True면 매수 중단 메시지 포함, False면 알림만
+        """
         message = f"""
 🚨 포지션 손실 한도 도달!
 
@@ -4210,7 +4236,10 @@ class V4TradingEngine:
         for pos in result["positions"]:
             message += f"- {pos['symbol']}: {pos['profit_loss']:+,.0f}원 ({pos['profit_loss_pct']:+.2f}%)\n"
 
-        message += "\n⚠️ 매수가 중단됩니다. 프로그램 재시작 필요."
+        if stop_trading:
+            message += "\n🛑 매수가 중단됩니다. 프로그램 재시작 필요."
+        else:
+            message += "\nℹ️ 알림 전용 모드: 매수는 계속됩니다."
 
         self._send_telegram_alert(message)
 

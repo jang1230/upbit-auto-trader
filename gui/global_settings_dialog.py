@@ -263,11 +263,13 @@ class GlobalSettingsDialog(QDialog):
         pos_action_layout = QFormLayout()
         self.position_action_combo = QComboBox()
         self.position_action_combo.addItem("알림만 (alert)", "alert")
+        self.position_action_combo.addItem("알림 + 매수 중단 (alert_stop)", "alert_stop")
         self.position_action_combo.addItem("전체 청산 (liquidate)", "liquidate")
         pos_action_layout.addRow("조치:", self.position_action_combo)
 
         pos_action_info = QLabel(
-            "• 알림만: 텔레그램 알림 + 매수 중단 (재시작 필요)\n"
+            "• 알림만: 텔레그램 알림 (매수 계속)\n"
+            "• 알림 + 매수 중단: 텔레그램 알림 + 매수 중단 (재시작 필요)\n"
             "• 전체 청산: 거래 그룹 포지션 전량 매도 + 매수 중단"
         )
         pos_action_info.setStyleSheet("color: gray; font-size: 11px;")
@@ -358,10 +360,13 @@ class GlobalSettingsDialog(QDialog):
         self.position_loss_pct_spin.setValue(position_loss.get("limit_pct", -10.0))
         self.exclude_observation_groups.setChecked(position_loss.get("exclude_observation_groups", True))
 
-        pos_action = position_loss.get("action", "alert")
+        pos_action = position_loss.get("action", "alert_stop")
         index = self.position_action_combo.findData(pos_action)
         if index >= 0:
             self.position_action_combo.setCurrentIndex(index)
+        else:
+            # 기본값: alert_stop (기존 alert 동작과 호환)
+            self.position_action_combo.setCurrentIndex(1)
 
         self._on_position_loss_toggled(position_loss.get("enabled", False))
 
