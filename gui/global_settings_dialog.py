@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QComboBox, QPushButton, QGroupBox, QFormLayout, QMessageBox
 )
 from PySide6.QtCore import Qt
+from gui.config_manager import ConfigManager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,11 +22,12 @@ class GlobalSettingsDialog(QDialog):
 
     def __init__(self, config_manager, parent=None):
         super().__init__(parent)
-        self.config_manager = config_manager
+        self.config_manager = config_manager  # V4 config (config.json)
+        self.env_config_manager = ConfigManager()  # .env config (Upbit API)
         self.config = config_manager.load_config()
 
         self.setWindowTitle("전역 설정")
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(600, 550)
 
         self._init_ui()
         self._load_settings()
@@ -37,7 +39,11 @@ class GlobalSettingsDialog(QDialog):
         # 탭 위젯
         self.tab_widget = QTabWidget()
 
-        # Tab 1: 거래 제한
+        # Tab 1: Upbit API (새로 추가)
+        self.upbit_api_tab = self._create_upbit_api_tab()
+        self.tab_widget.addTab(self.upbit_api_tab, "📡 Upbit API")
+
+        # Tab 2: 거래 제한
         self.trading_limits_tab = self._create_trading_limits_tab()
         self.tab_widget.addTab(self.trading_limits_tab, "거래 제한")
 
@@ -66,6 +72,75 @@ class GlobalSettingsDialog(QDialog):
         layout.addLayout(button_layout)
 
         self.setLayout(layout)
+
+    def _create_upbit_api_tab(self) -> QWidget:
+        """Upbit API 탭 생성"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # API 키 그룹
+        api_group = QGroupBox("API Keys")
+        api_layout = QFormLayout()
+
+        # Access Key
+        self.access_key_edit = QLineEdit()
+        self.access_key_edit.setEchoMode(QLineEdit.Password)
+        self.access_key_edit.setPlaceholderText("Access Key를 입력하세요")
+        api_layout.addRow("Access Key:", self.access_key_edit)
+
+        # Access Key 표시 버튼
+        self.access_key_show_btn = QPushButton("👁️ 표시")
+        self.access_key_show_btn.setCheckable(True)
+        self.access_key_show_btn.setMaximumWidth(80)
+        self.access_key_show_btn.clicked.connect(
+            lambda checked: self.access_key_edit.setEchoMode(
+                QLineEdit.Normal if checked else QLineEdit.Password
+            )
+        )
+        api_layout.addRow("", self.access_key_show_btn)
+
+        # Secret Key
+        self.secret_key_edit = QLineEdit()
+        self.secret_key_edit.setEchoMode(QLineEdit.Password)
+        self.secret_key_edit.setPlaceholderText("Secret Key를 입력하세요")
+        api_layout.addRow("Secret Key:", self.secret_key_edit)
+
+        # Secret Key 표시 버튼
+        self.secret_key_show_btn = QPushButton("👁️ 표시")
+        self.secret_key_show_btn.setCheckable(True)
+        self.secret_key_show_btn.setMaximumWidth(80)
+        self.secret_key_show_btn.clicked.connect(
+            lambda checked: self.secret_key_edit.setEchoMode(
+                QLineEdit.Normal if checked else QLineEdit.Password
+            )
+        )
+        api_layout.addRow("", self.secret_key_show_btn)
+
+        api_group.setLayout(api_layout)
+        layout.addWidget(api_group)
+
+        # 테스트 버튼
+        self.upbit_test_btn = QPushButton("🔍 연결 테스트")
+        self.upbit_test_btn.clicked.connect(self._test_upbit)
+        layout.addWidget(self.upbit_test_btn)
+
+        # 안내 메시지
+        info_label = QLabel(
+            "<b>💡 API 키 발급 방법:</b><br>"
+            "1. Upbit 웹사이트 접속<br>"
+            "2. 마이페이지 > Open API 관리<br>"
+            "3. API 키 생성 (자산 조회, 주문 조회, 주문하기 권한)<br>"
+            "4. Access Key와 Secret Key 복사<br><br>"
+            "🔗 <a href='https://upbit.com/mypage/open_api_management'>Upbit API 관리 페이지</a>"
+        )
+        info_label.setOpenExternalLinks(True)
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        layout.addWidget(info_label)
+
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
 
     def _create_trading_limits_tab(self) -> QWidget:
         """거래 제한 탭 생성"""
@@ -309,6 +384,10 @@ class GlobalSettingsDialog(QDialog):
 
     def _load_settings(self):
         """설정 로드"""
+        # Upbit API (.env에서 로드)
+        self.access_key_edit.setText(self.env_config_manager.get_upbit_access_key())
+        self.secret_key_edit.setText(self.env_config_manager.get_upbit_secret_key())
+
         global_settings = self.config.get("global_settings", {})
 
         # 거래일 리셋 시간
@@ -447,9 +526,66 @@ class GlobalSettingsDialog(QDialog):
                 "네트워크 연결과 설정을 확인하세요."
             )
 
+    def _test_upbit(self):
+        """Upbit API 연결 테스트"""
+        access_key = self.access_key_edit.text().strip()
+        secret_key = self.secret_key_edit.text().strip()
+
+        if not access_key or not secret_key:
+            QMessageBox.warning(self, "입력 오류", "Access Key와 Secret Key를 입력하세요.")
+            return
+
+        # 간단한 형식 검증
+        if len(access_key) < 20 or len(secret_key) < 20:
+            QMessageBox.warning(
+                self,
+                "형식 오류",
+                "API 키 형식이 올바르지 않습니다.\n"
+                "Upbit에서 발급받은 키를 정확히 입력하세요."
+            )
+            return
+
+        # 실제 API 테스트
+        try:
+            from core.upbit_api import UpbitAPI
+
+            api = UpbitAPI(access_key, secret_key)
+            accounts = api.get_accounts()
+
+            if accounts:
+                QMessageBox.information(
+                    self,
+                    "연결 성공",
+                    f"✅ Upbit API 연결 성공!\n\n"
+                    f"계좌 정보: {len(accounts)}개 자산 조회됨"
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "연결 실패",
+                    "❌ API 키는 유효하지만 계좌 정보를 가져올 수 없습니다."
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "연결 실패",
+                f"❌ Upbit API 연결 실패:\n{str(e)}\n\n"
+                f"API 키를 확인하세요."
+            )
+
     def _save_settings(self):
         """설정 저장"""
         try:
+            # Upbit API 저장 (.env 파일)
+            upbit_success = self.env_config_manager.set_upbit_keys(
+                self.access_key_edit.text().strip(),
+                self.secret_key_edit.text().strip()
+            )
+            if not upbit_success:
+                QMessageBox.warning(self, "저장 실패", "Upbit API 키 저장에 실패했습니다.")
+                return
+
             # global_settings 업데이트
             if "global_settings" not in self.config:
                 self.config["global_settings"] = {}
