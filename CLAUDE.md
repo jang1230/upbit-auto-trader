@@ -916,3 +916,33 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 - 커밋: `fix:`, `feat:`, `refactor:`, `docs:` 형식
 
 📊 **현재 상태**: Phase 4 초입 (통합 테스트 + 안정화 단계)
+
+---
+
+## 세션 종료 규칙
+
+사용자가 "작업 마무리", "세션 끝", "커밋해줘" 등을 말하면:
+
+1. `.claude/PROGRESS_LOG.md` 맨 위에 아래 양식으로 기록 추가:
+
+## YYYY-MM-DD 세션
+
+### 작업 내용
+1. **작업 제목** (`커밋해시`)
+   - 상세 내용
+   - 파일: 변경된 파일 경로
+
+### 변경된 파일
+- 파일 목록
+
+### 다음 세션 권장 작업
+1. 다음에 할 일
+
+2. 커밋 메시지 형식: `fix:`, `feat:`, `refactor:`, `docs:`
+```
+
+---
+
+## 그러면 이렇게 간단히 말해도 됨
+```
+작업 끝. 커밋해줘.
