@@ -594,14 +594,6 @@ class MainWindow(QMainWindow):
         config_action.triggered.connect(self._open_settings)
         settings_menu.addAction(config_action)
 
-        # 구분선
-        settings_menu.addSeparator()
-
-        # 모드 전환 (Step 7)
-        self.mode_toggle_action = QAction(self._get_mode_toggle_text(), self)
-        self.mode_toggle_action.triggered.connect(self._toggle_mode)
-        settings_menu.addAction(self.mode_toggle_action)
-
         # 도움말 메뉴
         help_menu = menubar.addMenu("도움말")
 
@@ -3418,23 +3410,6 @@ class MainWindow(QMainWindow):
     # Step 7: 모드 전환 (Live ↔ Dry-run)
     # ========================================
 
-    def _get_mode_toggle_text(self) -> str:
-        """모드 전환 메뉴 텍스트 반환"""
-        if not V4_AVAILABLE or not self.v4_config_manager:
-            return "🔄 모드 전환"
-
-        try:
-            config = self.v4_config_manager.load_config()
-            is_dry_run = config.get("global_settings", {}).get("dry_run", True)
-
-            if is_dry_run:
-                return "🔄 모드 전환 (현재: 🟢 Dry-run)"
-            else:
-                return "🔄 모드 전환 (현재: 🔴 Live)"
-        except Exception as e:
-            logger.error(f"❌ 모드 텍스트 로드 실패: {e}")
-            return "🔄 모드 전환"
-
     def _toggle_mode(self):
         """모드 전환 (Live ↔ Dry-run)"""
         if not V4_AVAILABLE or not self.v4_config_manager:
@@ -3545,10 +3520,6 @@ class MainWindow(QMainWindow):
                 else:
                     self.mode_switch_btn.setText("🔴 Live 모드")
                     self.mode_switch_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px; font-weight: bold;")
-
-            # 메뉴 텍스트 업데이트
-            if hasattr(self, 'mode_toggle_action'):
-                self.mode_toggle_action.setText(self._get_mode_toggle_text())
 
             # 상태바 업데이트
             if is_dry_run:
