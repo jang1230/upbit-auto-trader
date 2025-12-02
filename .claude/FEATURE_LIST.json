@@ -1,7 +1,7 @@
 {
   "project": "upbit-auto-trader",
   "version": "V4",
-  "last_updated": "2025-12-01",
+  "last_updated": "2025-12-02",
   "total_commits": 499,
   "current_branch": "claude/duplicate-branch-history-0182BCX6kFJuNtc2y14sG1K9",
 
@@ -98,8 +98,9 @@
       "category": "core",
       "description": "포지션 손실 한도 (실시간 모니터링)",
       "status": "done",
-      "files": ["core/v4_trading_engine.py"],
-      "notes": "DailyLossTracker 제거됨 (2025-12), position_loss_limit로 대체"
+      "files": ["core/v4_trading_engine.py", "gui/global_settings_dialog.py"],
+      "notes": "DailyLossTracker 제거됨 (2025-12), 3가지 옵션: alert(알림만), alert_stop(매수중단), liquidate(전체청산)",
+      "commits": ["08f19be"]
     },
     {
       "id": "F005",
@@ -245,7 +246,9 @@
       "category": "gui",
       "description": "그룹 관리 대화창",
       "status": "done",
-      "files": ["gui/group_management_dialog.py"]
+      "files": ["gui/group_management_dialog.py"],
+      "notes": "코인 목록 정렬: 선택된 코인 → 다른 그룹 할당 → 미할당 순서",
+      "commits": ["6fe0fe0", "37d71d7"]
     },
     {
       "id": "F024",
@@ -342,10 +345,32 @@
       "solution": "copy() 사용",
       "commits": ["f2ec8de"],
       "files": ["core/position_manager.py"]
+    },
+    {
+      "id": "I011",
+      "description": "add_dca()에서 dca_levels_executed 업데이트 누락",
+      "solution": "DCA 실행 시 레벨 번호를 리스트에 추가",
+      "commits": ["70a58bb"],
+      "files": ["core/position_manager.py"]
+    },
+    {
+      "id": "I012",
+      "description": "포지션 손실 한도 필드명 오류 (avg_price, amount, total_invested)",
+      "solution": "avg_buy_price, total_amount, total_invested_krw로 수정",
+      "commits": ["08f19be"],
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I013",
+      "description": "전체 청산 시 Rate Limit 초과 가능성",
+      "solution": "매도 주문 간 0.15초 딜레이 추가 (8 req/sec 준수)",
+      "commits": ["e448844"],
+      "files": ["core/v4_trading_engine.py"]
     }
   ],
 
   "next_priorities": [
+    "WebSocket 통합 구조 구현 (새 브랜치, docs/WEBSOCKET_UNIFIED_PROPOSAL.md 참고)",
     "F025: 통합 테스트 시나리오 작성",
     "F026: Dry-run 1주일 테스트",
     "F027: Live 소액 배포"
