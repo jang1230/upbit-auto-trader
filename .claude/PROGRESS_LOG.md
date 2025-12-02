@@ -5,6 +5,57 @@
 
 ---
 
+## 2025-12-02 세션 3 (최신)
+
+### 작업 내용
+1. **그룹 관리 코인 목록 정렬 기능** (`6fe0fe0`)
+   - 선택된 코인 → 다른 그룹 할당 코인 → 미할당 코인 순서로 정렬
+   - `_sort_coin_checkboxes()` 메서드 추가
+   - 파일: `gui/group_management_dialog.py`
+
+2. **DCA 레벨 기록 버그 수정** (`70a58bb`)
+   - 문제: `add_dca()`에서 `dca_levels_executed` 업데이트 누락
+   - 해결: DCA 실행 시 레벨 번호를 리스트에 추가
+   - 파일: `core/position_manager.py`
+
+3. **포지션 손실 한도 버그 수정 및 기능 확장** (`08f19be`)
+   - 필드명 버그 수정: `avg_price` → `avg_buy_price`, `amount` → `total_amount`
+   - 옵션 2개 → 3개로 확장:
+     - `alert`: 알림만 (매수 계속)
+     - `alert_stop`: 알림 + 매수 중단
+     - `liquidate`: 전체 청산
+   - 파일: `core/v4_trading_engine.py`, `gui/global_settings_dialog.py`
+
+4. **전체 청산 Rate Limit 준수** (`e448844`)
+   - 청산 시 매도 주문 간 0.15초 딜레이 추가
+   - Upbit 주문 API Rate Limit (8 req/sec) 준수
+   - 파일: `core/v4_trading_engine.py`
+
+5. **WebSocket 통합 구조 제안서 작성** (`e448f75`)
+   - 현재 구조 (코인별 개별 WebSocket) vs 개선 구조 (통합 WebSocket) 비교
+   - 시작 시간: 13개 코인 기준 16초 → 1-2초 예상
+   - 파일: `docs/WEBSOCKET_UNIFIED_PROPOSAL.md`
+
+### 변경된 파일
+- `gui/group_management_dialog.py`
+- `core/position_manager.py`
+- `core/v4_trading_engine.py`
+- `gui/global_settings_dialog.py`
+- `docs/WEBSOCKET_UNIFIED_PROPOSAL.md` (신규)
+
+### 분석/학습 내용
+- WebSocket 시작 시간 병목 원인 분석 (로그 기반)
+- Upbit 공식 문서 확인: 하나의 WebSocket에 여러 코인 구독 가능
+- GUI WebSocket (`price_websocket_worker.py`)은 이미 통합 방식 사용 중
+
+### 다음 세션 권장 작업
+1. **WebSocket 통합 구조 구현** (새 브랜치에서)
+   - 참고: `docs/WEBSOCKET_UNIFIED_PROPOSAL.md`
+2. Dry-run 테스트 계속
+3. 포지션 손실 한도 3가지 옵션 실제 테스트
+
+---
+
 ## 2025-12-02 세션 2
 
 ### 작업 내용
