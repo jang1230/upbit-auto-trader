@@ -365,6 +365,13 @@ class MainWindow(QMainWindow):
         button_group = QGroupBox("⚙️ 제어")
         button_layout = QVBoxLayout()
 
+        # 🔧 V4: 모드 전환 버튼 추가
+        self.mode_switch_btn = QPushButton("🔴 Live 모드")
+        self.mode_switch_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px; font-weight: bold;")
+        self.mode_switch_btn.setMaximumWidth(140)
+        self.mode_switch_btn.clicked.connect(self._toggle_mode)
+        button_layout.addWidget(self.mode_switch_btn)
+
         # 🔧 V4: 그룹 관리 버튼 추가
         group_management_btn = QPushButton("그룹 관리")
         group_management_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px; font-weight: bold;")
@@ -3464,28 +3471,19 @@ class MainWindow(QMainWindow):
             return
 
         # ========================================
-        # 3단계: 전환 확인 다이얼로그
+        # 3단계: 전환 확인 다이얼로그 (양방향 동일)
         # ========================================
         if not current_dry_run:  # Live → Dry-run
-            reply = QMessageBox.question(
-                self,
-                "가상 거래 모드로 전환",
-                "가상 거래 모드로 전환하시겠습니까?\n\n"
-                "• 실제 거래가 중단됩니다\n"
-                "• 테스트 목적으로만 사용됩니다",
-                QMessageBox.Yes | QMessageBox.No
-            )
+            target_mode = "🟢 가상 거래 (Dry-run)"
         else:  # Dry-run → Live
-            reply = QMessageBox.warning(
-                self,
-                "실거래 모드로 전환",
-                "⚠️ 실거래 모드로 전환하시겠습니까?\n\n"
-                "주의사항:\n"
-                "• 실제 자금이 사용됩니다\n"
-                "• 모든 거래는 되돌릴 수 없습니다\n"
-                "• 충분히 테스트 후 전환하세요",
-                QMessageBox.Yes | QMessageBox.No
-            )
+            target_mode = "🔴 실거래 (Live)"
+
+        reply = QMessageBox.question(
+            self,
+            "모드 전환 확인",
+            f"{target_mode} 모드로 전환하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No
+        )
 
         if reply != QMessageBox.Yes:
             return
@@ -3530,7 +3528,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "모드 전환 실패", f"모드 전환 중 오류가 발생했습니다:\n{e}")
 
     def _update_mode_display(self):
-        """모드 표시 업데이트 (메뉴 텍스트 + 상태바)"""
+        """모드 표시 업데이트 (사이드바 버튼 + 메뉴 텍스트 + 상태바)"""
         if not V4_AVAILABLE or not self.v4_config_manager:
             self.statusbar.showMessage("준비")
             return
@@ -3538,6 +3536,15 @@ class MainWindow(QMainWindow):
         try:
             config = self.v4_config_manager.load_config()
             is_dry_run = config.get("global_settings", {}).get("dry_run", True)
+
+            # 사이드바 버튼 업데이트
+            if hasattr(self, 'mode_switch_btn'):
+                if is_dry_run:
+                    self.mode_switch_btn.setText("🟢 Dry-run 모드")
+                    self.mode_switch_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px; font-weight: bold;")
+                else:
+                    self.mode_switch_btn.setText("🔴 Live 모드")
+                    self.mode_switch_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px; font-weight: bold;")
 
             # 메뉴 텍스트 업데이트
             if hasattr(self, 'mode_toggle_action'):
