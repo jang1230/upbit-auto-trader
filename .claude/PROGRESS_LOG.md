@@ -5,7 +5,43 @@
 
 ---
 
-## 2025-12-01 (최신)
+## 2025-12-02 (최신)
+
+### 작업 내용
+1. **WebSocket 중복 메시지 원인 분석 완료**
+   - Upbit 서버에서 동일 메시지 2회 전송 확인 (JSON_LIST 디버그 로그로 증명)
+   - `threading.Lock` 으로 Race Condition 해결됨 확인
+   - 신규 매수 테스트: 중복 없이 정상 작동 확인
+
+2. **그룹 삭제/코인 제거 시 포지션 관리 버그 수정** (`b85fba1`)
+   - 문제: `group_id=None` 설정 시 `sync_with_upbit()`에서 포지션 삭제됨
+   - 해결: `group_id="group_null"` 로 변경하여 미할당 포지션 유지
+   - 파일: `core/group_manager.py`
+
+3. **설정 로드 메시지 반복 원인 파악**
+   - `load_config()` 호출 시마다 `print()` 출력
+   - GUI 콜백에서 매번 config 로드 → 한 거래에 8회 이상 출력
+   - 해결 필요: `print` → `logger.debug` 변경 권장
+
+### 변경된 파일
+- `core/group_manager.py` (group_id: None → "group_null")
+
+### 확인된 정상 동작
+- ✅ 신규 매수 WebSocket 메시지 중복 없음
+- ✅ wait → trade → cancel 각 1회씩 정상 처리
+
+### 남은 이슈
+- ⚠️ `load_config()` print 메시지 반복 (기능 이상 없음, 로그만 지저분)
+- ⚠️ 디버그 로그 정리 필요 (JSON_LIST 로그)
+
+### 다음 세션 권장 작업
+1. `config_manager.py`: `print` → `logger.debug` 변경
+2. `upbit_websocket.py`: JSON_LIST 디버그 로그 제거 또는 `logger.debug`로 변경
+3. 그룹 삭제/코인 이동 실제 테스트
+
+---
+
+## 2025-12-01
 
 ### 작업 내용
 1. **그룹 삭제/코인 제거 시 포지션 처리 수정** (`b85fba1`)
