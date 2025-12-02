@@ -83,7 +83,22 @@ Upbit API 관련 질문 시 **웹사이트를 fetch하지 말고** 로컬 `upbit
 
 사용자가 "작업 마무리", "세션 끝", "커밋해줘" 등을 말하면:
 
-1. `.claude/PROGRESS_LOG.md` 맨 위에 아래 양식으로 기록 추가:
+### 1단계: 오늘 커밋 확인
+```bash
+git log --oneline --since="YYYY-MM-DD"
+```
+
+### 2단계: 커밋 접두사별 문서 업데이트
+
+| 접두사 | 업데이트 대상 |
+|--------|--------------|
+| `feat:` | `FEATURE_LIST.json` (features), `PROJECT_CONTEXT.md` (파일 구조) |
+| `fix:` | `FEATURE_LIST.json` (resolved_issues) |
+| `refactor:` | `PROJECT_CONTEXT.md` (아키텍처 변경 시) |
+| `docs:` | 스킵 (이미 문서 작업) |
+| `debug:` | `PROGRESS_LOG.md`만 |
+
+### 3단계: PROGRESS_LOG.md 기록
 
 ```markdown
 ## YYYY-MM-DD 세션
@@ -100,7 +115,7 @@ Upbit API 관련 질문 시 **웹사이트를 fetch하지 말고** 로컬 `upbit
 1. 다음에 할 일
 ```
 
-2. 커밋 메시지 형식: `fix:`, `feat:`, `refactor:`, `docs:`
+### 4단계: 커밋 & 푸시
 
 ---
 
