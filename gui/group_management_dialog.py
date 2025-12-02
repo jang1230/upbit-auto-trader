@@ -89,6 +89,7 @@ class GroupManagementDialog(QDialog):
         self.group_name_edit = None
         self.observation_checkbox = None
         self.coin_checkboxes: Dict[str, QCheckBox] = {}
+        self.assigned_coins: Dict[str, str] = {}  # 다른 그룹에 할당된 코인 {symbol: group_name}
         self.settings_btn = None
         self.manual_buy_btn = None  # 수동 매수 버튼
         self.save_btn = None
@@ -413,16 +414,16 @@ class GroupManagementDialog(QDialog):
             config = self.config_manager.load_config()
             groups = config.get("groups", {})
 
-            assigned_coins = {}  # {symbol: group_name}
+            self.assigned_coins = {}  # {symbol: group_name}
             for gid, gdata in groups.items():
                 if gid == self.selected_group_id:
                     continue  # 현재 그룹은 제외
 
                 for coin in gdata.get("coins", []):
-                    assigned_coins[coin] = gdata.get("name", gid)
+                    self.assigned_coins[coin] = gdata.get("name", gid)
         except Exception as e:
             logger.warning(f"⚠️ 할당된 코인 확인 실패: {e}")
-            assigned_coins = {}
+            self.assigned_coins = {}
 
         # 체크박스 생성
         for symbol, name in available_coins:
@@ -435,10 +436,10 @@ class GroupManagementDialog(QDialog):
             checkbox.setFont(QFont("맑은 고딕", 9))
 
             # 다른 그룹에 이미 있는 코인은 비활성화
-            if symbol in assigned_coins:
+            if symbol in self.assigned_coins:
                 checkbox.setEnabled(False)
                 checkbox.setStyleSheet("color: #999;")
-                checkbox.setToolTip(f"이미 \"{assigned_coins[symbol]}\" 그룹에 포함됨")
+                checkbox.setToolTip(f"이미 \"{self.assigned_coins[symbol]}\" 그룹에 포함됨")
             else:
                 checkbox.stateChanged.connect(self._on_coin_selection_changed)
 
@@ -580,6 +581,9 @@ class GroupManagementDialog(QDialog):
             for symbol, checkbox in self.coin_checkboxes.items():
                 checkbox.setChecked(symbol in group_coins)
 
+            # 코인 체크박스 정렬 (선택된 코인 → 다른 그룹 코인 → 미할당 코인)
+            self._sort_coin_checkboxes()
+
             # 코인 개수 업데이트
             self._update_coin_count()
 
@@ -617,6 +621,51 @@ class GroupManagementDialog(QDialog):
             display_text = f"{checked_count}개 선택됨: {coin_str}"
 
         self.coin_count_label.setText(display_text)
+
+    def _sort_coin_checkboxes(self):
+        """
+        코인 체크박스 정렬
+
+        정렬 순서:
+        1. 선택된 코인 (체크된 코인) - 최상단
+        2. 다른 그룹에 할당된 코인 (비활성화/회색) - 중간
+        3. 미할당 코인 - 하단 (알파벳 순)
+        """
+        # 3가지 그룹으로 분류
+        checked_coins = []      # 현재 그룹에서 선택된 코인
+        assigned_coins = []     # 다른 그룹에 할당된 코인
+        unassigned_coins = []   # 미할당 코인
+
+        for symbol, checkbox in self.coin_checkboxes.items():
+            if checkbox.isChecked():
+                checked_coins.append((symbol, checkbox))
+            elif symbol in self.assigned_coins:
+                assigned_coins.append((symbol, checkbox))
+            else:
+                unassigned_coins.append((symbol, checkbox))
+
+        # 각 그룹 내에서 알파벳 순 정렬
+        checked_coins.sort(key=lambda x: x[0])
+        assigned_coins.sort(key=lambda x: x[0])
+        unassigned_coins.sort(key=lambda x: x[0])
+
+        # 레이아웃에서 모든 체크박스 제거 (stretch 제외)
+        for symbol, checkbox in self.coin_checkboxes.items():
+            self.coin_checkbox_layout.removeWidget(checkbox)
+
+        # 정렬된 순서로 다시 추가 (1. 선택된 코인 → 2. 다른 그룹 코인 → 3. 미할당 코인)
+        insert_index = 0
+        for symbol, checkbox in checked_coins:
+            self.coin_checkbox_layout.insertWidget(insert_index, checkbox)
+            insert_index += 1
+
+        for symbol, checkbox in assigned_coins:
+            self.coin_checkbox_layout.insertWidget(insert_index, checkbox)
+            insert_index += 1
+
+        for symbol, checkbox in unassigned_coins:
+            self.coin_checkbox_layout.insertWidget(insert_index, checkbox)
+            insert_index += 1
 
     def _filter_coins(self):
         """검색어에 따라 코인 필터링 (매칭 결과를 상단에 표시)"""
