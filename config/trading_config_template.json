@@ -1,7 +1,6 @@
 {
   "version": "4.0.0",
   "global_settings": {
-    "trading_day_reset_hour": 9,
     "max_positions": {
       "enabled": false,
       "limit": 3
@@ -9,12 +8,6 @@
     "min_krw_balance": {
       "enabled": true,
       "amount": 50000
-    },
-    "daily_loss_limit": {
-      "enabled": false,
-      "loss_pct": 10.0,
-      "calculation_method": "daily_only",
-      "action": "alert"
     },
     "position_loss_limit": {
       "enabled": false,

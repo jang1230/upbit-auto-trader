@@ -209,7 +209,6 @@ class ConfigManager:
             config = {
                 "version": "4.0.0",
                 "global_settings": {
-                    "trading_day_reset_hour": 9,
                     "max_positions": {
                         "enabled": False,
                         "limit": 3
@@ -218,11 +217,11 @@ class ConfigManager:
                         "enabled": True,
                         "amount": 50000
                     },
-                    "daily_loss_limit": {
+                    "position_loss_limit": {
                         "enabled": False,
-                        "loss_pct": 10.0,
-                        "calculation_method": "daily_only",
-                        "action": "alert"
+                        "limit_pct": -10.0,
+                        "action": "alert",
+                        "exclude_observation_groups": True
                     },
                     "telegram": {
                         "enabled": False,
@@ -261,7 +260,6 @@ class ConfigManager:
         v4_config = {
             "version": "4.0.0",
             "global_settings": {
-                "trading_day_reset_hour": 9,
                 "max_positions": {
                     "enabled": False,
                     "limit": 3
@@ -270,11 +268,11 @@ class ConfigManager:
                     "enabled": False,
                     "amount": 50000
                 },
-                "daily_loss_limit": {
+                "position_loss_limit": {
                     "enabled": False,
-                    "loss_pct": 10.0,
-                    "calculation_method": "daily_only",
-                    "action": "alert"
+                    "limit_pct": -10.0,
+                    "action": "alert",
+                    "exclude_observation_groups": True
                 },
                 "telegram": {
                     "enabled": False,

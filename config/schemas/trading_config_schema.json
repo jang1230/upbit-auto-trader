@@ -13,13 +13,6 @@
       "type": "object",
       "required": ["dry_run"],
       "properties": {
-        "trading_day_reset_hour": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 23,
-          "default": 9,
-          "description": "Hour to reset daily counters (0-23, default: 9)"
-        },
         "max_positions": {
           "type": "object",
           "required": ["enabled", "limit"],
@@ -47,31 +40,6 @@
               "type": "number",
               "minimum": 0,
               "description": "Minimum KRW balance to maintain (in KRW)"
-            }
-          }
-        },
-        "daily_loss_limit": {
-          "type": "object",
-          "required": ["enabled", "loss_pct", "calculation_method", "action"],
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "loss_pct": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 50,
-              "description": "Daily loss limit percentage (1-50%)"
-            },
-            "calculation_method": {
-              "type": "string",
-              "enum": ["daily_only", "total_account"],
-              "description": "How to calculate daily loss"
-            },
-            "action": {
-              "type": "string",
-              "enum": ["alert", "liquidate"],
-              "description": "Action when limit is reached"
             }
           }
         },

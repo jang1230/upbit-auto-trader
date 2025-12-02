@@ -1,8 +1,8 @@
 """
 전역 설정 다이얼로그
 - Upbit API 설정 (Access Key, Secret Key)
-- 거래 제한 (최대 포지션, 최소 잔고, 거래일 리셋)
-- 일일 손실 한도
+- 거래 제한 (최대 포지션, 최소 잔고)
+- 포지션 손실 한도
 - 텔레그램 알림
 
 Dependencies (이 파일이 사용하는 모듈):
@@ -18,7 +18,7 @@ Key Components:
     - GlobalSettingsDialog: 전역 설정 다이얼로그 클래스
     - _create_upbit_api_tab(): Upbit API 설정 탭
     - _create_trading_limits_tab(): 거래 제한 탭
-    - _create_loss_limit_tab(): 손실 한도 탭
+    - _create_loss_limit_tab(): 포지션 손실 한도 탭
     - _create_telegram_tab(): 텔레그램 알림 탭
     - _test_upbit(): Upbit API 연결 테스트
     - _test_telegram(): 텔레그램 테스트 메시지 전송
@@ -67,9 +67,9 @@ class GlobalSettingsDialog(QDialog):
         self.trading_limits_tab = self._create_trading_limits_tab()
         self.tab_widget.addTab(self.trading_limits_tab, "거래 제한")
 
-        # Tab 2: 손실 한도 (일일 손실 한도 + 포지션 손실 한도)
+        # Tab 2: 포지션 손실 한도
         self.loss_limit_tab = self._create_loss_limit_tab()
-        self.tab_widget.addTab(self.loss_limit_tab, "손실 한도")
+        self.tab_widget.addTab(self.loss_limit_tab, "포지션 손실 한도")
 
         # Tab 3: 텔레그램 알림
         self.telegram_tab = self._create_telegram_tab()
@@ -167,23 +167,7 @@ class GlobalSettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout()
 
-        # 1. 거래일 리셋 시간
-        reset_group = QGroupBox("거래일 리셋 시간")
-        reset_layout = QFormLayout()
-
-        self.reset_hour_spin = QSpinBox()
-        self.reset_hour_spin.setRange(0, 23)
-        self.reset_hour_spin.setSuffix("시")
-        reset_layout.addRow("리셋 시간:", self.reset_hour_spin)
-
-        reset_info = QLabel("매일 이 시간에 일일 손실 한도가 초기화됩니다.")
-        reset_info.setStyleSheet("color: gray; font-size: 11px;")
-        reset_layout.addRow("", reset_info)
-
-        reset_group.setLayout(reset_layout)
-        layout.addWidget(reset_group)
-
-        # 2. 최대 포지션 수
+        # 1. 최대 포지션 수
         max_pos_group = QGroupBox("최대 포지션 수 제한")
         max_pos_layout = QVBoxLayout()
 
@@ -205,7 +189,7 @@ class GlobalSettingsDialog(QDialog):
         max_pos_group.setLayout(max_pos_layout)
         layout.addWidget(max_pos_group)
 
-        # 3. 최소 KRW 잔고
+        # 2. 최소 KRW 잔고
         min_balance_group = QGroupBox("최소 KRW 잔고 유지")
         min_balance_layout = QVBoxLayout()
 
@@ -233,65 +217,11 @@ class GlobalSettingsDialog(QDialog):
         return widget
 
     def _create_loss_limit_tab(self) -> QWidget:
-        """손실 한도 탭 생성 (일일 손실 한도 + 포지션 손실 한도)"""
+        """포지션 손실 한도 탭 생성"""
         widget = QWidget()
         layout = QVBoxLayout()
 
-        # ========== 1. 일일 손실 한도 ==========
-        daily_loss_group = QGroupBox("일일 손실 한도 설정")
-        daily_loss_layout = QVBoxLayout()
-
-        # 활성화 체크박스
-        self.daily_loss_enabled = QCheckBox("일일 손실 한도 활성화")
-        self.daily_loss_enabled.toggled.connect(self._on_daily_loss_toggled)
-        daily_loss_layout.addWidget(self.daily_loss_enabled)
-
-        # 손실 퍼센트
-        loss_pct_layout = QFormLayout()
-        self.daily_loss_pct_spin = QDoubleSpinBox()
-        self.daily_loss_pct_spin.setRange(1.0, 50.0)
-        self.daily_loss_pct_spin.setSingleStep(1.0)
-        self.daily_loss_pct_spin.setSuffix("%")
-        loss_pct_layout.addRow("손실 한도:", self.daily_loss_pct_spin)
-
-        daily_loss_layout.addLayout(loss_pct_layout)
-
-        # 계산 방식
-        calc_method_layout = QFormLayout()
-        self.calc_method_combo = QComboBox()
-        self.calc_method_combo.addItem("09시 기준 (daily_only)", "daily_only")
-        self.calc_method_combo.addItem("초기 자본금 기준 (total_account)", "total_account")
-        calc_method_layout.addRow("계산 방식:", self.calc_method_combo)
-
-        calc_method_info = QLabel(
-            "• 09시 기준: 매일 09시 스냅샷 대비 손실 계산\n"
-            "• 초기 자본금 기준: 시작 시점 대비 누적 손실 계산"
-        )
-        calc_method_info.setStyleSheet("color: gray; font-size: 11px;")
-        calc_method_layout.addRow("", calc_method_info)
-
-        daily_loss_layout.addLayout(calc_method_layout)
-
-        # 조치 방식
-        action_layout = QFormLayout()
-        self.action_combo = QComboBox()
-        self.action_combo.addItem("알림만 (alert)", "alert")
-        self.action_combo.addItem("전체 청산 (liquidate)", "liquidate")
-        action_layout.addRow("조치:", self.action_combo)
-
-        action_info = QLabel(
-            "• 알림만: 텔레그램 알림만 전송\n"
-            "• 전체 청산: 모든 포지션을 시장가로 매도"
-        )
-        action_info.setStyleSheet("color: gray; font-size: 11px;")
-        action_layout.addRow("", action_info)
-
-        daily_loss_layout.addLayout(action_layout)
-
-        daily_loss_group.setLayout(daily_loss_layout)
-        layout.addWidget(daily_loss_group)
-
-        # ========== 2. 포지션 손실 한도 (새로 추가) ==========
+        # 포지션 손실 한도
         position_loss_group = QGroupBox("포지션 손실 한도 설정")
         position_loss_layout = QVBoxLayout()
 
@@ -410,9 +340,6 @@ class GlobalSettingsDialog(QDialog):
 
         global_settings = self.config.get("global_settings", {})
 
-        # 거래일 리셋 시간
-        self.reset_hour_spin.setValue(global_settings.get("trading_day_reset_hour", 9))
-
         # 최대 포지션 수
         max_pos = global_settings.get("max_positions", {})
         self.max_positions_enabled.setChecked(max_pos.get("enabled", False))
@@ -424,23 +351,6 @@ class GlobalSettingsDialog(QDialog):
         self.min_balance_enabled.setChecked(min_balance.get("enabled", True))
         self.min_balance_spin.setValue(min_balance.get("amount", 50000))
         self._on_min_balance_toggled(min_balance.get("enabled", True))
-
-        # 일일 손실 한도
-        daily_loss = global_settings.get("daily_loss_limit", {})
-        self.daily_loss_enabled.setChecked(daily_loss.get("enabled", False))
-        self.daily_loss_pct_spin.setValue(daily_loss.get("loss_pct", 10.0))
-
-        calc_method = daily_loss.get("calculation_method", "daily_only")
-        index = self.calc_method_combo.findData(calc_method)
-        if index >= 0:
-            self.calc_method_combo.setCurrentIndex(index)
-
-        action = daily_loss.get("action", "alert")
-        index = self.action_combo.findData(action)
-        if index >= 0:
-            self.action_combo.setCurrentIndex(index)
-
-        self._on_daily_loss_toggled(daily_loss.get("enabled", False))
 
         # 포지션 손실 한도
         position_loss = global_settings.get("position_loss_limit", {})
@@ -469,12 +379,6 @@ class GlobalSettingsDialog(QDialog):
     def _on_min_balance_toggled(self, checked: bool):
         """최소 잔고 토글"""
         self.min_balance_spin.setEnabled(checked)
-
-    def _on_daily_loss_toggled(self, checked: bool):
-        """일일 손실 한도 토글"""
-        self.daily_loss_pct_spin.setEnabled(checked)
-        self.calc_method_combo.setEnabled(checked)
-        self.action_combo.setEnabled(checked)
 
     def _on_position_loss_toggled(self, checked: bool):
         """포지션 손실 한도 토글"""
@@ -612,9 +516,6 @@ class GlobalSettingsDialog(QDialog):
 
             global_settings = self.config["global_settings"]
 
-            # 거래일 리셋 시간
-            global_settings["trading_day_reset_hour"] = self.reset_hour_spin.value()
-
             # 최대 포지션 수
             global_settings["max_positions"] = {
                 "enabled": self.max_positions_enabled.isChecked(),
@@ -625,14 +526,6 @@ class GlobalSettingsDialog(QDialog):
             global_settings["min_krw_balance"] = {
                 "enabled": self.min_balance_enabled.isChecked(),
                 "amount": self.min_balance_spin.value()
-            }
-
-            # 일일 손실 한도
-            global_settings["daily_loss_limit"] = {
-                "enabled": self.daily_loss_enabled.isChecked(),
-                "loss_pct": self.daily_loss_pct_spin.value(),
-                "calculation_method": self.calc_method_combo.currentData(),
-                "action": self.action_combo.currentData()
             }
 
             # 포지션 손실 한도

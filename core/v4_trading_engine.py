@@ -6,14 +6,12 @@ V4 거래 엔진 (핵심 오케스트레이터)
 - 그룹별 독립 거래 루프
 - 실시간 포지션 관리
 - 전역 제약 확인
-- 일일 스냅샷 및 리셋
 
 Dependencies (이 파일이 사용하는 모듈):
     - core/config_manager.py: ConfigManager (설정 로드)
     - core/group_manager.py: GroupManager (그룹 관리)
     - core/position_manager.py: PositionManager (포지션 CRUD)
     - core/trade_history_manager.py: TradeHistoryManager (거래 기록)
-    - core/daily_loss_tracker.py: DailyLossTracker (일일 손실 추적)
     - core/pending_order_manager.py: PendingOrderManager (대기 주문)
     - core/upbit_api.py: UpbitAPI (REST API)
     - core/upbit_websocket.py: WebSocket 연결
@@ -53,7 +51,6 @@ from core.config_manager import ConfigManager
 from core.group_manager import GroupManager
 from core.position_manager import PositionManager
 from core.trade_history_manager import TradeHistoryManager
-from core.daily_loss_tracker import DailyLossTracker
 from core.strategies.v4_auto_buy_strategy import V4AutoBuyStrategy
 from core.strategies.expert_strategy import ExpertStrategy
 from core.upbit_api import UpbitAPI, SymbolNotFoundError
@@ -182,20 +179,7 @@ class V4TradingEngine:
             logger.info("ℹ️ 텔레그램 알림 비활성화")
             self.telegram_bot = None
 
-        # 일일 손실 추적 (deprecated - 포지션 손실 한도로 대체)
-        daily_loss_config = self.global_settings.get("daily_loss_limit", {})
-        if daily_loss_config.get("enabled", False):
-            self.daily_loss_tracker = DailyLossTracker(
-                config=daily_loss_config,
-                get_valuation_fn=self._get_total_valuation,
-                get_krw_balance_fn=self._get_krw_balance,
-                send_alert_fn=self._send_telegram_alert,
-                liquidate_fn=self._liquidate_all_positions
-            )
-        else:
-            self.daily_loss_tracker = None
-
-        # 포지션 손실 한도 (새로운 방식)
+        # 포지션 손실 한도
         self.position_loss_limit_config = self.global_settings.get("position_loss_limit", {})
         self.loss_limit_reached = False  # 손실 한도 도달 플래그
         self.loss_limit_reached_time = None  # 도달 시각
@@ -221,7 +205,6 @@ class V4TradingEngine:
 
         # 🔧 잔고 캐시 (Rate Limit 방지)
         # TTL 60초: 매수/매도 직전에만 호출되므로 긴 TTL 사용
-        # (DailyLossTracker나 포지션 평가 시에도 사용)
         self.balance_cache: Dict[str, Any] = {
             "krw": 0.0,
             "last_updated": None,
@@ -581,10 +564,6 @@ class V4TradingEngine:
             except Exception as e:
                 logger.error(f"❌ Adaptive Polling 시작 실패: {e}", exc_info=True)
                 logger.warning("⚠️ REST API 폴링만 사용 (WebSocket 없이)")
-
-        # 일일 손실 추적 초기화
-        if self.daily_loss_tracker:
-            self.daily_loss_tracker.check_and_reset()
 
         # 그룹별 전략 초기화
         self._initialize_strategies()
@@ -1058,10 +1037,6 @@ class V4TradingEngine:
                     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     logger.info(f"🔄 [{loop_count}회차] 거래 체크 시작 (1초 간격)")
                     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-                # 일일 손실 한도 체크 및 리셋 (1초마다)
-                if self.daily_loss_tracker:
-                    self.daily_loss_tracker.check_and_reset()
 
                 # 모든 그룹 순회
                 all_groups = self.group_manager.get_all_groups()
@@ -3754,15 +3729,6 @@ class V4TradingEngine:
         # ⚠️ 최소 잔고 체크는 _execute_buy()와 _execute_dca()에서 직접 수행
         # → 매수 직전에만 API 호출 (불필요한 매초 API 호출 방지)
 
-        # 일일 손실 한도 체크
-        daily_loss_enabled = self.daily_loss_tracker is not None
-        if verbose:
-            logger.info(f"         🔍 일일 손실 한도 체크 활성화 = {daily_loss_enabled}")
-
-        if self.daily_loss_tracker and self.daily_loss_tracker.is_limit_reached():
-            logger.warning(f"⚠️ 일일 손실 한도 도달로 인해 거래 불가")
-            return False
-
         # 포지션 손실 한도 체크
         position_loss_enabled = self.position_loss_limit_config.get("enabled", False)
         if verbose:
@@ -4352,12 +4318,8 @@ class V4TradingEngine:
             logger.error(f"❌ 거래 이벤트 발생 오류: {e}")
 
     def _run_scheduler(self):
-        """스케줄러 실행 (09:00 리셋 등)"""
+        """스케줄러 실행"""
         logger.info("⏰ 스케줄러 시작")
-
-        # 09:00 리셋 스케줄 등록
-        if self.daily_loss_tracker:
-            schedule.every().day.at("09:00").do(self._daily_reset_task)
 
         while not self.stop_event.is_set():
             try:
@@ -4367,15 +4329,6 @@ class V4TradingEngine:
                 logger.error(f"❌ 스케줄러 오류: {e}", exc_info=True)
 
         logger.info("🛑 스케줄러 종료")
-
-    def _daily_reset_task(self):
-        """일일 리셋 작업"""
-        logger.info("🌅 09:00 일일 리셋 시작")
-
-        if self.daily_loss_tracker:
-            self.daily_loss_tracker.check_and_reset()
-
-        logger.info("✅ 09:00 일일 리셋 완료")
 
     # ========================================
     # 🔧 Pending Order 복구 & 수동 매수 감지
