@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QAction, QFont, QColor, QTextCursor
-from gui.settings_dialog import SettingsDialog
 from gui.config_manager import ConfigManager
 from gui.trading_worker import TradingEngineWorker
 from gui.multi_coin_worker import MultiCoinTradingWorker  # 🔧 다중 코인 워커 추가
@@ -863,12 +862,25 @@ class MainWindow(QMainWindow):
     # ========================================
 
     def _open_settings(self):
-        """설정 다이얼로그 열기"""
-        dialog = SettingsDialog(self)
-        dialog.settings_changed.connect(self._on_settings_changed)
+        """설정 다이얼로그 열기 (전역 설정으로 통합)"""
+        # V4 config_manager가 없으면 경고
+        if not V4_AVAILABLE or not self.v4_config_manager:
+            QMessageBox.warning(
+                self,
+                "V4 미지원",
+                "V4 설정 파일이 없습니다.\n"
+                "그룹 관리에서 새 그룹을 생성하면 V4 설정이 자동 생성됩니다."
+            )
+            return
 
-        if dialog.exec():
+        from gui.global_settings_dialog import GlobalSettingsDialog
+
+        dialog = GlobalSettingsDialog(self.v4_config_manager, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            # .env 설정 리로드
+            self.config_manager.reload()
             self._add_log("✅ 설정이 저장되었습니다")
+            self._update_status()
 
     def _on_settings_changed(self):
         """설정 변경 시"""
