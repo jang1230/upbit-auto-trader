@@ -619,20 +619,32 @@ class GroupManagementDialog(QDialog):
         self.coin_count_label.setText(display_text)
 
     def _filter_coins(self):
-        """검색어에 따라 코인 필터링"""
+        """검색어에 따라 코인 필터링 (매칭 결과를 상단에 표시)"""
         search_text = self.coin_search_edit.text().strip().upper()
 
-        # 검색어가 비어있으면 모두 표시
+        # 검색어가 비어있으면 모두 표시 (원래 순서 유지)
         if not search_text:
             for checkbox in self.coin_checkboxes.values():
                 checkbox.setVisible(True)
             return
 
-        # 검색어와 일치하는 항목만 표시
+        # 매칭/비매칭 분리
+        matched = []
+        unmatched = []
+
         for symbol, checkbox in self.coin_checkboxes.items():
-            # 심볼명 또는 표시 텍스트에서 검색
             checkbox_text = checkbox.text().upper()
-            checkbox.setVisible(search_text in checkbox_text)
+            if search_text in checkbox_text:
+                matched.append((symbol, checkbox))
+                checkbox.setVisible(True)
+            else:
+                unmatched.append((symbol, checkbox))
+                checkbox.setVisible(False)
+
+        # 매칭된 항목을 레이아웃 상단(인덱스 0부터)으로 이동
+        for i, (symbol, checkbox) in enumerate(matched):
+            self.coin_checkbox_layout.removeWidget(checkbox)
+            self.coin_checkbox_layout.insertWidget(i, checkbox)
 
     def _save_group(self):
         """그룹 저장"""
