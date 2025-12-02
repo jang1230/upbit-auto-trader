@@ -23,7 +23,7 @@ if __name__ == "__main__":
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QGroupBox,
-    QMenuBar, QMenu, QMessageBox, QStatusBar,
+    QMessageBox, QStatusBar,
     QSpinBox, QDoubleSpinBox, QFormLayout,
     QTableWidget, QTableWidgetItem, QHeaderView,  # 포지션 테이블용
     QScrollArea, QSizePolicy, QSplitter, QTabWidget,  # Step 2: 사이드바 레이아웃 + 탭
@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QDialog  # Step 6: Global Settings Dialog용
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QAction, QFont, QColor, QTextCursor
+from PySide6.QtGui import QFont, QColor, QTextCursor
 from gui.config_manager import ConfigManager
 from gui.trading_worker import TradingEngineWorker
 from gui.multi_coin_worker import MultiCoinTradingWorker  # 🔧 다중 코인 워커 추가
@@ -259,7 +259,6 @@ class MainWindow(QMainWindow):
         self.trade_event_signal.connect(self._on_trade_event_received)  # 🆕 거래 내역 Signal
 
         self._init_ui()
-        self._init_menu()
         self._init_statusbar()
         self._update_status()
 
@@ -572,33 +571,6 @@ class MainWindow(QMainWindow):
         # 초기 로그 메시지
         self._add_log("🚀 Upbit DCA Trader GUI 시작")
         self._add_log("📌 좌측 사이드바에서 설정을 확인하세요")
-        self._add_log("ℹ️ 설정 메뉴(상단)에서 API 키와 Telegram을 설정하세요")
-
-    def _init_menu(self):
-        """메뉴 초기화"""
-        menubar = self.menuBar()
-
-        # 파일 메뉴
-        file_menu = menubar.addMenu("파일")
-
-        exit_action = QAction("종료", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-
-        # 설정 메뉴
-        settings_menu = menubar.addMenu("설정")
-
-        config_action = QAction("⚙️ 환경 설정", self)
-        config_action.triggered.connect(self._open_settings)
-        settings_menu.addAction(config_action)
-
-        # 도움말 메뉴
-        help_menu = menubar.addMenu("도움말")
-
-        about_action = QAction("ℹ️ 정보", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
 
     def _init_statusbar(self):
         """상태바 초기화"""
@@ -887,21 +859,6 @@ class MainWindow(QMainWindow):
         self.config_manager.reload()
         self._add_log("📝 설정이 다시 로드되었습니다")
         self._update_status()
-
-    def _show_about(self):
-        """정보 다이얼로그"""
-        QMessageBox.about(
-            self,
-            "Upbit DCA Trader",
-            "<h2>Upbit DCA Trader</h2>"
-            "<p>비트코인 자동 매매 트레이딩 봇</p>"
-            "<p><b>버전:</b> 1.0.0 (Phase 3.7)</p>"
-            "<p><b>전략:</b> 볼린저 밴드 (20, 2.5)</p>"
-            "<p><b>리스크 관리:</b> 손절 -5%, 익절 +10%</p>"
-            "<hr>"
-            "<p><b>개발:</b> Claude Code AI Assistant</p>"
-            "<p><b>라이선스:</b> MIT</p>"
-        )
 
     # ========================================
     # 트레이딩 제어
