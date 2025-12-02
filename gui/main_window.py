@@ -2652,12 +2652,12 @@ class MainWindow(QMainWindow):
                 loss_mode = loss_settings.get("mode", "disabled")
                 loss_text = "ON" if loss_mode in ["auto", "alert"] else "OFF"
 
-                # 포지션 데이터
-                average_price = pos.get("avg_buy_price", 0)
-                current_price = pos.get("current_price", average_price)
-                total_amount = pos.get("total_amount", 0)
-                profit_krw = pos.get("profit_krw", 0)
-                profit_pct = pos.get("profit_pct", 0)
+                # 포지션 데이터 (None 값 방어 처리)
+                average_price = pos.get("avg_buy_price") or 0
+                current_price = pos.get("current_price") or average_price or 0
+                total_amount = pos.get("total_amount") or 0
+                profit_krw = pos.get("profit_krw") or 0
+                profit_pct = pos.get("profit_pct") or 0
 
                 # 🆕 총평가손익/총투자금액 누적 (관찰 모드 제외)
                 if not group.get("observation_only", False):
@@ -2967,14 +2967,15 @@ class MainWindow(QMainWindow):
                 group_item = self.position_table.item(row, 0)
                 bg_color = group_item.background() if group_item else QColor("white")
 
-                # 현재가 업데이트 (컬럼 7)
-                price_item = QTableWidgetItem(f"{current_price:,.2f}")
+                # 현재가 업데이트 (컬럼 7) - None 방어
+                safe_price = current_price or 0
+                price_item = QTableWidgetItem(f"{safe_price:,.2f}")
                 price_item.setTextAlignment(Qt.AlignCenter)
                 price_item.setBackground(bg_color)
                 self.position_table.setItem(row, 7, price_item)
 
-                # 평가손익 업데이트 (컬럼 9)
-                profit_krw = position.get('profit_krw', 0)
+                # 평가손익 업데이트 (컬럼 9) - None 방어
+                profit_krw = position.get('profit_krw') or 0
                 profit_item = QTableWidgetItem(f"{profit_krw:+,.0f}")
                 profit_item.setTextAlignment(Qt.AlignCenter)
                 profit_item.setBackground(bg_color)
@@ -2986,8 +2987,8 @@ class MainWindow(QMainWindow):
 
                 self.position_table.setItem(row, 9, profit_item)
 
-                # 수익률 업데이트 (컬럼 10)
-                profit_pct = position.get('profit_pct', 0)
+                # 수익률 업데이트 (컬럼 10) - None 방어
+                profit_pct = position.get('profit_pct') or 0
                 pct_item = QTableWidgetItem(f"{profit_pct:+.2f}%")
                 pct_item.setTextAlignment(Qt.AlignCenter)
                 pct_item.setBackground(bg_color)

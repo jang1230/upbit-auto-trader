@@ -629,11 +629,14 @@ class PositionManager:
         krw_balance = 0.0
 
         # Upbit 보유 자산 처리
+        logger.debug(f"📋 처리할 accounts 수: {len(accounts)}")
         for account in accounts:
             currency = account['currency']
             balance = float(account['balance'])
             locked = float(account['locked'])
             avg_buy_price = float(account['avg_buy_price'])
+
+            logger.debug(f"   🔍 처리 중: {currency} | 잔고: {balance:.8f} | 평균가: {avg_buy_price:,.0f}")
 
             # KRW 잔고는 별도 처리
             if currency == 'KRW':
@@ -643,6 +646,7 @@ class PositionManager:
 
             # 보유량이 거의 없으면 무시 (먼지)
             if balance < 0.00000001:
+                logger.debug(f"   ⏭️ 먼지 스킵: {currency} (잔고 < 0.00000001)")
                 continue
 
             # 심볼 생성 (예: BTC → KRW-BTC)
