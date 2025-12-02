@@ -380,6 +380,11 @@ class PositionManager:
         }
         position['dca_history'].append(dca_record)
 
+        # dca_levels_executed 업데이트 (중복 방지)
+        dca_levels_executed = position.get('dca_levels_executed', [])
+        if level not in dca_levels_executed:
+            dca_levels_executed.append(level)
+
         # 평균 단가 재계산
         total_amount = position['total_amount'] + dca_amount
         total_invested = position['total_invested_krw'] + dca_krw
@@ -388,12 +393,13 @@ class PositionManager:
         # 업데이트
         updates = {
             'dca_history': position['dca_history'],
+            'dca_levels_executed': dca_levels_executed,
             'total_amount': total_amount,
             'total_invested_krw': total_invested,
             'avg_buy_price': average_price
         }
 
-        print(f"✅ DCA 추가 ({self.mode}): {symbol} @ {dca_price:,.0f}원 (레벨 {level})")
+        print(f"✅ DCA 추가 ({self.mode}): {symbol} @ {dca_price:,.0f}원 (레벨 {level}, 완료: {dca_levels_executed})")
         return self.update_position(symbol, updates)
 
     def close_position(
