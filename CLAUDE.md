@@ -900,13 +900,22 @@ Created 3 new files, extended 2 existing files, and completed V4TradingEngine:
 
 ## 하네스 시스템 (세션별 진행 관리)
 
-최근 작업 기록과 동적 정보는 `.claude/` 폴더에서 관리됩니다:
+프로젝트 컨텍스트와 작업 기록은 `.claude/` 폴더에서 관리됩니다:
 
-| 파일 | 용도 |
-|------|------|
-| `.claude/PROGRESS_LOG.md` | 세션별 작업 기록, 최근 커밋 |
-| `.claude/FEATURE_LIST.json` | 기능 상태 (done/planned), 해결된 이슈 |
-| `.claude/SESSION_START.md` | 세션 시작 템플릿 |
+| 파일 | 용도 | 참조 시점 |
+|------|------|----------|
+| `.claude/PROJECT_CONTEXT.md` | **아키텍처, GUI 관계도, 설정 파일 구분** | 🔴 코드 분석/수정 전 필수 |
+| `.claude/PROGRESS_LOG.md` | 세션별 작업 기록, 최근 커밋 | 이어서 작업 시 |
+| `.claude/FEATURE_LIST.json` | 기능 상태 (done/planned), 해결된 이슈 | 기능 추가/버그 수정 시 |
+| `.claude/SESSION_START.md` | 세션 시작 템플릿 | 새 세션 시작 시 |
+| `.claude/HOW_IT_WORKS.md` | 하네스 시스템 사용 가이드 | 시스템 이해 필요 시 |
+
+### PROJECT_CONTEXT.md 주요 내용
+- **아키텍처 다이어그램**: V4TradingEngine 중심 구조
+- **GUI 컴포넌트 관계도**: MainWindow → Dialog → Worker 관계
+- **설정 파일 구분**: `.env` vs `config.json` 역할 분리
+- **핵심 모듈 목록**: 파일별 역할 및 수정 횟수
+- **알려진 이슈 패턴**: 해결된 버그와 해결책
 
 ### 최근 중요 변경 (2025-12 기준)
 
