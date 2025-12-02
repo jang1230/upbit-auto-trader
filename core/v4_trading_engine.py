@@ -4244,10 +4244,16 @@ class V4TradingEngine:
         self._send_telegram_alert(message)
 
     def _liquidate_all_positions(self, reason: str = "일일 손실 한도 도달"):
-        """모든 포지션 청산"""
+        """
+        모든 포지션 청산
+
+        Rate Limit 준수: 주문 API 초당 최대 8회 제한
+        → 0.15초 딜레이로 초당 최대 6.6회 유지 (안전 마진)
+        """
         logger.warning(f"🚨 모든 포지션 청산 시작 (사유: {reason})")
 
         all_positions = self.position_manager.get_all_positions()
+        sell_count = 0
 
         for symbol, position in all_positions.items():
             if position.get("status") != "active":
@@ -4260,10 +4266,15 @@ class V4TradingEngine:
 
             group_id, group = group_tuple
 
+            # Rate Limit 준수: 첫 번째 주문 이후부터 딜레이 적용
+            if sell_count > 0:
+                time.sleep(0.15)  # 0.15초 대기 (초당 최대 6.6회)
+
             # 매도 실행
             self._execute_sell(symbol, group_id, group, "emergency", quantity_ratio=1.0)
+            sell_count += 1
 
-        logger.warning(f"✅ 모든 포지션 청산 완료")
+        logger.warning(f"✅ 모든 포지션 청산 완료 ({sell_count}개 매도)")
 
     def _send_telegram_alert(self, message: str):
         """텔레그램 알림 전송 (동기 방식) - GUI 로그 없이 텔레그램만 전송"""
