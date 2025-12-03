@@ -114,7 +114,7 @@ class ConfigManager:
 
     def save_config(self, config: Dict[str, Any] = None) -> None:
         """
-        설정 파일 저장
+        설정 파일 저장 (원자적 쓰기)
 
         Args:
             config: 저장할 설정 (None이면 현재 self.config 사용)
@@ -132,15 +132,29 @@ class ConfigManager:
         # 저장 전 검증
         self.validate_config(config)
 
+        # 디렉토리 생성
+        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+
         # 백업 생성 (기존 파일이 있으면)
         if os.path.exists(self.config_path):
             backup_path = f"{self.config_path}.backup"
             shutil.copy2(self.config_path, backup_path)
 
-        # 저장
-        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        # 원자적 쓰기: 임시 파일 → rename
+        temp_path = self.config_path + '.tmp'
+        try:
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            # os.replace()는 원자적 연산 (POSIX 시스템에서)
+            os.replace(temp_path, self.config_path)
+        except Exception as e:
+            # 실패 시 임시 파일 정리
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            raise ConfigValidationError(f"설정 저장 실패: {e}")
 
         print(f"✅ 설정 저장 완료: {self.config_path}")
 
