@@ -259,6 +259,7 @@ class MainWindow(QMainWindow):
         self.websocket_manager = None  # WebSocketManager 인스턴스
         self._ws_loop = None  # asyncio 이벤트 루프
         self._ws_thread = None  # WebSocket 스레드
+        self._ws_starting = False  # 🆕 WebSocket 시작 중 플래그 (중복 방지)
 
         # 🔧 V4: Trading Engine 인스턴스
         self.v4_engine = None  # V4TradingEngine 인스턴스
@@ -1004,6 +1005,7 @@ class MainWindow(QMainWindow):
                 self.websocket_manager = None
                 self._ws_loop = None
                 self._ws_thread = None
+                self._ws_starting = False  # 🆕 플래그도 초기화
 
             # 🔧 2단계: V4TradingEngine 인스턴스 생성 (PositionManager 공유)
             self.v4_engine = V4TradingEngine(
@@ -2862,6 +2864,11 @@ class MainWindow(QMainWindow):
                 logger.debug("⏭️ 구독할 심볼 없음")
                 return
 
+            # 🆕 WebSocket 시작 중이면 스킵 (중복 방지)
+            if self._ws_starting:
+                logger.debug("⏭️ WebSocket 이미 시작 중, 스킵")
+                return
+
             # 🆕 WebSocketManager가 이미 실행 중이면 심볼만 추가
             if self.websocket_manager and self.websocket_manager.is_running:
                 logger.info(f"🔄 기존 WebSocket에 심볼 추가: {len(symbols)}개")
@@ -2884,6 +2891,7 @@ class MainWindow(QMainWindow):
 
             # 🆕 WebSocketManager 새로 생성 및 시작
             logger.info(f"🚀 통합 WebSocket 시작: {len(symbols)}개 심볼")
+            self._ws_starting = True  # 🆕 시작 중 플래그 설정
 
             # WebSocketManager 생성
             self.websocket_manager = WebSocketManager(
@@ -2909,6 +2917,9 @@ class MainWindow(QMainWindow):
                         self.websocket_manager.start_all()
                     )
 
+                    # 🆕 시작 완료 플래그 해제
+                    self._ws_starting = False
+
                     # 연결 성공 시그널
                     self._on_websocket_connected()
 
@@ -2919,7 +2930,9 @@ class MainWindow(QMainWindow):
                     logger.error(f"❌ WebSocket 루프 오류: {e}", exc_info=True)
                     self._on_websocket_error(str(e))
                 finally:
-                    self._ws_loop.close()
+                    self._ws_starting = False  # 🆕 예외 시에도 플래그 해제
+                    if self._ws_loop and not self._ws_loop.is_closed():
+                        self._ws_loop.close()
 
             self._ws_thread = threading.Thread(target=run_ws_loop, daemon=True)
             self._ws_thread.start()
@@ -2928,6 +2941,7 @@ class MainWindow(QMainWindow):
             self._add_log(f"🔌 실시간 가격 업데이트 시작 ({len(symbols)}개 코인)")
 
         except Exception as e:
+            self._ws_starting = False  # 🆕 예외 시 플래그 해제
             logger.error(f"❌ WebSocket 시작 실패: {e}", exc_info=True)
             self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {e}")
 
