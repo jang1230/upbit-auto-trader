@@ -8,15 +8,20 @@ symbol별로 CandleAggregator에 라우팅합니다.
 - 코인별 개별 WebSocket → 단일 통합 WebSocket
 - 시작 시간 대폭 단축 (13개 코인 기준 16초 → 2초)
 - Upbit 공식 권장 방식 적용
+- GUI와 V4 엔진에서 공유 가능 (이중 WebSocket 제거)
 
 주요 기능:
 - 단일 TickerWebSocket으로 모든 코인 구독
 - tick_router로 symbol별 CandleAggregator 라우팅
+- GUI 가격 업데이트 콜백 지원
+- PositionManager 가격 자동 업데이트
 - 자동 재연결 지원
 - 런타임 symbol 추가/제거 지원
 
 Example:
     >>> manager = WebSocketManager(upbit_api)
+    >>> manager.set_position_manager(position_manager)
+    >>> manager.set_price_callback(on_price_updated)
     >>> await manager.add_symbol('KRW-BTC', 15, completed_candles)
     >>> await manager.add_symbol('KRW-ETH', 15)
     >>> await manager.start_all()  # 한 번에 모든 코인 구독
@@ -26,7 +31,7 @@ Example:
 import logging
 import asyncio
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 import pandas as pd
 
 from core.candle_aggregator import CandleAggregator
@@ -49,12 +54,13 @@ class WebSocketManager:
     MAX_RECONNECT_ATTEMPTS = 3
     RECONNECT_DELAY_SECONDS = 2.0
 
-    def __init__(self, upbit_api=None):
+    def __init__(self, upbit_api=None, position_manager=None):
         """
         WebSocketManager 초기화
 
         Args:
             upbit_api: UpbitAPI 인스턴스 (초기 캔들 로드용)
+            position_manager: PositionManager 인스턴스 (가격 업데이트용)
         """
         self.upbit_api = upbit_api
 
@@ -72,11 +78,18 @@ class WebSocketManager:
         self._listening_task: Optional[asyncio.Task] = None
         self._reconnect_count = 0
 
+        # 🆕 GUI 연동 (이중 WebSocket 제거)
+        self.position_manager = position_manager  # 가격 업데이트용
+        self.on_price_callback: Optional[Callable[[str, float], None]] = None  # GUI 콜백
+
+        # 🆕 가격 전용 심볼 (CandleAggregator 없이 가격만 수신)
+        self.price_only_symbols: set = set()
+
         logger.info("✅ WebSocketManager 초기화 완료 (통합 WebSocket 모드)")
 
     def _tick_router(self, tick_data: Dict[str, Any]):
         """
-        통합 콜백: symbol별 CandleAggregator로 라우팅
+        통합 콜백: symbol별 CandleAggregator로 라우팅 + GUI 가격 업데이트
 
         Args:
             tick_data: WebSocket에서 수신한 ticker 데이터
@@ -84,17 +97,30 @@ class WebSocketManager:
         """
         try:
             symbol = tick_data.get('code')
+            trade_price = tick_data.get('trade_price')
 
             if not symbol:
                 return
 
-            # 해당 symbol의 aggregator가 있으면 전달
+            # 🆕 1. GUI 가격 업데이트 콜백 호출
+            if self.on_price_callback and trade_price:
+                try:
+                    self.on_price_callback(symbol, trade_price)
+                except Exception as e:
+                    # GUI 콜백 에러가 WebSocket에 영향 주지 않도록
+                    logger.debug(f"GUI 콜백 오류 (무시): {e}")
+
+            # 🆕 2. PositionManager 가격 업데이트
+            if self.position_manager and trade_price:
+                try:
+                    self.position_manager.update_price(symbol, trade_price)
+                except Exception as e:
+                    logger.debug(f"PositionManager 업데이트 오류 (무시): {e}")
+
+            # 3. CandleAggregator 라우팅 (기존 로직)
             aggregator = self.aggregators.get(symbol)
             if aggregator:
                 aggregator.on_tick(tick_data)
-            else:
-                # 등록되지 않은 symbol (정상 - 다른 코인 데이터일 수 있음)
-                pass
 
         except Exception as e:
             logger.error(f"❌ tick_router 오류: {e}", exc_info=True)
@@ -174,7 +200,10 @@ class WebSocketManager:
             logger.warning("⚠️ 이미 실행 중입니다")
             return
 
-        symbol_count = len(self.aggregators)
+        # 🆕 aggregators + price_only_symbols 모두 포함
+        all_symbols = self.get_all_symbols()
+        symbol_count = len(all_symbols)
+
         if symbol_count == 0:
             logger.warning("⚠️ 구독할 코인이 없습니다")
             return
@@ -190,7 +219,6 @@ class WebSocketManager:
             await self.websocket.connect()
 
             # 모든 코인 한 번에 구독
-            all_symbols = list(self.aggregators.keys())
             await self.websocket.subscribe_ticker(all_symbols)
 
             # 리스닝 시작 (백그라운드 태스크)
@@ -253,8 +281,8 @@ class WebSocketManager:
             self.websocket = TickerWebSocket(on_tick_callback=self._tick_router)
             await self.websocket.connect()
 
-            # 재구독
-            all_symbols = list(self.aggregators.keys())
+            # 재구독 (aggregators + price_only_symbols)
+            all_symbols = self.get_all_symbols()
             await self.websocket.subscribe_ticker(all_symbols)
 
             # 리스닝 재시작
@@ -280,7 +308,8 @@ class WebSocketManager:
             return
 
         try:
-            all_symbols = list(self.aggregators.keys())
+            # 🆕 aggregators + price_only_symbols 모두 포함
+            all_symbols = self.get_all_symbols()
             await self.websocket.subscribe_ticker(all_symbols)
             logger.info(f"✅ 재구독 완료: {len(all_symbols)}개 심볼")
 
@@ -419,10 +448,83 @@ class WebSocketManager:
             logger.error(f"❌ {symbol}: 초기 캔들 로드 실패: {e}", exc_info=True)
             return []
 
+    # =========================================================================
+    # 🆕 GUI 연동 메서드 (이중 WebSocket 제거용)
+    # =========================================================================
+
+    def set_position_manager(self, position_manager):
+        """
+        PositionManager 설정 (가격 업데이트용)
+
+        Args:
+            position_manager: PositionManager 인스턴스
+        """
+        self.position_manager = position_manager
+        logger.info("✅ WebSocketManager: PositionManager 연결 완료")
+
+    def set_price_callback(self, callback: Callable[[str, float], None]):
+        """
+        GUI 가격 업데이트 콜백 설정
+
+        Args:
+            callback: (symbol, price) → None 형태의 콜백 함수
+        """
+        self.on_price_callback = callback
+        logger.info("✅ WebSocketManager: 가격 콜백 등록 완료")
+
+    async def add_price_only_symbol(self, symbol: str):
+        """
+        가격만 수신할 심볼 추가 (CandleAggregator 없이)
+
+        GUI에서 현재가만 필요한 경우 사용
+
+        Args:
+            symbol: 코인 심볼 (예: 'KRW-BTC')
+        """
+        if symbol in self.price_only_symbols:
+            return  # 이미 추가됨
+
+        if symbol in self.aggregators:
+            return  # CandleAggregator로 이미 등록됨
+
+        self.price_only_symbols.add(symbol)
+        logger.info(f"✅ {symbol} 가격 전용 심볼 추가")
+
+        # 실행 중이면 재구독
+        if self.is_running:
+            await self._resubscribe()
+
+    async def remove_price_only_symbol(self, symbol: str):
+        """
+        가격 전용 심볼 제거
+
+        Args:
+            symbol: 코인 심볼
+        """
+        if symbol not in self.price_only_symbols:
+            return
+
+        self.price_only_symbols.discard(symbol)
+        logger.info(f"✅ {symbol} 가격 전용 심볼 제거")
+
+        # 실행 중이면 재구독
+        if self.is_running:
+            await self._resubscribe()
+
+    def get_all_symbols(self) -> List[str]:
+        """
+        모든 구독 심볼 반환 (aggregators + price_only)
+
+        Returns:
+            List[str]: 심볼 리스트
+        """
+        return list(set(self.aggregators.keys()) | self.price_only_symbols)
+
     def __repr__(self) -> str:
         return (
             f"WebSocketManager("
             f"symbols={len(self.aggregators)}, "
+            f"price_only={len(self.price_only_symbols)}, "
             f"running={self.is_running}, "
             f"unified=True)"
         )
