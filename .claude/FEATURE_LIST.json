@@ -1,7 +1,7 @@
 {
   "project": "upbit-auto-trader",
   "version": "V4",
-  "last_updated": "2025-12-02",
+  "last_updated": "2025-12-03",
   "total_commits": 499,
   "current_branch": "claude/duplicate-branch-history-0182BCX6kFJuNtc2y14sG1K9",
 
@@ -366,6 +366,13 @@
       "solution": "매도 주문 간 0.15초 딜레이 추가 (8 req/sec 준수)",
       "commits": ["e448844"],
       "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I014",
+      "description": "V4 포지션 로드 시 None 값 포맷팅 에러",
+      "solution": ".get() or 0 패턴으로 None 값과 키 누락 모두 방어 처리",
+      "commits": ["aced284", "d509444"],
+      "files": ["gui/main_window.py", "core/position_manager.py"]
     }
   ],
 

@@ -5,7 +5,59 @@
 
 ---
 
-## 2025-12-02 세션 3 (최신)
+## 2025-12-03 세션 (최신)
+
+### 작업 내용
+1. **V4 포지션 로드 실패 버그 수정** (`aced284`)
+   - 문제: `pos.get("profit_pct", 0)`가 None 반환 시 포맷팅 에러
+   - 해결: `.get() or 0` 패턴으로 None 값 방어 처리
+   - 파일: `gui/main_window.py`
+
+2. **position_manager.py 읽기 호환성 확보** (`d509444`)
+   - `.get("key", 0)` → `.get("key") or 0` 패턴으로 변경
+   - None 값과 키 누락 모두 처리
+   - 파일: `core/position_manager.py`, `gui/main_window.py`
+
+3. **불필요한 필드 저장 중단** (`eeb25fd`)
+   - 저장 제외 필드: `current_price`, `current_value_krw`, `profit_krw`, `profit_pct`, `group_name`
+   - 이유: Upbit API에서 조회 가능하거나 계산값
+   - `update_price()` 메모리만 업데이트 (파일 저장 안 함)
+   - 파일: `core/position_manager.py`
+
+4. **원자적 쓰기 구현** (`d7dfa1b`, `92d72da`)
+   - 임시 파일(.tmp) → `os.replace()` 원자적 교체
+   - 비정상 종료 시 파일 손상 방지
+   - 파일: `core/position_manager.py`, `core/config_manager.py`
+
+5. **리팩토링 테스트 스크립트 추가** (`74ae68a`)
+   - 5개 테스트: None 처리, 필드 제외, 원자적 쓰기, update_price()
+   - 실행: `python tests/test_refactoring_changes.py`
+   - 파일: `tests/test_refactoring_changes.py` (신규)
+
+6. **CLAUDE.md 업데이트** (`8ca9151`)
+   - 디버깅 시 .gitignore 파일 요청 가이드라인 추가
+   - 파일: `CLAUDE.md`
+
+### 변경된 파일
+- `core/position_manager.py` (읽기/쓰기 리팩토링)
+- `core/config_manager.py` (원자적 쓰기)
+- `gui/main_window.py` (None 값 방어)
+- `tests/test_refactoring_changes.py` (신규)
+- `CLAUDE.md`
+
+### 기술적 개선 사항
+- **데이터 일관성**: Upbit API가 source of truth, 로컬 파일은 관리 데이터만 저장
+- **안정성**: 원자적 쓰기로 비정상 종료 시 파일 손상 방지
+- **I/O 최적화**: 가격 업데이트마다 저장하지 않음 (이벤트 기반 저장)
+
+### 다음 세션 권장 작업
+1. 실제 환경에서 리팩토링 변경사항 테스트
+2. WebSocket 통합 구조 구현 (docs/WEBSOCKET_UNIFIED_PROPOSAL.md 참고)
+3. Dry-run 테스트 계속
+
+---
+
+## 2025-12-02 세션 3
 
 ### 작업 내용
 1. **그룹 관리 코인 목록 정렬 기능** (`6fe0fe0`)
