@@ -119,7 +119,11 @@ class PositionManager:
     }
 
     def _save_positions(self) -> None:
-        """포지션 파일 저장 (Thread-safe, 불필요한 필드 제외)"""
+        """
+        포지션 파일 저장 (Thread-safe, 원자적 쓰기, 불필요한 필드 제외)
+
+        원자적 쓰기: 임시 파일에 먼저 쓰고 rename하여 파일 손상 방지
+        """
         with self._lock:
             os.makedirs(os.path.dirname(self.positions_path), exist_ok=True)
 
@@ -132,8 +136,22 @@ class PositionManager:
                 }
                 positions_to_save[symbol] = filtered_pos
 
-            with open(self.positions_path, 'w', encoding='utf-8') as f:
-                json.dump(positions_to_save, f, indent=2, ensure_ascii=False)
+            # 원자적 쓰기: 임시 파일 → rename
+            temp_path = self.positions_path + '.tmp'
+            try:
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    json.dump(positions_to_save, f, indent=2, ensure_ascii=False)
+                # os.replace()는 원자적 연산 (Windows/Linux 모두)
+                os.replace(temp_path, self.positions_path)
+            except Exception as e:
+                logger.error(f"❌ 포지션 저장 실패: {e}")
+                # 임시 파일 정리
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                raise
 
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
