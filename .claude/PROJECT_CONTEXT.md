@@ -1,6 +1,6 @@
 # Upbit Auto Trader V4 - 프로젝트 컨텍스트
 
-> 499개 커밋 분석 기반 (2025-10-24 ~ 2025-12-01)
+> 500+ 커밋 분석 기반 (2025-10-24 ~ 2025-12-03)
 
 ## 프로젝트 개요
 
@@ -54,13 +54,14 @@ V3의 2가지 모드(반자동/완전자동) 한계를 극복하고, **무제한
 │  - TradeHistoryManager              │
 │  - PositionLossLimit                │
 │  - PendingOrderManager              │
+│  - WebSocketManager (통합) ← 🆕     │
 └────────┬────────────────────────────┘
          │
 ┌────────▼───────┐ ┌─────────────────────┐ ┌──────────────┐
-│ V4AutoBuy      │ │ WebSocket Workers   │ │  Upbit API   │
-│ Strategy       │ │ - MyOrderWebSocket  │ │   (REST)     │
-│                │ │ - MyAssetWebSocket  │ │              │
-│                │ │ - PriceWebSocket    │ │              │
+│ V4AutoBuy      │ │ WebSocket (통합)    │ │  Upbit API   │
+│ Strategy       │ │ - Price (Public)    │ │   (REST)     │
+│                │ │ - MyOrder (Private) │ │              │
+│                │ │ - MyAsset (Private) │ │              │
 └────────────────┘ └─────────────────────┘ └──────────────┘
 ```
 
@@ -91,7 +92,7 @@ MainWindow (gui/main_window.py)
 │
 ├── 워커 (백그라운드 스레드)
 │   ├── SemiAutoWorker (gui/semi_auto_worker.py)
-│   ├── PriceWebSocketWorker (gui/price_websocket_worker.py)
+│   ├── WebSocketManager (core/websocket_manager.py) ← 🆕 통합 WebSocket
 │   └── MyAssetWebSocketWorker (gui/myasset_websocket_worker.py)
 │
 └── 유틸리티
@@ -143,15 +144,16 @@ upbit-auto-trader/
 │   ├── config_manager.py            # 설정 관리 (512 lines)
 │   ├── position_manager.py          # 포지션 관리 (656 lines)
 │   ├── trade_history_manager.py     # 거래 기록 (479 lines)
-│   ├── (삭제됨)                      # daily_loss_tracker.py 제거됨
+│   ├── websocket_manager.py         # 🆕 통합 WebSocket (GUI + V4 공유)
 │   ├── pending_order_manager.py     # 대기 주문 관리
 │   ├── balance_polling_manager.py   # 잔고 폴링
-│   ├── upbit_websocket.py           # WebSocket
+│   ├── upbit_websocket.py           # WebSocket (Low-level)
 │   ├── upbit_api.py                 # REST API
 │   └── strategies/
 │       └── v4_auto_buy_strategy.py  # 자동매수 전략 (456 lines)
 ├── gui/
 │   ├── main_window.py               # ⭐ 메인 GUI
+│   ├── global_settings_dialog.py    # 🆕 통합 설정
 │   ├── group_management_dialog.py
 │   ├── group_unified_settings_dialog.py
 │   ├── group_settings_dialog.py
@@ -161,7 +163,6 @@ upbit-auto-trader/
 │   ├── logging_handler.py
 │   ├── trade_data.py
 │   ├── myasset_websocket_worker.py
-│   ├── price_websocket_worker.py
 │   └── semi_auto_worker.py          # V3 레거시
 └── docs/
     ├── DESIGN_V4_COMPLETE.md        # V4 상세 설계 (172KB, 18개 섹션)
@@ -262,4 +263,4 @@ self.recent_bot_sells: Dict[str, float] = {}
 ## 연락처
 
 - GitHub: https://github.com/jang1230/upbit-auto-trader
-- 현재 브랜치: `claude/duplicate-branch-history-0182BCX6kFJuNtc2y14sG1K9`
+- 현재 브랜치: `claude/websocket-unified-016XupwiGPJ2E2MEfZqnWFXp`

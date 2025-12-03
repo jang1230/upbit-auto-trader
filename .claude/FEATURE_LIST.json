@@ -2,8 +2,8 @@
   "project": "upbit-auto-trader",
   "version": "V4",
   "last_updated": "2025-12-03",
-  "total_commits": 499,
-  "current_branch": "claude/duplicate-branch-history-0182BCX6kFJuNtc2y14sG1K9",
+  "total_commits": 500,
+  "current_branch": "claude/websocket-unified-016XupwiGPJ2E2MEfZqnWFXp",
 
   "development_phases": {
     "v3_legacy": {
@@ -275,6 +275,15 @@
       "category": "deploy",
       "description": "Live 소액 배포",
       "status": "planned"
+    },
+    {
+      "id": "F028",
+      "category": "websocket",
+      "description": "통합 WebSocket (GUI + V4 엔진 공유)",
+      "status": "done",
+      "files": ["core/websocket_manager.py", "gui/main_window.py"],
+      "notes": "gui/price_websocket_worker.py 삭제됨, 단일 WebSocketManager가 GUI 가격 표시 + 트레이딩 모두 담당",
+      "commits": ["d5023d5", "dc32bda"]
     }
   ],
 
@@ -377,7 +386,7 @@
   ],
 
   "next_priorities": [
-    "WebSocket 통합 구조 구현 (새 브랜치, docs/WEBSOCKET_UNIFIED_PROPOSAL.md 참고)",
+    "WebSocket 통합 구조 실제 환경 테스트 (F028 완료)",
     "F025: 통합 테스트 시나리오 작성",
     "F026: Dry-run 1주일 테스트",
     "F027: Live 소액 배포"

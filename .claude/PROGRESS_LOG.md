@@ -8,10 +8,12 @@
 ## 2025-12-03 세션 (최신)
 
 ### 작업 내용
-1. **V4 포지션 로드 실패 버그 수정** (`aced284`)
-   - 문제: `pos.get("profit_pct", 0)`가 None 반환 시 포맷팅 에러
-   - 해결: `.get() or 0` 패턴으로 None 값 방어 처리
-   - 파일: `gui/main_window.py`
+1. **GUI와 V4 엔진 WebSocket 통합** (`dc32bda`, `d5023d5`)
+   - 이중 WebSocket 구조 제거 (GUI용 + V4용 → 단일 WebSocketManager)
+   - `on_price_callback`으로 GUI 가격 업데이트
+   - `price_only_symbols`로 트레이딩 없는 심볼도 구독 가능
+   - 삭제: `gui/price_websocket_worker.py`
+   - 수정: `core/websocket_manager.py`, `gui/main_window.py`
 
 2. **position_manager.py 읽기 호환성 확보** (`d509444`)
    - `.get("key", 0)` → `.get("key") or 0` 패턴으로 변경
@@ -39,21 +41,23 @@
    - 파일: `CLAUDE.md`
 
 ### 변경된 파일
+- `core/websocket_manager.py` (GUI 콜백 지원 추가)
+- `gui/main_window.py` (WebSocketManager 통합, None 값 방어)
+- `gui/price_websocket_worker.py` (**삭제**)
 - `core/position_manager.py` (읽기/쓰기 리팩토링)
 - `core/config_manager.py` (원자적 쓰기)
-- `gui/main_window.py` (None 값 방어)
 - `tests/test_refactoring_changes.py` (신규)
 - `CLAUDE.md`
 
 ### 기술적 개선 사항
+- **WebSocket 통합**: 단일 WebSocketManager가 GUI 가격 표시 + 트레이딩 모두 담당
 - **데이터 일관성**: Upbit API가 source of truth, 로컬 파일은 관리 데이터만 저장
 - **안정성**: 원자적 쓰기로 비정상 종료 시 파일 손상 방지
 - **I/O 최적화**: 가격 업데이트마다 저장하지 않음 (이벤트 기반 저장)
 
 ### 다음 세션 권장 작업
-1. 실제 환경에서 리팩토링 변경사항 테스트
-2. WebSocket 통합 구조 구현 (docs/WEBSOCKET_UNIFIED_PROPOSAL.md 참고)
-3. Dry-run 테스트 계속
+1. WebSocket 통합 구조 실제 환경 테스트
+2. Dry-run 테스트 계속
 
 ---
 
