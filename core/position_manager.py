@@ -109,14 +109,31 @@ class PositionManager:
         with self._lock:
             self._load_positions()
 
+    # 저장하지 않을 필드 (실시간 데이터 / 계산값 / API에서 조회 가능)
+    FIELDS_NOT_TO_SAVE = {
+        'current_price',       # WebSocket에서 실시간 조회
+        'current_value_krw',   # 계산값: current_price × total_amount
+        'profit_krw',          # 계산값
+        'profit_pct',          # 계산값
+        'group_name',          # config에서 조회 가능
+    }
+
     def _save_positions(self) -> None:
-        """포지션 파일 저장 (Thread-safe)"""
+        """포지션 파일 저장 (Thread-safe, 불필요한 필드 제외)"""
         with self._lock:
             os.makedirs(os.path.dirname(self.positions_path), exist_ok=True)
-            # dictionary 복사본 생성 (iteration 중 변경 방지)
-            positions_copy = copy.deepcopy(self.positions)
+
+            # 불필요한 필드를 제외한 복사본 생성
+            positions_to_save = {}
+            for symbol, pos in self.positions.items():
+                filtered_pos = {
+                    k: v for k, v in pos.items()
+                    if k not in self.FIELDS_NOT_TO_SAVE
+                }
+                positions_to_save[symbol] = filtered_pos
+
             with open(self.positions_path, 'w', encoding='utf-8') as f:
-                json.dump(positions_copy, f, indent=2, ensure_ascii=False)
+                json.dump(positions_to_save, f, indent=2, ensure_ascii=False)
 
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
@@ -337,15 +354,13 @@ class PositionManager:
         profit_krw = current_value_krw - total_invested
         profit_pct = (profit_krw / total_invested) * 100 if total_invested > 0 else 0
 
-        # 업데이트
-        updates = {
-            'current_price': current_price,
-            'current_value_krw': current_value_krw,
-            'profit_krw': profit_krw,
-            'profit_pct': profit_pct
-        }
+        # 메모리에서만 업데이트 (저장하지 않음 - 실시간 데이터)
+        position['current_price'] = current_price
+        position['current_value_krw'] = current_value_krw
+        position['profit_krw'] = profit_krw
+        position['profit_pct'] = profit_pct
 
-        return self.update_position(symbol, updates)
+        return position
 
     def add_dca(
         self,
