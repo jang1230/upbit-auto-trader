@@ -40,24 +40,43 @@
    - 디버깅 시 .gitignore 파일 요청 가이드라인 추가
    - 파일: `CLAUDE.md`
 
+7. **WebSocket 완전 통합 - GUI 자체 생성 제거** (`d5ecf7a`)
+   - GUI에서 자체 WebSocketManager 생성 완전 제거
+   - V4 엔진의 WebSocketManager만 사용 (단일 WebSocket)
+   - PreparationWorker: MyAssetWebSocket → REST API 변경
+   - MyAssetWebSocketWorker: GUI 직접 생성 → V4 콜백 사용
+   - 파일: `gui/main_window.py`, `core/v4_trading_engine.py`
+
+8. **WebSocket 중복 시작 버그 수정** (`d83384a`)
+   - `_ws_starting` 플래그로 중복 시작 방지
+   - 파일: `gui/main_window.py`
+
+9. **MyOrderWebSocket 종료 누락 수정** (`36d03ad`)
+   - V4 stop() 시 myorder_ws.disconnect() 추가
+   - 중복 메시지 원인 해결 (V4 재시작 시 WebSocket 2개 방지)
+   - 파일: `core/v4_trading_engine.py`
+
 ### 변경된 파일
 - `core/websocket_manager.py` (GUI 콜백 지원 추가)
-- `gui/main_window.py` (WebSocketManager 통합, None 값 방어)
+- `gui/main_window.py` (WebSocketManager 통합, None 값 방어, 자체 WebSocket 생성 제거)
 - `gui/price_websocket_worker.py` (**삭제**)
 - `core/position_manager.py` (읽기/쓰기 리팩토링)
 - `core/config_manager.py` (원자적 쓰기)
+- `core/v4_trading_engine.py` (on_balance_updated_callback, MyOrderWebSocket 종료)
 - `tests/test_refactoring_changes.py` (신규)
 - `CLAUDE.md`
 
 ### 기술적 개선 사항
-- **WebSocket 통합**: 단일 WebSocketManager가 GUI 가격 표시 + 트레이딩 모두 담당
+- **WebSocket 완전 통합**: GUI + V4가 단일 WebSocketManager 공유 (heap corruption 방지)
 - **데이터 일관성**: Upbit API가 source of truth, 로컬 파일은 관리 데이터만 저장
 - **안정성**: 원자적 쓰기로 비정상 종료 시 파일 손상 방지
 - **I/O 최적화**: 가격 업데이트마다 저장하지 않음 (이벤트 기반 저장)
+- **중복 메시지 해결**: V4 stop 시 MyOrderWebSocket 종료로 재시작 시 WebSocket 중복 방지
 
 ### 다음 세션 권장 작업
-1. WebSocket 통합 구조 실제 환경 테스트
-2. Dry-run 테스트 계속
+1. WebSocket 통합 실제 환경 테스트 (V4 시작/중지/재시작)
+2. 중복 메시지 완전 해결 확인 (`⏭️ 중복 메시지 스킵` 로그)
+3. Dry-run 테스트 계속
 
 ---
 

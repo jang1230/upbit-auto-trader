@@ -2,7 +2,7 @@
   "project": "upbit-auto-trader",
   "version": "V4",
   "last_updated": "2025-12-03",
-  "total_commits": 500,
+  "total_commits": 513,
   "current_branch": "claude/websocket-unified-016XupwiGPJ2E2MEfZqnWFXp",
 
   "development_phases": {
@@ -281,9 +281,9 @@
       "category": "websocket",
       "description": "통합 WebSocket (GUI + V4 엔진 공유)",
       "status": "done",
-      "files": ["core/websocket_manager.py", "gui/main_window.py"],
-      "notes": "gui/price_websocket_worker.py 삭제됨, 단일 WebSocketManager가 GUI 가격 표시 + 트레이딩 모두 담당",
-      "commits": ["d5023d5", "dc32bda"]
+      "files": ["core/websocket_manager.py", "gui/main_window.py", "core/v4_trading_engine.py"],
+      "notes": "gui/price_websocket_worker.py 삭제됨, 단일 WebSocketManager가 GUI 가격 표시 + 트레이딩 모두 담당, GUI 자체 WebSocket 생성 제거",
+      "commits": ["d5023d5", "dc32bda", "d83384a", "d5ecf7a", "36d03ad"]
     }
   ],
 
@@ -382,6 +382,20 @@
       "solution": ".get() or 0 패턴으로 None 값과 키 누락 모두 방어 처리",
       "commits": ["aced284", "d509444"],
       "files": ["gui/main_window.py", "core/position_manager.py"]
+    },
+    {
+      "id": "I015",
+      "description": "WebSocket 중복 시작 버그",
+      "solution": "_ws_starting 플래그로 중복 시작 방지",
+      "commits": ["d83384a"],
+      "files": ["gui/main_window.py"]
+    },
+    {
+      "id": "I016",
+      "description": "V4 stop 시 MyOrderWebSocket 종료 누락 → 재시작 시 중복 메시지",
+      "solution": "stop()에 myorder_ws.disconnect() 추가",
+      "commits": ["36d03ad"],
+      "files": ["core/v4_trading_engine.py"]
     }
   ],
 
