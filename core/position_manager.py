@@ -325,12 +325,15 @@ class PositionManager:
 
         position = self.positions[symbol]
 
-        # 현재 평가액 계산
-        total_amount = position['total_amount']
+        # 현재 평가액 계산 (필드 없을 경우 방어 처리)
+        total_amount = position.get('total_amount') or 0
+        if total_amount <= 0:
+            logger.warning(f"⚠️ {symbol}: total_amount가 없거나 0입니다")
+            return None
         current_value_krw = current_price * total_amount
 
-        # 수익 계산
-        total_invested = position['total_invested_krw']
+        # 수익 계산 (필드 없을 경우 방어 처리)
+        total_invested = position.get('total_invested_krw') or 0
         profit_krw = current_value_krw - total_invested
         profit_pct = (profit_krw / total_invested) * 100 if total_invested > 0 else 0
 
@@ -370,7 +373,7 @@ class PositionManager:
 
         position = self.positions[symbol]
 
-        # DCA 기록 추가
+        # DCA 기록 추가 (필드 없을 경우 방어 처리)
         dca_record = {
             "level": level,
             "price": dca_price,
@@ -378,16 +381,20 @@ class PositionManager:
             "krw": dca_krw,
             "timestamp": datetime.now().isoformat()
         }
-        position['dca_history'].append(dca_record)
+        dca_history = position.get('dca_history') or []
+        dca_history.append(dca_record)
+        position['dca_history'] = dca_history
 
         # dca_levels_executed 업데이트 (중복 방지)
-        dca_levels_executed = position.get('dca_levels_executed', [])
+        dca_levels_executed = position.get('dca_levels_executed') or []
         if level not in dca_levels_executed:
             dca_levels_executed.append(level)
 
-        # 평균 단가 재계산
-        total_amount = position['total_amount'] + dca_amount
-        total_invested = position['total_invested_krw'] + dca_krw
+        # 평균 단가 재계산 (필드 없을 경우 방어 처리)
+        current_amount = position.get('total_amount') or 0
+        current_invested = position.get('total_invested_krw') or 0
+        total_amount = current_amount + dca_amount
+        total_invested = current_invested + dca_krw
         average_price = total_invested / total_amount if total_amount > 0 else 0
 
         # 업데이트
@@ -430,9 +437,9 @@ class PositionManager:
 
         position = self.positions[symbol]
 
-        # 최종 수익 계산
-        total_amount = position['total_amount']
-        total_invested = position['total_invested_krw']
+        # 최종 수익 계산 (필드 없을 경우 방어 처리)
+        total_amount = position.get('total_amount') or 0
+        total_invested = position.get('total_invested_krw') or 0
         final_value = close_price * total_amount
         final_profit = final_value - total_invested
         final_profit_pct = (final_profit / total_invested) * 100 if total_invested > 0 else 0
@@ -562,8 +569,8 @@ class PositionManager:
         if not active_positions:
             return 0.0, 0.0
 
-        total_profit_krw = sum(pos.get('profit_krw', 0) for pos in active_positions)
-        total_invested = sum(pos.get('total_invested_krw', 0) for pos in active_positions)
+        total_profit_krw = sum((pos.get('profit_krw') or 0) for pos in active_positions)
+        total_invested = sum((pos.get('total_invested_krw') or 0) for pos in active_positions)
 
         profit_pct = (total_profit_krw / total_invested * 100) if total_invested > 0 else 0
 
