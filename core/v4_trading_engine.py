@@ -625,6 +625,16 @@ class V4TradingEngine:
             except Exception as e:
                 logger.error(f"❌ MyAsset WebSocket 종료 실패: {e}")
 
+        # 🔧 MyOrder WebSocket 종료 (중복 메시지 방지)
+        if self.myorder_ws:
+            logger.info("🔌 MyOrder WebSocket 연결 종료 중...")
+            try:
+                asyncio.run(self.myorder_ws.disconnect())
+                self.myorder_ws = None  # 인스턴스 정리
+                logger.info("✅ MyOrder WebSocket 연결 종료 완료")
+            except Exception as e:
+                logger.error(f"❌ MyOrder WebSocket 종료 실패: {e}")
+
         # 🚀 WebSocket 종료
         if self.websocket_manager and self.websocket_manager.is_running:
             logger.info("🌐 WebSocket 연결 종료 중...")
