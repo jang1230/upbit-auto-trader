@@ -155,3 +155,11 @@ git log --oneline --since="YYYY-MM-DD"
 | `ENVIRONMENT_SETUP.md` | 환경 설정 가이드 |
 | `FAQ.md` | 자주 묻는 질문 |
 | `README.md` | 전체 프로젝트 문서 |
+
+---
+
+## 문제 분석을 위한 데이터 요청
+
+버그 분석 시 .gitignore에 포함된 파일이 필요하면 사용자에게 적극 요청:
+- ✅ 요청 가능: `positions_live.json`, `trading_config.json`, 로그 파일
+- ❌ 요청 금지: `.env`, API 키, 비밀번호 등 보안 정보
