@@ -227,6 +227,7 @@ class V4TradingEngine:
         self.on_auto_sell_callback = None  # 자동 매도 실행 시 호출 (익절/손절/DCA 매도)
         self.on_position_created_callback = None  # 포지션 생성 시 호출 (GUI 새로고침용)
         self.on_trade_callback = None  # 🆕 거래 내역 콜백 (GUI 세션 거래 기록용)
+        self.on_balance_updated_callback = None  # 🆕 잔고 업데이트 콜백 (GUI 표시용)
 
         # 스레드
         self.main_thread = None
@@ -923,6 +924,13 @@ class V4TradingEngine:
                 return
 
             logger.debug(f"💰 MyAsset 메시지 수신: {len(assets)}개 자산")
+
+            # 🆕 GUI 콜백 호출 (잔고 업데이트)
+            if self.on_balance_updated_callback:
+                try:
+                    self.on_balance_updated_callback(assets)
+                except Exception as e:
+                    logger.error(f"❌ 잔고 업데이트 콜백 오류: {e}")
 
             # 새 자산 감지 및 group_null 포지션 생성
             for asset in assets:

@@ -137,15 +137,19 @@ class BalanceWorker(QThread):
 
 class MyAssetPreparationWorker(QThread):
     """
-    MyAsset WebSocket 구독 준비 워커
+    API 키 검증 워커 (REST API 사용)
 
-    프로그램 시작 시 백그라운드에서 MyAsset 구독을 수행하여
-    사용자가 시작 버튼을 누를 때 즉시 실시간 감지가 가능하도록 준비
+    프로그램 시작 시 백그라운드에서 API 키 유효성을 검증하여
+    사용자가 시작 버튼을 누를 때 즉시 트레이딩이 가능하도록 준비
+
+    🔧 WebSocket 통합 리팩토링:
+    - 기존: MyAssetWebSocket으로 연결 테스트 (WebSocket 스레드 누수 문제)
+    - 변경: REST API (get_accounts)로 간단히 검증 (WebSocket 미사용)
     """
 
     # 시그널 정의
-    preparation_complete = Signal()  # 구독 준비 완료
-    preparation_failed = Signal(str)  # 구독 실패 (에러 메시지)
+    preparation_complete = Signal()  # 준비 완료
+    preparation_failed = Signal(str)  # 실패 (에러 메시지)
     status_update = Signal(str)  # 상태 업데이트 메시지
 
     def __init__(self, access_key: str, secret_key: str):
@@ -154,44 +158,32 @@ class MyAssetPreparationWorker(QThread):
         self.secret_key = secret_key
 
     def run(self):
-        """백그라운드에서 MyAsset 구독 실행"""
-        import asyncio
-
+        """백그라운드에서 API 키 검증 실행"""
         try:
-            self.status_update.emit("🔄 실시간 감지 준비 중...")
+            self.status_update.emit("🔄 API 연결 확인 중...")
 
-            # asyncio 이벤트 루프 생성
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # REST API로 API 키 유효성 검증
+            from api.upbit_api import UpbitAPI
 
-            # MyAsset WebSocket 연결 및 구독
-            from core.upbit_websocket import MyAssetWebSocket
+            upbit_api = UpbitAPI(self.access_key, self.secret_key)
+            accounts = upbit_api.get_accounts()
 
-            myasset_ws = MyAssetWebSocket(self.access_key, self.secret_key)
-
-            # 연결
-            connected = loop.run_until_complete(myasset_ws.connect())
-            if not connected:
-                self.preparation_failed.emit("MyAsset WebSocket 연결 실패")
+            if accounts is None:
+                self.preparation_failed.emit("API 연결 실패 (accounts=None)")
                 return
 
-            # 구독 (연결 유지, start_trading에서 재사용)
-            loop.run_until_complete(myasset_ws.subscribe_myasset())
-
-            # 🔧 disconnect() 제거! (23초 블로킹 문제 해결)
-            # - 연결은 유지됨 (Worker 종료 시 자동 정리)
-            # - 구독 가능 여부만 확인하면 됨
+            if isinstance(accounts, dict) and 'error' in accounts:
+                error_msg = accounts.get('error', {}).get('message', 'Unknown error')
+                self.preparation_failed.emit(f"API 오류: {error_msg}")
+                return
 
             # 성공
             self.preparation_complete.emit()
-            self.status_update.emit("✅ 실시간 감지 준비 완료!")
-
-            # 이벤트 루프 정리 (연결은 유지하되 루프는 종료)
-            loop.close()
+            self.status_update.emit("✅ API 연결 확인 완료!")
 
         except Exception as e:
             self.preparation_failed.emit(f"준비 실패: {str(e)}")
-            self.status_update.emit("⚠️ 실시간 감지 사용 불가 (Fallback 모드)")
+            self.status_update.emit("⚠️ API 연결 실패 (Fallback 모드)")
 
 
 class MainWindow(QMainWindow):
@@ -981,33 +973,10 @@ class MainWindow(QMainWindow):
             self._add_log("🚀 V4 Trading Engine 시작")
             self._add_log("=" * 50)
 
-            # 🆕 1단계: GUI WebSocket 중지 (V4 WebSocket으로 전환)
-            # 통합 WebSocketManager가 실행 중이면 중지 (V4 엔진이 자체 WebSocketManager 사용)
-            if self.websocket_manager and self.websocket_manager.is_running:
-                logger.info("🔄 GUI WebSocket → V4 WebSocket 전환")
-                self._add_log("🔄 실시간 가격: GUI WebSocket → V4 WebSocket 전환")
+            # 🔧 WebSocket 통합: GUI는 자체 WebSocket을 생성하지 않음
+            # V4 엔진의 WebSocketManager만 사용 (단일 WebSocket)
 
-                import asyncio
-                if self._ws_loop and self._ws_loop.is_running():
-                    # asyncio 루프에서 stop_all 실행
-                    future = asyncio.run_coroutine_threadsafe(
-                        self.websocket_manager.stop_all(),
-                        self._ws_loop
-                    )
-                    try:
-                        future.result(timeout=3.0)
-                    except Exception as e:
-                        logger.warning(f"⚠️ WebSocket 중지 타임아웃: {e}")
-
-                    # 루프 중지
-                    self._ws_loop.call_soon_threadsafe(self._ws_loop.stop)
-
-                self.websocket_manager = None
-                self._ws_loop = None
-                self._ws_thread = None
-                self._ws_starting = False  # 🆕 플래그도 초기화
-
-            # 🔧 2단계: V4TradingEngine 인스턴스 생성 (PositionManager 공유)
+            # 🔧 1단계: V4TradingEngine 인스턴스 생성 (PositionManager 공유)
             self.v4_engine = V4TradingEngine(
                 config_path="config/trading_config.json",
                 upbit_api=self.upbit_api,
@@ -1308,18 +1277,10 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("중지됨")
             self._add_log("✅ 트레이딩 중지 완료")
 
-            # 🆕 4단계: 통합 WebSocket 재시작 (활성 포지션이 있으면)
-            try:
-                positions = self.v4_position_manager.get_active_positions()
-                if positions:
-                    symbols = list(positions.keys())  # {symbol: position} → symbols
-                    logger.info(f"🔄 V4 WebSocket → GUI WebSocket 전환 ({len(symbols)}개 심볼)")
-                    self._add_log(f"🔄 실시간 가격: V4 WebSocket → GUI WebSocket 전환")
-                    self._start_price_websocket(symbols)
-                else:
-                    logger.info("⏭️ 포지션 없음: GUI WebSocket 시작 불필요")
-            except Exception as e:
-                logger.error(f"❌ GUI WebSocket 재시작 실패: {e}", exc_info=True)
+            # 🔧 4단계: WebSocket 통합 - GUI 자체 WebSocket 생성 제거
+            # V4 중지 후에는 실시간 가격 업데이트가 없음 (V4 시작 시 자동 연결)
+            logger.info("⏭️ V4 중지: 실시간 가격 업데이트 중단 (V4 시작 시 자동 연결)")
+            self._add_log("ℹ️ 실시간 가격: V4 재시작 시 자동 연결됩니다")
 
     def _check_worker_shutdown(self):
         """Worker 종료 체크 (비동기, 500ms마다)"""
@@ -2848,14 +2809,18 @@ class MainWindow(QMainWindow):
 
     def _start_price_websocket(self, symbols: list):
         """
-        🆕 통합 WebSocket 시작 또는 심볼 추가
+        🔧 WebSocket 통합 리팩토링:
 
-        GUI와 V4 엔진이 공유하는 단일 WebSocketManager 사용
-        - 이미 실행 중이면 심볼만 추가 (재구독)
-        - 없으면 새로 생성 및 시작
+        GUI가 자체 WebSocketManager를 생성하지 않음.
+        - V4 실행 중: V4 엔진의 WebSocketManager 사용 (_update_from_v4 타이머)
+        - V4 미실행: 별도 WebSocket 없음 (실시간 가격 업데이트 안함)
+
+        🔧 리팩토링 이유:
+        - 기존: GUI + V4가 각각 WebSocketManager 생성 → WebSocket 중복 (heap corruption 원인)
+        - 변경: V4의 WebSocketManager만 사용 → 단일 WebSocket
 
         Args:
-            symbols: 구독할 심볼 리스트
+            symbols: 구독할 심볼 리스트 (V4 엔진에서 처리)
         """
         import asyncio
 
@@ -2864,86 +2829,35 @@ class MainWindow(QMainWindow):
                 logger.debug("⏭️ 구독할 심볼 없음")
                 return
 
-            # 🆕 WebSocket 시작 중이면 스킵 (중복 방지)
-            if self._ws_starting:
-                logger.debug("⏭️ WebSocket 이미 시작 중, 스킵")
-                return
+            # 🆕 V4 엔진이 실행 중이면 V4 WebSocketManager에 심볼 추가
+            if hasattr(self, 'v4_engine') and self.v4_engine and self.v4_engine.websocket_manager:
+                ws_manager = self.v4_engine.websocket_manager
 
-            # 🆕 WebSocketManager가 이미 실행 중이면 심볼만 추가
-            if self.websocket_manager and self.websocket_manager.is_running:
-                logger.info(f"🔄 기존 WebSocket에 심볼 추가: {len(symbols)}개")
+                if ws_manager.is_running:
+                    # V4 WebSocketManager에 심볼 추가
+                    logger.info(f"🔄 V4 WebSocket에 심볼 추가: {len(symbols)}개")
+                    current_symbols = set(ws_manager.get_all_symbols())
+                    new_symbols = set(symbols) - current_symbols
 
-                # 현재 구독 중인 심볼 확인
-                current_symbols = set(self.websocket_manager.get_all_symbols())
-                new_symbols = set(symbols) - current_symbols
+                    if new_symbols:
+                        loop = self.v4_engine.websocket_loop
+                        if loop and loop.is_running():
+                            for sym in new_symbols:
+                                asyncio.run_coroutine_threadsafe(
+                                    ws_manager.add_price_only_symbol(sym),
+                                    loop
+                                )
+                            logger.info(f"✅ V4 WebSocket에 {len(new_symbols)}개 심볼 추가 완료")
+                    else:
+                        logger.debug("⏭️ 모든 심볼이 이미 V4 WebSocket에서 구독 중")
+                    return
 
-                if new_symbols:
-                    # 새 심볼만 추가 (asyncio 스레드에서 실행)
-                    for sym in new_symbols:
-                        asyncio.run_coroutine_threadsafe(
-                            self.websocket_manager.add_price_only_symbol(sym),
-                            self._ws_loop
-                        )
-                    logger.info(f"✅ {len(new_symbols)}개 심볼 추가 완료")
-                else:
-                    logger.debug("⏭️ 모든 심볼이 이미 구독 중")
-                return
-
-            # 🆕 WebSocketManager 새로 생성 및 시작
-            logger.info(f"🚀 통합 WebSocket 시작: {len(symbols)}개 심볼")
-            self._ws_starting = True  # 🆕 시작 중 플래그 설정
-
-            # WebSocketManager 생성
-            self.websocket_manager = WebSocketManager(
-                upbit_api=self.upbit_api,
-                position_manager=self.v4_position_manager
-            )
-
-            # GUI 가격 콜백 등록 (스레드 안전하게 emit 사용)
-            self.websocket_manager.set_price_callback(self._on_ws_price_update)
-
-            # 가격 전용 심볼 등록
-            for sym in symbols:
-                self.websocket_manager.price_only_symbols.add(sym)
-
-            # asyncio 이벤트 루프를 별도 스레드에서 실행
-            def run_ws_loop():
-                self._ws_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._ws_loop)
-
-                try:
-                    # WebSocket 시작
-                    self._ws_loop.run_until_complete(
-                        self.websocket_manager.start_all()
-                    )
-
-                    # 🆕 시작 완료 플래그 해제
-                    self._ws_starting = False
-
-                    # 연결 성공 시그널
-                    self._on_websocket_connected()
-
-                    # 루프 계속 실행 (리스닝)
-                    self._ws_loop.run_forever()
-
-                except Exception as e:
-                    logger.error(f"❌ WebSocket 루프 오류: {e}", exc_info=True)
-                    self._on_websocket_error(str(e))
-                finally:
-                    self._ws_starting = False  # 🆕 예외 시에도 플래그 해제
-                    if self._ws_loop and not self._ws_loop.is_closed():
-                        self._ws_loop.close()
-
-            self._ws_thread = threading.Thread(target=run_ws_loop, daemon=True)
-            self._ws_thread.start()
-
-            logger.info(f"✅ 통합 WebSocket 시작 완료: {len(symbols)}개 심볼")
-            self._add_log(f"🔌 실시간 가격 업데이트 시작 ({len(symbols)}개 코인)")
+            # V4 미실행 시 - WebSocket 생성 안 함 (REST polling 등으로 대체 가능)
+            logger.info(f"⏭️ V4 미실행: 실시간 가격 WebSocket 생성 스킵 ({len(symbols)}개 심볼)")
+            logger.info("   💡 V4 시작 시 자동으로 WebSocket 연결됩니다")
 
         except Exception as e:
-            self._ws_starting = False  # 🆕 예외 시 플래그 해제
-            logger.error(f"❌ WebSocket 시작 실패: {e}", exc_info=True)
-            self._add_log(f"⚠️ 실시간 가격 업데이트 오류: {e}")
+            logger.error(f"❌ WebSocket 심볼 추가 실패: {e}", exc_info=True)
 
     def _on_ws_price_update(self, symbol: str, price: float):
         """
@@ -2960,64 +2874,30 @@ class MainWindow(QMainWindow):
 
     def _start_myasset_websocket(self):
         """
-        MyAsset WebSocket 시작 (실시간 잔고 감지)
+        MyAsset 잔고 업데이트 콜백 등록
 
-        Live 모드에서만 실행되며, 잔고 변동을 실시간으로 감지합니다.
+        🔧 WebSocket 통합 리팩토링:
+        - 기존: 별도 MyAssetWebSocketWorker 생성 (WebSocket 중복 문제)
+        - 변경: V4 엔진의 MyAssetWebSocket 콜백 사용 (단일 WebSocket)
+
+        V4 엔진이 MyAsset 데이터를 수신하면 on_balance_updated_callback을 호출하여
+        GUI에서 잔고를 업데이트합니다.
         """
         try:
-            # API 키 확인
-            access_key = self.config_manager.get_upbit_access_key()
-            secret_key = self.config_manager.get_upbit_secret_key()
-
-            if not access_key or not secret_key:
-                logger.warning("⚠️ MyAsset WebSocket: API 키 미설정")
+            # V4 엔진 확인
+            if not hasattr(self, 'v4_engine') or not self.v4_engine:
+                logger.warning("⚠️ MyAsset 콜백: V4 엔진 없음")
                 return
 
-            # V4 config 로드
-            if not self.v4_config_manager:
-                logger.warning("⚠️ MyAsset WebSocket: V4 config 없음")
-                return
+            # V4 엔진에 잔고 업데이트 콜백 등록
+            self.v4_engine.on_balance_updated_callback = self._on_balance_updated
 
-            config = self.v4_config_manager.load_config()
-
-            # 기존 워커가 있으면 중지
-            if self.myasset_websocket_worker and self.myasset_websocket_worker.isRunning():
-                logger.info("🛑 기존 MyAsset WebSocket 워커 중지")
-                self.myasset_websocket_worker.stop()
-                self.myasset_websocket_worker.wait(3000)  # 3초 대기
-
-            # 새 워커 생성
-            from gui.myasset_websocket_worker import MyAssetWebSocketWorker
-
-            # 🆕 V4 엔진의 pending_initial_buys 참조 가져오기 (봇 주문/외부 매수 구분용)
-            pending_initial_buys = None
-            if hasattr(self, 'v4_engine') and self.v4_engine:
-                pending_initial_buys = self.v4_engine.pending_initial_buys
-
-            self.myasset_websocket_worker = MyAssetWebSocketWorker(
-                access_key,
-                secret_key,
-                self.v4_position_manager,
-                config,
-                pending_initial_buys=pending_initial_buys,  # 🆕 봇 주문 추적용
-                parent=self
-            )
-
-            # 시그널 연결
-            self.myasset_websocket_worker.balance_updated.connect(self._on_balance_updated)
-            self.myasset_websocket_worker.connected.connect(self._on_myasset_connected)
-            self.myasset_websocket_worker.disconnected.connect(self._on_myasset_disconnected)
-            self.myasset_websocket_worker.error_occurred.connect(self._on_myasset_error)
-
-            # 워커 시작
-            self.myasset_websocket_worker.start()
-
-            logger.info("🚀 MyAsset WebSocket 시작: 실시간 잔고 감지")
-            self._add_log("💰 실시간 잔고 감지 시작 (자동 동기화 활성화)")
+            logger.info("🔗 V4 엔진 MyAsset 콜백 등록 완료")
+            self._add_log("💰 실시간 잔고 감지 연결됨 (V4 엔진 공유)")
 
         except Exception as e:
-            logger.error(f"❌ MyAsset WebSocket 시작 실패: {e}", exc_info=True)
-            self._add_log(f"⚠️ 실시간 잔고 감지 시작 실패: {e}")
+            logger.error(f"❌ MyAsset 콜백 등록 실패: {e}", exc_info=True)
+            self._add_log(f"⚠️ 실시간 잔고 감지 연결 실패: {e}")
 
     def _on_price_updated(self, symbol: str, current_price: float):
         """
@@ -3671,7 +3551,9 @@ class MainWindow(QMainWindow):
             self.balance_worker.wait(1000)
             self.balance_worker = None
 
-        # 🆕 통합 WebSocketManager 정리
+        # 🔧 WebSocket 통합: GUI는 자체 WebSocket을 생성하지 않음
+        # V4 엔진의 WebSocketManager가 V4 stop 시 자동 정리됨
+        # (아래 코드는 레거시 호환성을 위해 유지 - 실제로는 실행되지 않음)
         if self.websocket_manager and self.websocket_manager.is_running:
             logger.info("🛑 통합 WebSocketManager 종료 중...")
             import asyncio
@@ -3689,7 +3571,7 @@ class MainWindow(QMainWindow):
             self._ws_loop = None
             self._ws_thread = None
 
-        # MyAsset WebSocket Worker 정리
+        # 🔧 WebSocket 통합: MyAsset도 V4에서 처리 (GUI Worker 사용 안 함)
         if self.myasset_websocket_worker and self.myasset_websocket_worker.isRunning():
             logger.info("🛑 MyAsset WebSocket Worker 종료 중...")
             self.myasset_websocket_worker.stop()
