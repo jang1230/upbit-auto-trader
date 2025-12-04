@@ -59,11 +59,7 @@ class GlobalSettingsDialog(QDialog):
         # 탭 위젯
         self.tab_widget = QTabWidget()
 
-        # Tab 1: Upbit API (새로 추가)
-        self.upbit_api_tab = self._create_upbit_api_tab()
-        self.tab_widget.addTab(self.upbit_api_tab, "📡 Upbit API")
-
-        # Tab 2: 거래 제한
+        # Tab 1: 거래 제한
         self.trading_limits_tab = self._create_trading_limits_tab()
         self.tab_widget.addTab(self.trading_limits_tab, "거래 제한")
 
@@ -74,6 +70,10 @@ class GlobalSettingsDialog(QDialog):
         # Tab 3: 텔레그램 알림
         self.telegram_tab = self._create_telegram_tab()
         self.tab_widget.addTab(self.telegram_tab, "텔레그램 알림")
+
+        # Tab 4: Upbit API (자주 사용하지 않아 맨 끝에 배치)
+        self.upbit_api_tab = self._create_upbit_api_tab()
+        self.tab_widget.addTab(self.upbit_api_tab, "📡 Upbit API")
 
         layout.addWidget(self.tab_widget)
 
