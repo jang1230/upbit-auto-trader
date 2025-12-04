@@ -62,6 +62,7 @@ from gui.trading_worker import TradingEngineWorker
 from gui.multi_coin_worker import MultiCoinTradingWorker  # 🔧 다중 코인 워커 추가
 from gui.auto_trading_worker import AutoTradingWorker  # 🔧 완전 자동 워커 추가
 from gui.semi_auto_worker import SemiAutoWorker  # 🔧 반자동 워커 추가 (수동매수 + 자동관리)
+from gui.position_ticker_worker import PositionTickerWorker  # 🆕 GUI 전용 현재가 수신 Worker
 from gui.dca_simulator import DcaSimulatorDialog
 from gui.advanced_dca_dialog import AdvancedDcaDialog
 from gui.dca_config import DcaConfigManager
@@ -242,6 +243,7 @@ class MainWindow(QMainWindow):
         self.trading_worker = None  # Trading Engine 워커 스레드
         self.preparation_worker = None  # MyAsset 구독 준비 워커
         self.myasset_websocket_worker = None  # 🔧 V4: MyAsset WebSocket 워커 (잔고 실시간 감지)
+        self.position_ticker_worker = None  # 🆕 GUI 전용 현재가 수신 Worker (V4 독립)
         self.myasset_ready = False  # MyAsset 구독 준비 완료 여부
         self.api_keys_validated = False  # 🔧 API 키 검증 완료 플래그 (Step 1 성공 시 True)
         self._shutdown_timer = None  # 비동기 종료 타이머
@@ -258,6 +260,7 @@ class MainWindow(QMainWindow):
 
         # 🔧 V4: 실시간 가격 업데이트 타이머 (통합 WebSocket에서 콜백으로 대체)
         self.price_update_timer = None
+        self.gui_refresh_timer = None  # 🆕 GUI 갱신 타이머 (V4 독립, PositionManager 기반)
 
         # 🔧 GUI 업데이트 throttling
         self.last_summary_update = 0  # 포지션 요약 마지막 업데이트 시간
@@ -2158,6 +2161,10 @@ class MainWindow(QMainWindow):
         try:
             # 🔧 Signal을 통해 GUI 스레드에서 안전하게 새로고침
             self.position_refresh_signal.emit(symbol)
+
+            # 🆕 PositionTickerWorker에 심볼 추가 (새 포지션 가격 수신)
+            if self.position_ticker_worker and self.position_ticker_worker.isRunning():
+                self.position_ticker_worker.add_symbol(symbol)
         except Exception as e:
             logger.error(f"❌ GUI 새로고침 Signal emit 오류: {e}")
 
@@ -2353,6 +2360,8 @@ class MainWindow(QMainWindow):
                     logger.info("🟢 [Step 2] Dry-run 모드: 가상 포지션 로드")
                     self._add_log("🟢 Dry-run 모드: 가상 포지션 로드")
                     self._load_v4_positions()
+                    # 🆕 GUI 전용 현재가 수신 Worker 시작 (V4 독립)
+                    self._start_position_ticker_worker()
                     self._step3_prepare_myasset()
                     return
                 else:
@@ -2371,6 +2380,9 @@ class MainWindow(QMainWindow):
 
                             # 포지션 테이블 로드
                             self._load_v4_positions()
+
+                            # 🆕 GUI 전용 현재가 수신 Worker 시작 (V4 독립)
+                            self._start_position_ticker_worker()
 
                             # 🔧 MyAsset WebSocket 시작 (실시간 잔고 감지)
                             self._start_myasset_websocket()
@@ -2871,6 +2883,103 @@ class MainWindow(QMainWindow):
             self._on_price_updated(symbol, price)
         except Exception as e:
             logger.debug(f"가격 콜백 오류 (무시): {e}")
+
+    def _start_position_ticker_worker(self):
+        """
+        🆕 GUI 전용 현재가 수신 Worker 시작
+
+        V4 엔진 상태와 무관하게 항상 실행되어
+        활성 포지션의 현재가를 수신하고 GUI를 업데이트합니다.
+
+        호출 시점:
+        - Step 2 완료 후 (포지션 로드 직후)
+        - Live/Dry-run 모드 모두에서 실행
+        """
+        try:
+            # 이미 실행 중이면 스킵
+            if self.position_ticker_worker and self.position_ticker_worker.isRunning():
+                logger.debug("PositionTickerWorker 이미 실행 중")
+                return
+
+            # V4 PositionManager 필요
+            if not V4_AVAILABLE or not self.v4_position_manager:
+                logger.warning("⚠️ PositionTickerWorker: V4 PositionManager 없음")
+                return
+
+            # Worker 생성 및 시작
+            self.position_ticker_worker = PositionTickerWorker(
+                position_manager=self.v4_position_manager,
+                parent=self
+            )
+
+            # 시그널 연결
+            self.position_ticker_worker.price_updated.connect(self._on_position_ticker_price_updated)
+            self.position_ticker_worker.connected.connect(
+                lambda: logger.info("📡 PositionTickerWorker 연결됨")
+            )
+            self.position_ticker_worker.disconnected.connect(
+                lambda: logger.info("📡 PositionTickerWorker 연결 끊김")
+            )
+            self.position_ticker_worker.error_occurred.connect(
+                lambda e: logger.error(f"❌ PositionTickerWorker 오류: {e}")
+            )
+            self.position_ticker_worker.subscription_updated.connect(
+                lambda n: logger.info(f"📊 PositionTickerWorker 구독: {n}개 심볼")
+            )
+
+            # Worker 시작
+            self.position_ticker_worker.start()
+
+            # 🆕 GUI 갱신 타이머 시작 (0.5초마다)
+            if not self.gui_refresh_timer:
+                self.gui_refresh_timer = QTimer(self)
+                self.gui_refresh_timer.timeout.connect(self._update_gui_from_position_manager)
+            self.gui_refresh_timer.start(500)  # 0.5초마다
+
+            logger.info("🚀 PositionTickerWorker 시작 (GUI 전용 현재가 수신)")
+            self._add_log("📡 실시간 현재가 수신 시작 (V4 독립)")
+
+        except Exception as e:
+            logger.error(f"❌ PositionTickerWorker 시작 실패: {e}", exc_info=True)
+            self._add_log(f"⚠️ 실시간 현재가 수신 시작 실패: {e}")
+
+    def _on_position_ticker_price_updated(self, symbol: str, price: float):
+        """
+        🆕 PositionTickerWorker에서 가격 업데이트 수신 시 호출
+
+        Args:
+            symbol: 코인 심볼 (예: 'KRW-BTC')
+            price: 현재가
+        """
+        # PositionManager는 Worker 내부에서 이미 업데이트됨
+        # 여기서는 GUI 테이블 갱신만 수행 (throttling 적용)
+        pass  # GUI 업데이트는 gui_refresh_timer에서 처리
+
+    def _update_gui_from_position_manager(self):
+        """
+        🆕 PositionManager 기반 GUI 업데이트 (V4 엔진 독립)
+
+        PositionTickerWorker가 PositionManager.update_price()를 호출하면
+        이 메서드가 주기적으로 GUI 테이블을 갱신합니다.
+
+        V4 엔진이 실행 중이 아니어도 작동합니다.
+        """
+        try:
+            if not self.v4_position_manager:
+                return
+
+            # 활성 포지션의 심볼에 대해 현재가 가져오기
+            positions = self.v4_position_manager.get_active_positions()
+            for symbol, position in positions.items():
+                # PositionManager에서 현재가 가져오기 (WebSocket에서 실시간 업데이트됨)
+                current_price = position.get('current_price', 0)
+
+                if current_price and current_price > 0:
+                    # GUI 업데이트 (기존 _on_price_updated 메서드 재사용)
+                    self._on_price_updated(symbol, current_price)
+
+        except Exception as e:
+            logger.debug(f"GUI 갱신 오류 (무시): {e}")
 
     def _start_myasset_websocket(self):
         """
@@ -3583,6 +3692,21 @@ class MainWindow(QMainWindow):
                 self.myasset_websocket_worker.terminate()
                 self.myasset_websocket_worker.wait(1000)
             self.myasset_websocket_worker = None
+
+        # 🆕 GUI 갱신 타이머 종료
+        if self.gui_refresh_timer:
+            self.gui_refresh_timer.stop()
+            self.gui_refresh_timer = None
+
+        # 🆕 GUI 전용 현재가 수신 Worker 종료
+        if self.position_ticker_worker and self.position_ticker_worker.isRunning():
+            logger.info("🛑 PositionTickerWorker 종료 중...")
+            self.position_ticker_worker.stop()
+            if not self.position_ticker_worker.wait(3000):
+                logger.warning("⚠️ PositionTickerWorker 종료 시간 초과")
+                self.position_ticker_worker.terminate()
+                self.position_ticker_worker.wait(1000)
+            self.position_ticker_worker = None
 
         event.accept()
 
