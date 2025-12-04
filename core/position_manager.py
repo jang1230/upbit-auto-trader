@@ -787,6 +787,12 @@ class PositionManager:
         for symbol in list(self.positions.keys()):
             position = self.positions[symbol]
 
+            # 🆕 closed 포지션은 무조건 삭제 (이미 종료된 거래)
+            if position.get('status') == 'closed':
+                self.delete_position(symbol)
+                print(f"   🗑️ 자동 삭제: {symbol} (closed 상태 정리)")
+                continue
+
             if position.get('status') != 'active':
                 continue
 
