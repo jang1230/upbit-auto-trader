@@ -363,7 +363,10 @@ class PositionManager:
         # 현재 평가액 계산 (필드 없을 경우 방어 처리)
         total_amount = position.get('total_amount') or 0
         if total_amount <= 0:
-            logger.warning(f"⚠️ {symbol}: total_amount가 없거나 0입니다")
+            # pending_buy 상태에서는 total_amount=0이 정상 (체결 대기 중)
+            status = position.get('status', '')
+            if status != 'pending_buy':
+                logger.warning(f"⚠️ {symbol}: total_amount가 없거나 0입니다")
             return None
         current_value_krw = current_price * total_amount
 
