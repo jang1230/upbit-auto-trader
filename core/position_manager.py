@@ -466,19 +466,19 @@ class PositionManager:
     def close_position(
         self,
         symbol: str,
-        close_price: float,
+        close_price: float = 0,
         close_reason: str = "manual"
     ) -> Dict[str, Any]:
         """
-        포지션 종료
+        포지션 종료 및 삭제
 
         Args:
             symbol: 코인 심볼
-            close_price: 청산 가격
-            close_reason: 청산 이유 (profit, loss, manual 등)
+            close_price: 청산 가격 (기본값 0, order_failed 등에서 사용)
+            close_reason: 청산 이유 (profit, loss, manual, order_failed 등)
 
         Returns:
-            종료된 포지션
+            종료된 포지션 (삭제 전 상태)
         """
         # 🆕 봇 매도(익절/손절)일 때 기록 (중복 알림 방지)
         # MyAsset WebSocket에서 잔고 0 감지 시 "수동매도 감지" 알림 스킵용
@@ -510,7 +510,13 @@ class PositionManager:
         }
 
         print(f"✅ 포지션 종료 ({self.mode}): {symbol} | {close_reason} | {final_profit_pct:+.2f}%")
-        return self.update_position(symbol, updates)
+        closed_position = self.update_position(symbol, updates)
+
+        # 🆕 포지션 종료 후 즉시 삭제 (JSON에서 제거)
+        # closed 상태로 남아있으면 해당 코인 재매수 불가 문제 해결
+        self.delete_position(symbol)
+
+        return closed_position
 
     def delete_position(self, symbol: str) -> None:
         """
