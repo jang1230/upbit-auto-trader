@@ -2986,8 +2986,9 @@ class MainWindow(QMainWindow):
         """
         V4 WebSocket 데이터를 GUI로 전달 (0.1초마다 호출됨)
 
-        V4TradingEngine의 WebSocketManager에서 실시간 현재가를 읽어서
-        GUI 포지션 테이블을 업데이트합니다.
+        PositionManager에 저장된 현재가를 읽어서 GUI 포지션 테이블을 업데이트합니다.
+        WebSocketManager._tick_router()에서 position_manager.update_price()가 호출되어
+        현재가가 실시간으로 업데이트됩니다.
         """
         try:
             if not self.v4_engine or not self.v4_position_manager:
@@ -3000,8 +3001,10 @@ class MainWindow(QMainWindow):
             # 활성 포지션의 심볼에 대해 현재가 가져오기
             positions = self.v4_position_manager.get_active_positions()
             for symbol, position in positions.items():
-                # V4 WebSocketManager에서 실시간 현재가 가져오기
-                current_price = self.v4_engine.websocket_manager.get_current_price(symbol)
+                # 🔧 PositionManager에서 현재가 가져오기 (WebSocket에서 실시간 업데이트됨)
+                # 기존: get_current_price()는 CandleAggregator 사용 (일부 심볼 누락)
+                # 변경: position['current_price'] 사용 (모든 포지션에 업데이트됨)
+                current_price = position.get('current_price', 0)
 
                 if current_price and current_price > 0:
                     # GUI 업데이트 (기존 _on_price_updated 메서드 재사용)

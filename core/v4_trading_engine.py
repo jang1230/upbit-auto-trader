@@ -234,7 +234,8 @@ class V4TradingEngine:
         self.scheduler_thread = None
 
         # 🚀 WebSocket Manager (실시간 캔들 관리)
-        self.websocket_manager = WebSocketManager(upbit_api=upbit_api)
+        # 🔧 PositionManager 연결: 실시간 가격 업데이트 (GUI 표시용)
+        self.websocket_manager = WebSocketManager(upbit_api=upbit_api, position_manager=self.position_manager)
         self.websocket_loop = None  # asyncio 이벤트 루프
         self.websocket_thread = None  # WebSocket 스레드
 
@@ -3326,6 +3327,9 @@ class V4TradingEngine:
                         # 남은 금액 충분 → 수량만 감소
                         logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
                         updates['total_amount'] = remaining_amount
+                        # 🔧 부분매도 후 total_invested_krw도 업데이트 (수익률 계산 정확도)
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        updates['total_invested_krw'] = avg_buy_price * remaining_amount
 
                         # 거래 기록
                         sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
@@ -3481,6 +3485,9 @@ class V4TradingEngine:
                         # 남은 금액 충분 → 수량만 감소
                         logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
                         updates['total_amount'] = remaining_amount
+                        # 🔧 부분매도 후 total_invested_krw도 업데이트 (수익률 계산 정확도)
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        updates['total_invested_krw'] = avg_buy_price * remaining_amount
 
                         # 거래 기록
                         sell_amount_krw = avg_price * executed_volume  # 실제 체결 금액
@@ -3499,7 +3506,6 @@ class V4TradingEngine:
 
                         # 🔧 GUI 완료 로그 (한 줄 요약)
                         loss_pct = pending_order.get('profit_pct', 0)
-                        avg_buy_price = position.get('avg_buy_price', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
 
