@@ -100,15 +100,6 @@ class PositionManager:
             print(f"⚠️ 포지션 파일 파싱 오류: {self.positions_path}")
             self.positions = {}
 
-    def reload_positions(self) -> None:
-        """
-        포지션 파일 강제 리로드 (Thread-safe)
-
-        GUI에서 최신 포지션 상태를 반영하기 위해 호출
-        """
-        with self._lock:
-            self._load_positions()
-
     # 저장하지 않을 필드 (실시간 데이터 / 계산값 / API에서 조회 가능)
     FIELDS_NOT_TO_SAVE = {
         'current_price',       # WebSocket에서 실시간 조회
@@ -117,6 +108,33 @@ class PositionManager:
         'profit_pct',          # 계산값
         'group_name',          # config에서 조회 가능
     }
+
+    def reload_positions(self) -> None:
+        """
+        포지션 파일 강제 리로드 (Thread-safe, 실시간 데이터 보존)
+
+        GUI에서 최신 포지션 상태를 반영하기 위해 호출
+        실시간 데이터(current_price, profit_krw 등)는 리로드 후에도 유지됨
+        """
+        with self._lock:
+            # 1. 실시간 데이터 백업 (FIELDS_NOT_TO_SAVE에 해당하는 필드들)
+            realtime_backup = {}
+            for symbol, pos in self.positions.items():
+                realtime_backup[symbol] = {
+                    field: pos.get(field)
+                    for field in self.FIELDS_NOT_TO_SAVE
+                    if pos.get(field) is not None
+                }
+
+            # 2. 파일에서 리로드
+            self._load_positions()
+
+            # 3. 실시간 데이터 복원 (존재하는 포지션에만)
+            for symbol, data in realtime_backup.items():
+                if symbol in self.positions and data:
+                    self.positions[symbol].update(data)
+
+            logger.debug(f"📊 포지션 리로드 완료 (실시간 데이터 {len(realtime_backup)}개 복원)")
 
     def _save_positions(self) -> None:
         """
