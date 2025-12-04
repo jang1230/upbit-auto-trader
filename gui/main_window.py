@@ -1279,11 +1279,7 @@ class MainWindow(QMainWindow):
             self.stop_btn.setEnabled(False)
             self.statusbar.showMessage("중지됨")
             self._add_log("✅ 트레이딩 중지 완료")
-
-            # 🔧 4단계: WebSocket 통합 - GUI 자체 WebSocket 생성 제거
-            # V4 중지 후에는 실시간 가격 업데이트가 없음 (V4 시작 시 자동 연결)
-            logger.info("⏭️ V4 중지: 실시간 가격 업데이트 중단 (V4 시작 시 자동 연결)")
-            self._add_log("ℹ️ 실시간 가격: V4 재시작 시 자동 연결됩니다")
+            # 🆕 PositionTickerWorker는 계속 실행 중 (현재가 수신 지속)
 
     def _check_worker_shutdown(self):
         """Worker 종료 체크 (비동기, 500ms마다)"""
