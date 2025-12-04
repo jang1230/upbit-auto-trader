@@ -175,8 +175,8 @@ class PositionTickerWorker(QThread):
 
             with self._subscription_lock:
                 self._subscribed_symbols = set()
-                for position in positions:
-                    symbol = position.get('symbol', '')
+                # positions는 dict: {symbol: position_data}
+                for symbol in positions.keys():
                     if symbol and symbol.startswith('KRW-'):
                         self._subscribed_symbols.add(symbol)
 
