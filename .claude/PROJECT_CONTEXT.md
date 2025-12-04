@@ -1,6 +1,6 @@
 # Upbit Auto Trader V4 - 프로젝트 컨텍스트
 
-> 500+ 커밋 분석 기반 (2025-10-24 ~ 2025-12-03)
+> 500+ 커밋 분석 기반 (2025-10-24 ~ 2025-12-04)
 
 ## 프로젝트 개요
 
@@ -92,7 +92,8 @@ MainWindow (gui/main_window.py)
 │
 ├── 워커 (백그라운드 스레드)
 │   ├── SemiAutoWorker (gui/semi_auto_worker.py)
-│   ├── WebSocketManager (core/websocket_manager.py) ← 🆕 통합 WebSocket
+│   ├── WebSocketManager (core/websocket_manager.py) ← 통합 WebSocket
+│   ├── PositionTickerWorker (gui/position_ticker_worker.py) ← 🆕 V4 독립 현재가
 │   └── MyAssetWebSocketWorker (gui/myasset_websocket_worker.py)
 │
 └── 유틸리티

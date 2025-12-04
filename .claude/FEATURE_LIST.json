@@ -1,9 +1,9 @@
 {
   "project": "upbit-auto-trader",
   "version": "V4",
-  "last_updated": "2025-12-03",
-  "total_commits": 513,
-  "current_branch": "claude/websocket-unified-016XupwiGPJ2E2MEfZqnWFXp",
+  "last_updated": "2025-12-04",
+  "total_commits": 525,
+  "current_branch": "claude/websocket-unified-12-04-01AUc5V825wqAS4myQLcr7YM",
 
   "development_phases": {
     "v3_legacy": {
@@ -284,6 +284,24 @@
       "files": ["core/websocket_manager.py", "gui/main_window.py", "core/v4_trading_engine.py"],
       "notes": "gui/price_websocket_worker.py 삭제됨, 단일 WebSocketManager가 GUI 가격 표시 + 트레이딩 모두 담당, GUI 자체 WebSocket 생성 제거",
       "commits": ["d5023d5", "dc32bda", "d83384a", "d5ecf7a", "36d03ad"]
+    },
+    {
+      "id": "F029",
+      "category": "gui",
+      "description": "V4 독립 PositionTickerWorker (항상 현재가 수신)",
+      "status": "done",
+      "files": ["gui/position_ticker_worker.py", "gui/main_window.py"],
+      "notes": "V4 엔진 상태와 무관하게 항상 활성 포지션의 현재가 수신, GUI 독립 실행",
+      "commits": ["e3133eb", "2231e21"]
+    },
+    {
+      "id": "F030",
+      "category": "core",
+      "description": "Batch Ticker API (Rate Limit 방지)",
+      "status": "done",
+      "files": ["core/upbit_api.py", "core/v4_trading_engine.py"],
+      "notes": "get_tickers(symbols) - 1회 API 호출로 N개 조회, 공식 문서 권장 방식",
+      "commits": ["2aa0972"]
     }
   ],
 
@@ -396,6 +414,41 @@
       "solution": "stop()에 myorder_ws.disconnect() 추가",
       "commits": ["36d03ad"],
       "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I017",
+      "description": "closed 포지션이 JSON에 남아 재매수 차단",
+      "solution": "close_position() 후 자동으로 delete_position() 호출, sync_with_upbit()에서 closed 정리",
+      "commits": ["510309c", "6cba33e"],
+      "files": ["core/position_manager.py"]
+    },
+    {
+      "id": "I018",
+      "description": "수동 신규 매수 시 GUI/텔레그램 평균가 불일치",
+      "solution": "MyOrder avg_price 대신 REST API avg_buy_price 사용 (Source of Truth)",
+      "commits": ["5fcc214"],
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I019",
+      "description": "포지션 손실 한도 체크 시 ticker API Rate Limit 초과",
+      "solution": "get_tickers() Batch API로 N번 → 1번 호출",
+      "commits": ["2aa0972"],
+      "files": ["core/upbit_api.py", "core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I020",
+      "description": "부분매도 후 수익률 계산 오류 및 현재가 업데이트 누락",
+      "solution": "부분 매도 후에도 현재가 업데이트 유지",
+      "commits": ["a9d2a84"],
+      "files": ["core/position_manager.py", "core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I021",
+      "description": "reload_positions()에서 실시간 데이터(current_price, profit_pct) 초기화",
+      "solution": "리로드 시 실시간 데이터 보존",
+      "commits": ["7941978"],
+      "files": ["core/position_manager.py"]
     }
   ],
 

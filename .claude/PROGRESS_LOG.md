@@ -1,11 +1,71 @@
 # 진행 로그
 
-> 499개 커밋 분석 기반 세션별 작업 기록
+> 500+ 커밋 분석 기반 세션별 작업 기록
 > 새 세션 시작 시 가장 최근 항목을 먼저 확인하세요.
 
 ---
 
-## 2025-12-03 세션 (최신)
+## 2025-12-04 세션 (최신)
+
+### 작업 내용
+
+1. **V4 독립 PositionTickerWorker 추가** (`e3133eb`)
+   - V4 엔진 상태와 무관하게 **항상** 활성 포지션의 현재가 수신
+   - GUI에서 독립 실행 (V4 정지 시에도 가격 업데이트 유지)
+   - 파일: `gui/position_ticker_worker.py` (신규), `gui/main_window.py`
+
+2. **Batch Ticker API 적용으로 Rate Limit 해결** (`2aa0972`)
+   - `get_tickers(symbols)` 메서드 추가 (1회 API 호출로 N개 조회)
+   - 공식 문서 권장 방식: `/v1/ticker?markets=KRW-BTC,KRW-ETH,...`
+   - `_calculate_trading_groups_profit_loss()`, `_get_total_valuation()` 수정
+   - 파일: `core/upbit_api.py`, `core/v4_trading_engine.py`
+
+3. **수동 신규 매수 시 REST API 평균가 조회** (`5fcc214`)
+   - MyOrder WebSocket `avg_price` 대신 REST API `avg_buy_price` 사용
+   - 이유: REST API가 Upbit의 Source of Truth
+   - 파일: `core/v4_trading_engine.py`
+
+4. **closed 포지션 자동 삭제** (`510309c`, `6cba33e`)
+   - `close_position()` 후 자동으로 `delete_position()` 호출
+   - `sync_with_upbit()` 시작 시 closed 포지션 정리
+   - 파일: `core/position_manager.py`
+
+5. **reload_positions()에서 실시간 데이터 보존** (`7941978`)
+   - 리로드 시 `current_price`, `profit_pct` 등 실시간 데이터 유지
+   - 파일: `core/position_manager.py`
+
+6. **부분매도 후 수익률 계산 오류 수정** (`a9d2a84`)
+   - 부분 매도 후에도 현재가 업데이트 유지
+   - 파일: `core/position_manager.py`, `core/v4_trading_engine.py`
+
+7. **기타 버그 수정**
+   - PositionTickerWorker 심볼 로드 오류 수정 (`2231e21`)
+   - V4 중지 시 잘못된 로그 메시지 제거 (`2600db4`)
+   - pending_buy 상태에서 불필요한 warning 제거 (`bae675a`)
+   - 전역 설정 탭 순서 변경 - Upbit API를 맨 끝으로 (`6d49435`)
+
+### 변경된 파일
+- `gui/position_ticker_worker.py` (**신규**)
+- `core/upbit_api.py` (get_tickers Batch API 추가)
+- `core/v4_trading_engine.py` (Batch API 사용, 수동매수 평균가)
+- `core/position_manager.py` (close_position 자동삭제, reload 개선)
+- `gui/main_window.py` (PositionTickerWorker 연동)
+- `gui/global_settings_dialog.py` (탭 순서 변경)
+
+### 기술적 개선 사항
+- **Rate Limit 완화**: ticker API N번 → 1번 Batch 호출 (10회/초 한도 준수)
+- **데이터 정확성**: REST API = Source of Truth 원칙 적용
+- **포지션 정리**: closed 상태 즉시 삭제로 재매수 차단 문제 해결
+- **독립 현재가 수신**: V4 엔진 정지 시에도 포지션 가격 업데이트
+
+### 다음 세션 권장 작업
+1. Dry-run 테스트 계속 (Rate Limit 해결 확인)
+2. PositionTickerWorker 안정성 모니터링
+3. 수동 매수/매도 시나리오 테스트
+
+---
+
+## 2025-12-03 세션
 
 ### 작업 내용
 1. **GUI와 V4 엔진 WebSocket 통합** (`dc32bda`, `d5023d5`)
