@@ -1259,7 +1259,7 @@ class V4TradingEngine:
         if not self._check_min_balance(buy_amount):
             # 🔧 로그 메시지 개선: 예수금 + 최소유지 표시
             krw_balance = self.balance_cache.get('krw', 0)
-            min_balance_config = self.global_settings.get("min_balance", {})
+            min_balance_config = self.global_settings.get("min_krw_balance", {})
             min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
             logger.warning(f"⚠️ {symbol} 신규매수 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
             return
@@ -1551,7 +1551,7 @@ class V4TradingEngine:
         if not self._check_min_balance(dca_amount):
             # 🔧 로그 메시지 개선: 예수금 + 최소유지 표시
             krw_balance = self.balance_cache.get('krw', 0)
-            min_balance_config = self.global_settings.get("min_balance", {})
+            min_balance_config = self.global_settings.get("min_krw_balance", {})
             min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
             logger.warning(f"⚠️ {symbol} DCA 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
             # 🔧 pending_order 없이 return → 다음 사이클에 재시도
@@ -4163,7 +4163,7 @@ class V4TradingEngine:
             bool: True면 잔고 충분, False면 잔고 부족
         """
         krw_balance = self._get_krw_balance()
-        min_balance_config = self.global_settings.get("min_balance", {})
+        min_balance_config = self.global_settings.get("min_krw_balance", {})
         min_balance_enabled = min_balance_config.get("enabled", False)
 
         if not min_balance_enabled:
