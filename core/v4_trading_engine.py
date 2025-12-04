@@ -2491,7 +2491,7 @@ class V4TradingEngine:
                     if not group_id:
                         group_id = "group_null"
 
-                    # 포지션 생성
+                    # 포지션 생성 (임시로 MyOrder WS 데이터 사용)
                     position = self.position_manager.create_position(
                         group_id=group_id,
                         symbol=symbol,
@@ -2500,30 +2500,53 @@ class V4TradingEngine:
                         force_create_for_sync=(group_id == "group_null")
                     )
 
-                    # GUI 로그
-                    total_krw = avg_price * executed_volume
-                    group_name = "그룹 없음" if group_id == "group_null" else group_id
-                    logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {executed_volume:.8f}개 | {group_name}")
+                    # 🆕 REST API로 정확한 평균가/수량 조회 (Upbit = Source of Truth)
+                    actual_avg_price = avg_price  # fallback
+                    actual_balance = executed_volume  # fallback
+                    if self.upbit_api:
+                        try:
+                            time.sleep(0.5)  # 체결 반영 대기
+                            accounts = self.upbit_api.get_accounts()
+                            currency = symbol.replace('KRW-', '')
+                            for acc in accounts:
+                                if acc['currency'] == currency:
+                                    actual_avg_price = float(acc.get('avg_buy_price', 0))
+                                    actual_balance = float(acc.get('balance', 0))
+                                    # 포지션 업데이트 (정확한 값으로)
+                                    self.position_manager.update_position(symbol, {
+                                        'avg_buy_price': actual_avg_price,
+                                        'total_amount': actual_balance,
+                                        'total_invested_krw': actual_avg_price * actual_balance
+                                    })
+                                    logger.debug(f"   📊 [수동매수] {symbol} REST API 평균가: {actual_avg_price:,.0f}원 (수량: {actual_balance:.8f}개)")
+                                    break
+                        except Exception as e:
+                            logger.warning(f"⚠️ [수동매수] {symbol} REST API 조회 실패, MyOrder 데이터 사용: {e}")
 
-                    # 🆕 텔레그램 알림 (identifier로 수동 주문 확실히 구분 가능)
+                    # GUI 로그 (REST API 조회된 정확한 값 사용)
+                    total_krw = actual_avg_price * actual_balance
+                    group_name = "그룹 없음" if group_id == "group_null" else group_id
+                    logger.info(f"[수동매수] 신규: {symbol} | {total_krw:,.0f}원 | {actual_balance:.8f}개 | {group_name}")
+
+                    # 🆕 텔레그램 알림 (REST API 조회된 정확한 값 사용)
                     self._send_telegram_alert(
                         f"📱 [수동매수] 신규 매수 감지\n"
                         f"코인: {symbol}\n"
                         f"그룹: {group_name}\n"
                         f"━━━━━━━━━━━━━━\n"
                         f"매수 금액: {total_krw:,.0f}원\n"
-                        f"매수 수량: {executed_volume:.8f}개\n"
-                        f"체결 가격: {avg_price:,.0f}원"
+                        f"매수 수량: {actual_balance:.8f}개\n"
+                        f"평균 매수가: {actual_avg_price:,.0f}원"
                     )
 
-                    # 🆕 GUI 거래 내역 이벤트
+                    # 🆕 GUI 거래 내역 이벤트 (REST API 조회된 정확한 값 사용)
                     self._emit_trade_event(
                         group_name=group_name,
                         symbol=symbol,
                         trade_type='buy',
                         detail_type='수동매수',
-                        price=avg_price,
-                        quantity=executed_volume,
+                        price=actual_avg_price,
+                        quantity=actual_balance,
                         amount=total_krw,
                         reason='수동 매수',
                         order_id=order_uuid
