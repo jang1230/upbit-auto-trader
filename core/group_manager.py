@@ -6,6 +6,30 @@ V4 그룹 관리자
 - 코인 할당/이동
 - 그룹별 설정 적용
 - 그룹 제약사항 검증
+
+Dependencies (이 파일이 사용하는 모듈):
+    - core/config_manager.py: ConfigManager (설정 저장/로드)
+    - core/position_manager.py: PositionManager (그룹별 포지션 조회)
+
+Used by (이 파일을 사용하는 모듈):
+    - core/v4_trading_engine.py: 그룹 설정 조회, 코인 목록 조회
+    - gui/group_management_dialog.py: 그룹 CRUD UI
+    - gui/main_window.py: 그룹별 포지션 표시
+
+Key Components:
+    - GroupManager: 그룹 관리 핵심 클래스
+    - create_group(): 새 그룹 생성
+    - delete_group(): 그룹 삭제 (활성 포지션 없을 때만)
+    - add_coin_to_group(): 코인을 그룹에 추가
+    - get_group_by_symbol(): 심볼로 그룹 조회
+    - get_all_groups(): 모든 그룹 조회
+    - get_group_statistics(): 그룹 통계 (포지션 수, 총 투자금 등)
+
+Exceptions:
+    - GroupValidationError: 그룹 검증 오류 (베이스)
+    - CoinAlreadyAssignedError: 코인이 이미 다른 그룹에 할당됨
+    - GroupNotFoundError: 그룹을 찾을 수 없음
+    - ActivePositionError: 활성 포지션이 존재하여 작업 불가
 """
 
 import time

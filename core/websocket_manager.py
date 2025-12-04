@@ -10,13 +10,35 @@ symbol별로 CandleAggregator에 라우팅합니다.
 - Upbit 공식 권장 방식 적용
 - GUI와 V4 엔진에서 공유 가능 (이중 WebSocket 제거)
 
-주요 기능:
-- 단일 TickerWebSocket으로 모든 코인 구독
-- tick_router로 symbol별 CandleAggregator 라우팅
-- GUI 가격 업데이트 콜백 지원
-- PositionManager 가격 자동 업데이트
-- 자동 재연결 지원
-- 런타임 symbol 추가/제거 지원
+Dependencies (이 파일이 사용하는 모듈):
+    - core/candle_aggregator.py: CandleAggregator (틱 → 캔들 변환)
+    - core/upbit_websocket.py: TickerWebSocket (WebSocket 연결)
+
+Used by (이 파일을 사용하는 모듈):
+    - core/v4_trading_engine.py: 실시간 가격 + 캔들 데이터
+    - gui/main_window.py: GUI 가격 표시 (on_price_callback)
+
+Key Components:
+    - WebSocketManager: 통합 WebSocket 관리자
+
+    [시작/종료]
+    - start_all(): 모든 심볼 구독 시작
+    - stop_all(): WebSocket 종료
+
+    [심볼 관리]
+    - add_symbol(): 트레이딩 심볼 추가 (캔들 집계 포함)
+    - remove_symbol(): 심볼 제거
+    - add_price_only_symbol(): 가격만 수신하는 심볼 추가
+    - get_all_symbols(): 전체 구독 심볼 목록
+
+    [데이터 조회]
+    - get_candles(): 캔들 데이터 조회 (DataFrame)
+    - get_current_price(): 현재가 조회
+    - get_stats(): 통계 정보 조회
+
+    [콜백 설정]
+    - set_position_manager(): PositionManager 연결 (가격 자동 업데이트)
+    - set_price_callback(): GUI 가격 업데이트 콜백 설정
 
 Example:
     >>> manager = WebSocketManager(upbit_api)

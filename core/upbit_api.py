@@ -2,16 +2,50 @@
 Upbit REST API Client
 업비트 REST API 클라이언트
 
-실거래 주문 실행:
-- 시장가 매수/매도
-- 잔고 조회
-- 주문 상태 확인
-- JWT 인증
+역할:
+- 시장가 매수/매도 주문
+- 잔고 및 계좌 조회
+- 시세 정보 조회 (Ticker, Candle)
+- 주문 상태 확인/취소
+- JWT 인증 및 Rate Limit 관리
+
+Dependencies (이 파일이 사용하는 모듈):
+    - (외부 라이브러리만 사용: jwt, requests, pandas)
+
+Used by (이 파일을 사용하는 모듈):
+    - core/v4_trading_engine.py: 주문 실행, 시세 조회
+    - core/position_manager.py: 잔고 동기화 (Live 모드)
+    - core/websocket_manager.py: API 인스턴스 참조
+    - gui/main_window.py: API 키 검증, 잔고 조회
+
+Key Components:
+    - UpbitAPI: REST API 클라이언트 클래스
+    - RateLimiter: Rate Limit 관리 클래스
+
+    [계좌/잔고]
+    - get_accounts(): 전체 계좌 조회
+    - get_balance(): 특정 통화 잔고 조회
+
+    [주문]
+    - buy_market_order(): 시장가 매수
+    - sell_market_order(): 시장가 매도
+    - get_order(): 주문 상태 조회
+    - cancel_order(): 주문 취소
+
+    [시세]
+    - get_ticker(): 단일 심볼 현재가 조회
+    - get_tickers(): 복수 심볼 일괄 조회 (Batch API)
+    - get_candles(): 캔들 데이터 조회
+    - get_market_all(): 전체 마켓 목록 조회
+
+Exceptions:
+    - SymbolNotFoundError: 코인이 존재하지 않는 경우 (404)
 
 Example:
     >>> api = UpbitAPI(access_key, secret_key)
     >>> balance = api.get_balance('KRW')
     >>> order = api.buy_market_order('KRW-BTC', 10000)
+    >>> tickers = api.get_tickers(['KRW-BTC', 'KRW-ETH'])  # Batch API
 """
 
 import time
