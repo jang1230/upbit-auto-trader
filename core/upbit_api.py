@@ -626,6 +626,103 @@ class UpbitAPI:
             logger.error(f"현재가 조회 실패 ({symbol}): {e}")
             return {}
 
+    def get_tickers(self, symbols: List[str]) -> Dict[str, Dict]:
+        """
+        여러 심볼 현재가 일괄 조회 (Batch API - 1회 API 호출로 N개 조회)
+
+        공식 문서: 2개 이상의 페어에 대해 조회하고자 하는 경우
+        쉼표(,)로 구분된 문자열 형식으로 요청합니다.
+        [예시] KRW-BTC,KRW-ETH,BTC-ETH,BTC-XRP
+
+        Args:
+            symbols: 마켓 코드 리스트 (예: ['KRW-BTC', 'KRW-ETH', 'KRW-XRP'])
+
+        Returns:
+            Dict[str, Dict]: 심볼별 현재가 정보
+                {
+                    'KRW-BTC': {'market': 'KRW-BTC', 'trade_price': 95000000.0, ...},
+                    'KRW-ETH': {'market': 'KRW-ETH', 'trade_price': 3500000.0, ...},
+                    ...
+                }
+        """
+        if not symbols:
+            return {}
+
+        result = {}
+        now = time.time()
+
+        # 1. 캐시에서 유효한 데이터 먼저 추출
+        symbols_to_fetch = []
+        for symbol in symbols:
+            if symbol in self.ticker_cache["data"]:
+                last_updated = self.ticker_cache["last_updated"].get(symbol, 0)
+                if now - last_updated < self.ticker_cache["ttl"]:
+                    result[symbol] = self.ticker_cache["data"][symbol]
+                    continue
+            symbols_to_fetch.append(symbol)
+
+        # 모든 심볼이 캐시에 있으면 API 호출 불필요
+        if not symbols_to_fetch:
+            logger.debug(f"✅ Batch Ticker 캐시 사용: {len(result)}개 심볼")
+            return result
+
+        # 2. API 호출 (캐시에 없는 심볼만)
+        self.limiter.acquire("ticker")
+
+        markets = ",".join(symbols_to_fetch)
+        url = "https://api.upbit.com/v1/ticker"
+        params = {'markets': markets}
+
+        try:
+            start_time = time.time()
+            response = requests.get(url, params=params, timeout=10)
+            elapsed = time.time() - start_time
+
+            # 응답 헤더에서 Rate Limit 정보 갱신
+            self.limiter.update_from_header(response.headers.get("Remaining-Req"))
+
+            if 200 <= response.status_code < 300:
+                logger.debug(f"HTTP {response.status_code} | GET /ticker (batch {len(symbols_to_fetch)}개) | {elapsed:.3f}s")
+                data = response.json()
+
+                # 응답 데이터를 심볼별로 매핑 및 캐시 저장
+                fetch_time = time.time()
+                for ticker in data:
+                    symbol = ticker.get('market')
+                    if symbol:
+                        result[symbol] = ticker
+                        # 캐시 저장
+                        self.ticker_cache["data"][symbol] = ticker
+                        self.ticker_cache["last_updated"][symbol] = fetch_time
+
+                logger.debug(f"💾 Batch Ticker 캐시 저장: {len(data)}개 심볼")
+                return result
+
+            else:
+                logger.warning(f"HTTP {response.status_code} | GET /ticker (batch) | {elapsed:.3f}s")
+
+                # 429 에러: Rate Limit 초과 → 재시도
+                if response.status_code == 429:
+                    logger.warning(f"⚠️ Rate Limit 초과 (ticker batch): {len(symbols_to_fetch)}개 심볼")
+                    self.limiter.mark_exhausted("ticker")
+                    time.sleep(1.0)  # 1초 대기
+                    logger.info(f"🔄 재시도: batch ticker 조회")
+                    # 재귀 호출로 재시도 (캐시된 결과는 유지)
+                    retry_result = self.get_tickers(symbols_to_fetch)
+                    result.update(retry_result)
+                    return result
+
+                else:
+                    logger.error(f"Batch 현재가 조회 실패: {response.text}")
+                    return result  # 캐시된 결과라도 반환
+
+        except requests.exceptions.Timeout:
+            logger.error(f"Batch 현재가 조회 시간 초과: {len(symbols_to_fetch)}개 심볼")
+            return result  # 캐시된 결과라도 반환
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Batch 현재가 조회 실패: {e}")
+            return result  # 캐시된 결과라도 반환
+
     def get_candles(self, symbol: str, interval: str = "minute1", count: int = 200) -> Optional[pd.DataFrame]:
         """
         캔들(OHLCV) 데이터 조회 (시세 조회 API - 인증 불필요, Rate Limit 적용)

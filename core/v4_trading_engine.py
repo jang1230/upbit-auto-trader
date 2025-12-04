@@ -3896,6 +3896,8 @@ class V4TradingEngine:
         """
         거래 그룹의 합산 손익 계산 (관찰 그룹 제외)
 
+        🔧 Batch API 사용: 여러 심볼을 한 번의 API 호출로 조회하여 Rate Limit 방지
+
         Returns:
             dict: {
                 "total_invested": 총 투자금,
@@ -3910,6 +3912,10 @@ class V4TradingEngine:
 
         # 모든 그룹 조회
         all_groups = self.group_manager.get_all_groups()
+        active_positions = self.position_manager.get_active_positions()
+
+        # 1단계: 손익 계산이 필요한 포지션 목록 수집
+        positions_to_calc = []  # [(symbol, group_id, position), ...]
 
         for group_id, group in all_groups.items():
             # 관찰 전용 그룹 제외
@@ -3922,48 +3928,80 @@ class V4TradingEngine:
 
             for symbol in group_coins:
                 # 포지션 존재 여부 확인 (활성 포지션만)
-                active_positions = self.position_manager.get_active_positions()
                 position = None
-
                 for pos_id, pos in active_positions.items():
                     if pos.get("symbol") == symbol and pos.get("group_id") == group_id:
                         position = pos
                         break
 
-                if not position:
-                    continue
+                if position and position.get('total_invested_krw', 0) > 0:
+                    positions_to_calc.append((symbol, group_id, position))
 
-                # 현재가 조회
-                current_price = self._get_current_price_safe(symbol)
-                if not current_price:
-                    logger.warning(f"⚠️ {symbol} 현재가 조회 실패, 손익 계산 스킵")
-                    continue
+        # 포지션 없으면 빈 결과 반환
+        if not positions_to_calc:
+            return {
+                "total_invested": 0.0,
+                "total_profit_loss": 0.0,
+                "total_profit_loss_pct": 0.0,
+                "positions": []
+            }
 
-                # 수익률 계산
-                avg_price = position.get('avg_buy_price', 0)
-                amount = position.get('total_amount', 0)
-                invested = position.get('total_invested_krw', 0)
+        # 2단계: 현재가 일괄 조회 (WebSocket 우선, REST API Batch fallback)
+        symbols_needed = list(set(p[0] for p in positions_to_calc))
+        current_prices = {}  # {symbol: price}
 
-                if invested == 0:
-                    continue
+        # 2-1. WebSocket에서 현재가 먼저 조회
+        symbols_for_rest = []
+        if self.websocket_manager and self.websocket_manager.is_running:
+            for symbol in symbols_needed:
+                ws_price = self.websocket_manager.get_current_price(symbol)
+                if ws_price is not None:
+                    current_prices[symbol] = ws_price
+                else:
+                    symbols_for_rest.append(symbol)
+        else:
+            symbols_for_rest = symbols_needed
 
-                current_value = amount * current_price
-                profit_loss = current_value - invested
-                profit_loss_pct = (profit_loss / invested) * 100
+        # 2-2. WebSocket에 없는 심볼은 REST API Batch 조회 (1회 API 호출)
+        if symbols_for_rest and self.upbit_api:
+            logger.debug(f"📊 Batch Ticker API 호출: {len(symbols_for_rest)}개 심볼")
+            try:
+                tickers = self.upbit_api.get_tickers(symbols_for_rest)
+                for symbol, ticker in tickers.items():
+                    if ticker and 'trade_price' in ticker:
+                        current_prices[symbol] = float(ticker['trade_price'])
+            except Exception as e:
+                logger.error(f"❌ Batch Ticker 조회 실패: {e}")
 
-                total_invested += invested
-                total_profit_loss += profit_loss
+        # 3단계: 수익률 계산
+        for symbol, group_id, position in positions_to_calc:
+            current_price = current_prices.get(symbol)
+            if not current_price:
+                logger.warning(f"⚠️ {symbol} 현재가 조회 실패, 손익 계산 스킵")
+                continue
 
-                position_details.append({
-                    "symbol": symbol,
-                    "group_id": group_id,
-                    "invested": invested,
-                    "current_value": current_value,
-                    "profit_loss": profit_loss,
-                    "profit_loss_pct": profit_loss_pct
-                })
+            # 수익률 계산
+            avg_price = position.get('avg_buy_price', 0)
+            amount = position.get('total_amount', 0)
+            invested = position.get('total_invested_krw', 0)
 
-                logger.debug(f"   {symbol}: {profit_loss:+,.0f}원 ({profit_loss_pct:+.2f}%)")
+            current_value = amount * current_price
+            profit_loss = current_value - invested
+            profit_loss_pct = (profit_loss / invested) * 100
+
+            total_invested += invested
+            total_profit_loss += profit_loss
+
+            position_details.append({
+                "symbol": symbol,
+                "group_id": group_id,
+                "invested": invested,
+                "current_value": current_value,
+                "profit_loss": profit_loss,
+                "profit_loss_pct": profit_loss_pct
+            })
+
+            logger.debug(f"   {symbol}: {profit_loss:+,.0f}원 ({profit_loss_pct:+.2f}%)")
 
         # 합산 수익률 계산
         if total_invested > 0:
@@ -4169,16 +4207,49 @@ class V4TradingEngine:
             return 0.0
 
     def _get_total_valuation(self) -> float:
-        """전체 자산 평가액 (KRW + 보유 코인 평가액)"""
+        """
+        전체 자산 평가액 (KRW + 보유 코인 평가액)
+
+        🔧 Batch API 사용: 여러 심볼을 한 번의 API 호출로 조회하여 Rate Limit 방지
+        """
         try:
             krw_balance = self._get_krw_balance()
 
             # 활성 포지션의 현재가 평가액
             active_positions = self.position_manager.get_active_positions()
-            coin_value = 0.0
+            if not active_positions:
+                return krw_balance
 
+            # 1단계: 필요한 심볼 목록 수집
+            symbols_needed = list(active_positions.keys())
+            current_prices = {}  # {symbol: price}
+
+            # 2단계: WebSocket에서 현재가 먼저 조회
+            symbols_for_rest = []
+            if self.websocket_manager and self.websocket_manager.is_running:
+                for symbol in symbols_needed:
+                    ws_price = self.websocket_manager.get_current_price(symbol)
+                    if ws_price is not None:
+                        current_prices[symbol] = ws_price
+                    else:
+                        symbols_for_rest.append(symbol)
+            else:
+                symbols_for_rest = symbols_needed
+
+            # 3단계: WebSocket에 없는 심볼은 REST API Batch 조회 (1회 API 호출)
+            if symbols_for_rest and self.upbit_api:
+                try:
+                    tickers = self.upbit_api.get_tickers(symbols_for_rest)
+                    for symbol, ticker in tickers.items():
+                        if ticker and 'trade_price' in ticker:
+                            current_prices[symbol] = float(ticker['trade_price'])
+                except Exception as e:
+                    logger.error(f"❌ Batch Ticker 조회 실패: {e}")
+
+            # 4단계: 코인 평가액 계산
+            coin_value = 0.0
             for symbol, position in active_positions.items():
-                current_price = self._get_current_price_safe(symbol)
+                current_price = current_prices.get(symbol)
                 if current_price:
                     total_amount = position.get("total_amount", 0)
                     coin_value += current_price * total_amount
