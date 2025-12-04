@@ -1257,7 +1257,11 @@ class V4TradingEngine:
 
         # 잔고 체크 (매수 직전에만 REST API 호출)
         if not self._check_min_balance(buy_amount):
-            logger.warning(f"⚠️ {symbol} 매수 취소: 잔고 부족")
+            # 🔧 로그 메시지 개선: 예수금 + 최소유지 표시
+            krw_balance = self.balance_cache.get('krw', 0)
+            min_balance_config = self.global_settings.get("min_balance", {})
+            min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
+            logger.warning(f"⚠️ {symbol} 신규매수 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
             return
 
         logger.info(f"💰 [자동매수] {symbol} 매수 실행 중... (금액: {buy_amount:,}원)")
@@ -1545,18 +1549,12 @@ class V4TradingEngine:
 
         # 잔고 체크 (DCA 직전에만 REST API 호출)
         if not self._check_min_balance(dca_amount):
-            logger.warning(f"⚠️ {symbol} DCA 레벨 {dca_level_num} 취소: 잔고 부족")
-
-            # pending_order 설정 (5분간 재시도 방지)
-            from datetime import datetime
-            self.position_manager.update_position(symbol, {
-                "pending_order": {
-                    "type": "dca_failed",
-                    "level": dca_level_index,
-                    "timestamp": datetime.now().isoformat(),
-                    "reason": "insufficient_balance"
-                }
-            })
+            # 🔧 로그 메시지 개선: 예수금 + 최소유지 표시
+            krw_balance = self.balance_cache.get('krw', 0)
+            min_balance_config = self.global_settings.get("min_balance", {})
+            min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
+            logger.warning(f"⚠️ {symbol} DCA 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
+            # 🔧 pending_order 없이 return → 다음 사이클에 재시도
             return
 
         logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {quantity_ratio * 100:.0f}% of {total_invested:,}원)")
@@ -2443,6 +2441,9 @@ class V4TradingEngine:
                     # 🔧 GUI 완료 로그 (한 줄 요약)
                     logger.info(f"[자동매수완료] {symbol} | {buy_amount_krw:,.0f}원 | {final_balance:.8f}개 | {final_avg_price:,.0f}원")
 
+                    # 🔧 잔고 캐시 무효화 (매수 완료 시)
+                    self._invalidate_balance_cache()
+
                     # 텔레그램 알림
                     self._send_telegram_alert(
                         f"✅ [자동매수] 매수 완료\n"
@@ -2964,6 +2965,9 @@ class V4TradingEngine:
                     # 🔧 GUI 완료 로그 (한 줄 요약)
                     logger.info(f"[DCA완료] {symbol} L{level_index + 1} | {dca_value_krw:,.0f}원 | 평균가 {final_avg_price:,.0f}원 | 보유 {final_balance:.8f}개")
 
+                    # 🔧 잔고 캐시 무효화 (DCA 완료 시)
+                    self._invalidate_balance_cache()
+
                     # 텔레그램 알림
                     self._send_telegram_alert(
                         f"🔄 DCA 추가 매수 완료\n"
@@ -3109,6 +3113,9 @@ class V4TradingEngine:
                             actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
                             logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
 
+                            # 🔧 잔고 캐시 무효화 (매도 완료 시)
+                            self._invalidate_balance_cache()
+
                             # 텔레그램 알림
                             emoji = "✅" if order_type == 'profit' else "❌"
                             self._send_telegram_alert(
@@ -3177,6 +3184,9 @@ class V4TradingEngine:
                             invested_krw = avg_buy_price * executed_volume
                             actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
                             logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                            # 🔧 잔고 캐시 무효화 (부분 매도 완료 시)
+                            self._invalidate_balance_cache()
 
                             # 텔레그램 알림
                             emoji = "✅" if order_type == 'profit' else "❌"
@@ -3312,6 +3322,9 @@ class V4TradingEngine:
                         actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
                         logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
 
+                        # 🔧 잔고 캐시 무효화 (익절 매도 완료 시)
+                        self._invalidate_balance_cache()
+
                         # 텔레그램 알림
                         self._send_telegram_alert(
                             f"✅ 익절 매도 완료 (포지션 종료)\n"
@@ -3376,6 +3389,9 @@ class V4TradingEngine:
                         invested_krw = avg_buy_price * executed_volume
                         actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
                         logger.info(f"[익절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                        # 🔧 잔고 캐시 무효화 (익절 부분 매도 완료 시)
+                        self._invalidate_balance_cache()
 
                         # 텔레그램 알림
                         self._send_telegram_alert(
@@ -3470,6 +3486,9 @@ class V4TradingEngine:
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%)")
 
+                        # 🔧 잔고 캐시 무효화 (손절 매도 완료 시)
+                        self._invalidate_balance_cache()
+
                         # 텔레그램 알림
                         self._send_telegram_alert(
                             f"❌ 손절 매도 완료 (포지션 종료)\n"
@@ -3531,6 +3550,9 @@ class V4TradingEngine:
                         loss_pct = pending_order.get('profit_pct', 0)
                         profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
                         logger.info(f"[손절완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({loss_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                        # 🔧 잔고 캐시 무효화 (손절 부분 매도 완료 시)
+                        self._invalidate_balance_cache()
 
                         # 텔레그램 알림
                         self._send_telegram_alert(
@@ -3651,6 +3673,9 @@ class V4TradingEngine:
 
                 # 🔧 GUI 완료 로그 (한 줄 요약)
                 logger.info(f"[DCA완료] {symbol} L{level_index + 1} | {dca_value_krw:,.0f}원 | 평균가 {final_avg_price:,.0f}원 | 보유 {final_balance:.8f}개")
+
+                # 🔧 잔고 캐시 무효화 (DCA 완료 시)
+                self._invalidate_balance_cache()
 
                 # 텔레그램 알림
                 self._send_telegram_alert(
@@ -4160,6 +4185,15 @@ class V4TradingEngine:
             return False
 
         return True
+
+    def _invalidate_balance_cache(self):
+        """
+        잔고 캐시 무효화 (매수/매도 완료 시 호출)
+
+        다음 잔고 조회 시 API를 호출하여 최신 잔고를 가져오도록 함
+        """
+        self.balance_cache["last_updated"] = None
+        logger.debug("💰 잔고 캐시 무효화됨 (다음 조회 시 API 호출)")
 
     def _get_krw_balance(self) -> float:
         """
