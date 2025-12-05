@@ -5,7 +5,47 @@
 
 ---
 
-## 2025-12-04 세션 (최신)
+## 2025-12-04 세션 2 (최신)
+
+### 작업 내용
+
+1. **최소 KRW 잔고 기능 버그 수정** (`e7280c1`)
+   - 문제: GUI/config는 `min_krw_balance` 키 사용, 엔진은 `min_balance` 키 사용
+   - 결과: 최소잔고 체크가 항상 비활성화됨
+   - 해결: 엔진의 모든 `min_balance` → `min_krw_balance`로 변경
+   - 파일: `core/v4_trading_engine.py`
+
+2. **잔고 캐시 무효화 및 DCA 보류 로직 개선** (`410a306`)
+   - `_invalidate_balance_cache()` 헬퍼 메서드 추가
+   - 매수/매도 완료 시 잔고 캐시 무효화 (다음 조회 시 최신값)
+   - DCA 잔고 부족 시 pending_order 제거 (즉시 재시도 가능)
+   - 로그 메시지 개선: "예수금 XXX원 (최소유지 XXX원)"
+   - 파일: `core/v4_trading_engine.py`
+
+3. **문서 정비** (`2102319`, `825825f`, `9cfee6c`)
+   - `.claude/CODING_CONVENTIONS.md` 신규 생성 (파일 헤더 규칙)
+   - `CLAUDE.md` 간소화 및 정확성 규칙 추가
+   - 핵심 모듈 상단 문서 보완 (Dependencies, Used by, Key Components)
+
+4. **Trailing Stop (TS) 기능 설계 논의**
+   - 활성화 모드: B(수익률 기준) / C(익절 후) 선택 가능
+   - 익절/손절/TS 독립 병행 작동, 조건 먼저 만족하는 것이 발동
+   - 그룹별 설정, GUI는 익절/손절 탭에 TS 탭 추가
+
+### 변경된 파일
+- `core/v4_trading_engine.py` (잔고 캐시 무효화, min_krw_balance 수정)
+- `.claude/CODING_CONVENTIONS.md` (**신규**)
+- `CLAUDE.md` (간소화)
+- `core/group_manager.py`, `core/upbit_api.py`, `core/websocket_manager.py` (상단 문서)
+
+### 다음 세션 권장 작업
+1. **Trailing Stop (TS) 기능 구현** - 설계 완료, 구현 시작
+2. Dry-run 테스트 계속 (최소잔고 기능 확인)
+3. 잔고 캐시 무효화 동작 확인
+
+---
+
+## 2025-12-04 세션 1
 
 ### 작업 내용
 

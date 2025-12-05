@@ -302,6 +302,14 @@
       "files": ["core/upbit_api.py", "core/v4_trading_engine.py"],
       "notes": "get_tickers(symbols) - 1회 API 호출로 N개 조회, 공식 문서 권장 방식",
       "commits": ["2aa0972"]
+    },
+    {
+      "id": "F031",
+      "category": "core",
+      "description": "Trailing Stop (TS) 이익보존 기능",
+      "status": "planned",
+      "files": ["core/v4_trading_engine.py", "gui/level_settings_dialog.py"],
+      "notes": "B모드(수익률 기준)/C모드(익절 후) 선택, 그룹별 설정, 익절/손절/TS 독립 병행 작동"
     }
   ],
 
@@ -449,11 +457,26 @@
       "solution": "리로드 시 실시간 데이터 보존",
       "commits": ["7941978"],
       "files": ["core/position_manager.py"]
+    },
+    {
+      "id": "I022",
+      "description": "최소 KRW 잔고 기능 키 이름 불일치 (min_balance vs min_krw_balance)",
+      "solution": "엔진의 min_balance → min_krw_balance로 통일",
+      "commits": ["e7280c1"],
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I023",
+      "description": "매수/매도 후 잔고 캐시가 갱신되지 않아 DCA 지연",
+      "solution": "_invalidate_balance_cache() 추가, 매수/매도 완료 시 호출",
+      "commits": ["410a306"],
+      "files": ["core/v4_trading_engine.py"]
     }
   ],
 
   "next_priorities": [
-    "WebSocket 통합 구조 실제 환경 테스트 (F028 완료)",
+    "F031: Trailing Stop (TS) 기능 구현",
+    "Dry-run 테스트 (최소잔고, 잔고 캐시 무효화 확인)",
     "F025: 통합 테스트 시나리오 작성",
     "F026: Dry-run 1주일 테스트",
     "F027: Live 소액 배포"

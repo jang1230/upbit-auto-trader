@@ -264,4 +264,4 @@ self.recent_bot_sells: Dict[str, float] = {}
 ## 연락처
 
 - GitHub: https://github.com/jang1230/upbit-auto-trader
-- 현재 브랜치: `claude/websocket-unified-016XupwiGPJ2E2MEfZqnWFXp`
+- 현재 브랜치: `claude/websocket-unified-12-04-01AUc5V825wqAS4myQLcr7YM`
