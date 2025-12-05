@@ -2237,9 +2237,9 @@ class MainWindow(QMainWindow):
         document = self.log_text.document()
         if document.lineCount() > 1000:
             cursor = self.log_text.textCursor()
-            cursor.movePosition(cursor.Start)
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
             for _ in range(100):
-                cursor.select(cursor.LineUnderCursor)
+                cursor.select(QTextCursor.SelectionType.LineUnderCursor)
                 cursor.removeSelectedText()
                 cursor.deleteChar()
 

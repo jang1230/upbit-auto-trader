@@ -201,6 +201,9 @@ class V4TradingEngine:
         # 최대 포지션 경고 플래그 (로그 스팸 방지)
         self.max_position_warning_shown = False
 
+        # 🔧 DCA 잔고 부족 경고 추적 (로그 스팸 방지)
+        self._dca_balance_warned: set = set()  # {symbol}
+
         # 캔들 데이터 캐시
         self.candles_cache: Dict[str, Dict[str, Any]] = {}  # {symbol: {candle_unit: candles}}
 
@@ -1549,13 +1552,18 @@ class V4TradingEngine:
 
         # 잔고 체크 (DCA 직전에만 REST API 호출)
         if not self._check_min_balance(dca_amount):
-            # 🔧 로그 메시지 개선: 예수금 + 최소유지 표시
-            krw_balance = self.balance_cache.get('krw', 0)
-            min_balance_config = self.global_settings.get("min_krw_balance", {})
-            min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
-            logger.warning(f"⚠️ {symbol} DCA 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
+            # 🔧 잔고 부족 경고 - 이미 경고한 심볼이면 스킵 (로그 스팸 방지)
+            if symbol not in self._dca_balance_warned:
+                krw_balance = self.balance_cache.get('krw', 0)
+                min_balance_config = self.global_settings.get("min_krw_balance", {})
+                min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
+                logger.warning(f"⚠️ {symbol} DCA 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
+                self._dca_balance_warned.add(symbol)
             # 🔧 pending_order 없이 return → 다음 사이클에 재시도
             return
+
+        # 🔧 잔고 충분 → 이전 경고 상태 해제
+        self._dca_balance_warned.discard(symbol)
 
         logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {quantity_ratio * 100:.0f}% of {total_invested:,}원)")
 
@@ -4193,6 +4201,8 @@ class V4TradingEngine:
         다음 잔고 조회 시 API를 호출하여 최신 잔고를 가져오도록 함
         """
         self.balance_cache["last_updated"] = None
+        # 🔧 잔고 변동 → DCA 잔고 부족 경고 상태 리셋 (다시 체크 필요)
+        self._dca_balance_warned.clear()
         logger.debug("💰 잔고 캐시 무효화됨 (다음 조회 시 API 호출)")
 
     def _get_krw_balance(self) -> float:
