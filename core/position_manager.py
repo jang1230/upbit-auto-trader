@@ -324,6 +324,18 @@ class PositionManager:
             "profit_levels_executed": [],  # 실행된 익절 레벨 인덱스 [0, 1, 2, ...]
             "loss_levels_executed": [],    # 실행된 손절 레벨 인덱스 [0, 1, ...]
             "pending_order": None,         # 진행 중인 주문 {order_id, type, level, timestamp}
+            # 트레일링 스탑/리바운드 스탑/이익보존 상태 (12/08 추가)
+            "ts_state": {
+                "shared_high": None,       # 목표가 기준 레벨들이 공유하는 고점
+                "levels": {}               # {level_num: {activated, fired, high}}
+            },
+            "rs_state": {
+                "activated": False,        # 리바운드 스탑 활성화 여부
+                "low": None                # 추적 중인 저점
+            },
+            "pp_state": {
+                "activated": False         # 이익보존 활성화 여부
+            },
             **kwargs
         }
 
@@ -462,6 +474,212 @@ class PositionManager:
 
         print(f"✅ DCA 추가 ({self.mode}): {symbol} @ {dca_price:,.0f}원 (레벨 {level}, 완료: {dca_levels_executed})")
         return self.update_position(symbol, updates)
+
+    # ═══════════════════════════════════════════════════════
+    # 트레일링 스탑 / 리바운드 스탑 / 이익보존 상태 관리
+    # ═══════════════════════════════════════════════════════
+
+    def init_ts_rs_pp_state(self, symbol: str) -> None:
+        """
+        TS/RS/PP 상태 초기화 (포지션 생성 후 또는 설정 변경 시)
+
+        Args:
+            symbol: 코인 심볼
+        """
+        if symbol not in self.positions:
+            return
+
+        position = self.positions[symbol]
+
+        # 상태가 없으면 생성
+        if 'ts_state' not in position:
+            position['ts_state'] = {"shared_high": None, "levels": {}}
+        if 'rs_state' not in position:
+            position['rs_state'] = {"activated": False, "low": None}
+        if 'pp_state' not in position:
+            position['pp_state'] = {"activated": False}
+
+        self._save_positions()
+
+    def reset_ts_state(self, symbol: str) -> None:
+        """
+        트레일링 스탑 상태 리셋 (설정 변경 시)
+
+        Args:
+            symbol: 코인 심볼
+        """
+        if symbol not in self.positions:
+            return
+
+        self.positions[symbol]['ts_state'] = {
+            "shared_high": None,
+            "levels": {}
+        }
+        self._save_positions()
+        logger.debug(f"🔄 TS 상태 리셋: {symbol}")
+
+    def update_ts_state(
+        self,
+        symbol: str,
+        level_num: int,
+        activated: bool = None,
+        fired: bool = None,
+        high: float = None,
+        shared_high: float = None
+    ) -> Dict[str, Any]:
+        """
+        트레일링 스탑 레벨 상태 업데이트
+
+        Args:
+            symbol: 코인 심볼
+            level_num: 레벨 번호 (1, 2, 3...)
+            activated: 활성화 여부
+            fired: 발동 여부
+            high: 개별 고점 (고점 기준 레벨용)
+            shared_high: 공통 고점 (목표가 기준 레벨용)
+
+        Returns:
+            업데이트된 포지션
+        """
+        if symbol not in self.positions:
+            raise ValueError(f"포지션을 찾을 수 없습니다: {symbol}")
+
+        position = self.positions[symbol]
+        ts_state = position.get('ts_state', {"shared_high": None, "levels": {}})
+
+        # 공통 고점 업데이트
+        if shared_high is not None:
+            ts_state['shared_high'] = shared_high
+
+        # 레벨별 상태 업데이트
+        level_key = str(level_num)
+        if level_key not in ts_state['levels']:
+            ts_state['levels'][level_key] = {
+                "activated": False,
+                "fired": False,
+                "high": None
+            }
+
+        level_state = ts_state['levels'][level_key]
+
+        if activated is not None:
+            level_state['activated'] = activated
+        if fired is not None:
+            level_state['fired'] = fired
+        if high is not None:
+            level_state['high'] = high
+
+        position['ts_state'] = ts_state
+        self._save_positions()
+
+        return position
+
+    def get_ts_state(self, symbol: str) -> Dict[str, Any]:
+        """
+        트레일링 스탑 상태 조회
+
+        Args:
+            symbol: 코인 심볼
+
+        Returns:
+            TS 상태 딕셔너리 또는 기본값
+        """
+        if symbol not in self.positions:
+            return {"shared_high": None, "levels": {}}
+
+        return self.positions[symbol].get('ts_state', {"shared_high": None, "levels": {}})
+
+    def update_rs_state(
+        self,
+        symbol: str,
+        activated: bool = None,
+        low: float = None
+    ) -> Dict[str, Any]:
+        """
+        리바운드 스탑 상태 업데이트
+
+        Args:
+            symbol: 코인 심볼
+            activated: 활성화 여부
+            low: 추적 중인 저점
+
+        Returns:
+            업데이트된 포지션
+        """
+        if symbol not in self.positions:
+            raise ValueError(f"포지션을 찾을 수 없습니다: {symbol}")
+
+        position = self.positions[symbol]
+        rs_state = position.get('rs_state', {"activated": False, "low": None})
+
+        if activated is not None:
+            rs_state['activated'] = activated
+        if low is not None:
+            rs_state['low'] = low
+
+        position['rs_state'] = rs_state
+        self._save_positions()
+
+        return position
+
+    def get_rs_state(self, symbol: str) -> Dict[str, Any]:
+        """
+        리바운드 스탑 상태 조회
+
+        Args:
+            symbol: 코인 심볼
+
+        Returns:
+            RS 상태 딕셔너리 또는 기본값
+        """
+        if symbol not in self.positions:
+            return {"activated": False, "low": None}
+
+        return self.positions[symbol].get('rs_state', {"activated": False, "low": None})
+
+    def update_pp_state(
+        self,
+        symbol: str,
+        activated: bool = None
+    ) -> Dict[str, Any]:
+        """
+        이익보존 상태 업데이트
+
+        Args:
+            symbol: 코인 심볼
+            activated: 활성화 여부
+
+        Returns:
+            업데이트된 포지션
+        """
+        if symbol not in self.positions:
+            raise ValueError(f"포지션을 찾을 수 없습니다: {symbol}")
+
+        position = self.positions[symbol]
+        pp_state = position.get('pp_state', {"activated": False})
+
+        if activated is not None:
+            pp_state['activated'] = activated
+
+        position['pp_state'] = pp_state
+        self._save_positions()
+
+        return position
+
+    def get_pp_state(self, symbol: str) -> Dict[str, Any]:
+        """
+        이익보존 상태 조회
+
+        Args:
+            symbol: 코인 심볼
+
+        Returns:
+            PP 상태 딕셔너리 또는 기본값
+        """
+        if symbol not in self.positions:
+            return {"activated": False}
+
+        return self.positions[symbol].get('pp_state', {"activated": False})
 
     def close_position(
         self,

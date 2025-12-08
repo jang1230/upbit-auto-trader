@@ -94,6 +94,46 @@
             "quantity_ratio": 100
           }
         ]
+      },
+      "trailing_stop_settings": {
+        "enabled": false,
+        "profit_zone_only": true,
+        "levels": [
+          {
+            "level": 1,
+            "activation_type": "target",
+            "activation_pct": 3.0,
+            "callback_pct": 2.0,
+            "sell_ratio": 50
+          },
+          {
+            "level": 2,
+            "activation_type": "target",
+            "activation_pct": 7.0,
+            "callback_pct": 3.0,
+            "sell_ratio": 50
+          },
+          {
+            "level": 3,
+            "activation_type": "high",
+            "activation_pct": null,
+            "callback_pct": 2.0,
+            "sell_ratio": 100
+          }
+        ]
+      },
+      "rebound_stop_settings": {
+        "enabled": false,
+        "activation_type": "target",
+        "activation_pct": -10.0,
+        "rebound_pct": 10.0,
+        "sell_ratio": 100
+      },
+      "profit_preserve_settings": {
+        "enabled": false,
+        "trigger_pct": 5.0,
+        "preserve_pct": 0.5,
+        "sell_ratio": 100
       }
     },
     "expert_example_group": {

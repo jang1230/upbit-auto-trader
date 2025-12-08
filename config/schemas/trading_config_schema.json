@@ -349,6 +349,119 @@
                   }
                 }
               }
+            },
+            "trailing_stop_settings": {
+              "type": "object",
+              "description": "Trailing stop settings - sell when price drops from high point",
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Enable trailing stop"
+                },
+                "profit_zone_only": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Only sell when profit > 0 (prevents selling at loss)"
+                },
+                "levels": {
+                  "type": "array",
+                  "description": "Multi-level trailing stop configuration",
+                  "items": {
+                    "type": "object",
+                    "required": ["level", "activation_type", "callback_pct", "sell_ratio"],
+                    "properties": {
+                      "level": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Level number (1, 2, 3...)"
+                      },
+                      "activation_type": {
+                        "type": "string",
+                        "enum": ["target", "high"],
+                        "description": "target: activate after reaching profit %, high: activate immediately (track from high)"
+                      },
+                      "activation_pct": {
+                        "type": ["number", "null"],
+                        "minimum": 0,
+                        "description": "Target profit % to activate (required for target type, null for high type)"
+                      },
+                      "callback_pct": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 50,
+                        "description": "Percentage drop from high to trigger sell"
+                      },
+                      "sell_ratio": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "Percentage of remaining holdings to sell"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "rebound_stop_settings": {
+              "type": "object",
+              "description": "Rebound stop settings - sell when price rises from low point (opposite of trailing stop)",
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Enable rebound stop"
+                },
+                "activation_type": {
+                  "type": "string",
+                  "enum": ["low", "target"],
+                  "description": "low: track from lowest point immediately, target: activate after reaching loss %"
+                },
+                "activation_pct": {
+                  "type": ["number", "null"],
+                  "maximum": 0,
+                  "description": "Target loss % to activate (negative value, required for target type, null for low type)"
+                },
+                "rebound_pct": {
+                  "type": "number",
+                  "minimum": 0.1,
+                  "maximum": 50,
+                  "description": "Percentage rise from low to trigger sell"
+                },
+                "sell_ratio": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100,
+                  "description": "Percentage of holdings to sell"
+                }
+              }
+            },
+            "profit_preserve_settings": {
+              "type": "object",
+              "description": "Profit preservation settings - sell at fixed line after reaching target profit",
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Enable profit preservation"
+                },
+                "trigger_pct": {
+                  "type": "number",
+                  "minimum": 0.1,
+                  "description": "Profit % to activate (e.g., 5.0 for +5%)"
+                },
+                "preserve_pct": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Fixed profit % line to sell at (e.g., 0.5 for +0.5%)"
+                },
+                "sell_ratio": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100,
+                  "description": "Percentage of holdings to sell"
+                }
+              }
             }
           }
         }

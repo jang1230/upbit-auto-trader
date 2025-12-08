@@ -102,8 +102,13 @@ class ConfigManager:
         if migrated_buy_amount:
             print("🔄 설정 업데이트: 'buy_amount_krw' 필드 추가됨")
 
+        # 트레일링 스탑/리바운드 스탑/이익보존 설정 자동 마이그레이션
+        migrated_ts = self._migrate_trailing_stop_settings(self.config)
+        if migrated_ts:
+            print("🔄 설정 업데이트: 트레일링 스탑/리바운드 스탑/이익보존 설정 추가됨")
+
         # 마이그레이션이 있었으면 저장
-        if migrated_strategy or migrated_buy_amount:
+        if migrated_strategy or migrated_buy_amount or migrated_ts:
             self.save_config(self.config)
 
         # 스키마 검증
@@ -537,6 +542,66 @@ class ConfigManager:
                     buy_settings['buy_amount_krw'] = 50000
                     migrated_groups.append(group_id)
                     print(f"  ⚠️ 그룹 '{group_id}' (auto): buy_amount_krw → 50000 (기본값)")
+
+        return len(migrated_groups) > 0
+
+    def _migrate_trailing_stop_settings(self, config: Dict[str, Any]) -> bool:
+        """
+        트레일링 스탑/리바운드 스탑/이익보존 설정 자동 마이그레이션
+
+        기존 V4 config에 새 설정 필드가 없는 경우 기본값(비활성화)을 추가합니다.
+
+        Args:
+            config: 설정 딕셔너리
+
+        Returns:
+            bool: 마이그레이션 수행 여부
+        """
+        migrated_groups = []
+
+        # 기본 설정 템플릿
+        default_trailing_stop = {
+            "enabled": False,
+            "profit_zone_only": True,
+            "levels": []
+        }
+
+        default_rebound_stop = {
+            "enabled": False,
+            "activation_type": "low",
+            "activation_pct": None,
+            "rebound_pct": 10.0,
+            "sell_ratio": 100
+        }
+
+        default_profit_preserve = {
+            "enabled": False,
+            "trigger_pct": 5.0,
+            "preserve_pct": 0.5,
+            "sell_ratio": 100
+        }
+
+        for group_id, group in config.get('groups', {}).items():
+            migrated = False
+
+            # trailing_stop_settings 추가
+            if 'trailing_stop_settings' not in group:
+                group['trailing_stop_settings'] = default_trailing_stop.copy()
+                group['trailing_stop_settings']['levels'] = []
+                migrated = True
+
+            # rebound_stop_settings 추가
+            if 'rebound_stop_settings' not in group:
+                group['rebound_stop_settings'] = default_rebound_stop.copy()
+                migrated = True
+
+            # profit_preserve_settings 추가
+            if 'profit_preserve_settings' not in group:
+                group['profit_preserve_settings'] = default_profit_preserve.copy()
+                migrated = True
+
+            if migrated:
+                migrated_groups.append(group_id)
 
         return len(migrated_groups) > 0
 
