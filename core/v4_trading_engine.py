@@ -1419,6 +1419,15 @@ class V4TradingEngine:
         # 손절 체크
         self._check_stop_loss(symbol, group_id, group, position, current_price, profit_pct)
 
+        # 트레일링 스탑 체크
+        self._check_trailing_stop(symbol, group_id, group, position, current_price, profit_pct)
+
+        # 리바운드 스탑 체크
+        self._check_rebound_stop(symbol, group_id, group, position, current_price, profit_pct)
+
+        # 이익보존 체크
+        self._check_profit_preserve(symbol, group_id, group, position, current_price, profit_pct)
+
     def _check_dca(
         self,
         symbol: str,
@@ -1934,12 +1943,341 @@ class V4TradingEngine:
 
                 break  # 한 번에 하나의 레벨만 실행 (순차적 실행)
 
+    def _check_trailing_stop(
+        self,
+        symbol: str,
+        group_id: str,
+        group: Dict[str, Any],
+        position: Dict[str, Any],
+        current_price: float,
+        profit_pct: float
+    ):
+        """
+        트레일링 스탑 체크 및 실행
+
+        동작 방식:
+        - 목표가 기준 (activation_type="target"): 목표 수익률 도달 시 활성화, 공통 고점 공유
+        - 고점 기준 (activation_type="high"):
+          - 레벨 1: 즉시 활성화, 매수가를 고점으로 설정
+          - 레벨 2+: 이전 레벨 발동 후 활성화, 현재가를 고점으로 설정
+        - profit_zone_only: True이면 수익 > 0일 때만 매도
+        """
+        ts_settings = group.get("trailing_stop_settings", {})
+
+        if not ts_settings.get("enabled", False):
+            return
+
+        levels = ts_settings.get("levels", [])
+        if not levels:
+            return
+
+        # pending_order 체크
+        pending_order = position.get("pending_order")
+        if pending_order:
+            pending_type = pending_order.get('type', '')
+            if pending_type.startswith('trailing_stop'):
+                # 트레일링 스탑 주문 진행 중이면 스킵
+                return
+
+        # TS 상태 조회
+        ts_state = self.position_manager.get_ts_state(symbol)
+        avg_buy_price = position.get("avg_buy_price", 0)
+
+        # profit_zone_only 설정
+        profit_zone_only = ts_settings.get("profit_zone_only", True)
+
+        # 레벨을 정렬 (level 번호 순)
+        sorted_levels = sorted(levels, key=lambda x: x.get("level", 1))
+
+        for level_config in sorted_levels:
+            level_num = level_config.get("level", 1)
+            activation_type = level_config.get("activation_type", "target")
+            activation_pct = level_config.get("activation_pct")
+            callback_pct = level_config.get("callback_pct", 2.0)
+            sell_ratio = level_config.get("sell_ratio", 100) / 100.0
+
+            level_key = str(level_num)
+            level_state = ts_state.get("levels", {}).get(level_key, {})
+
+            # 이미 발동된 레벨은 스킵
+            if level_state.get("fired", False):
+                continue
+
+            is_activated = level_state.get("activated", False)
+
+            # 활성화 체크
+            if not is_activated:
+                if activation_type == "target":
+                    # 목표가 기준: 목표 수익률 도달 시 활성화
+                    if activation_pct is not None and profit_pct >= activation_pct:
+                        # 활성화 + 공통 고점 업데이트
+                        shared_high = ts_state.get("shared_high")
+                        if shared_high is None or current_price > shared_high:
+                            shared_high = current_price
+
+                        self.position_manager.update_ts_state(
+                            symbol, level_num,
+                            activated=True,
+                            shared_high=shared_high
+                        )
+                        logger.info(
+                            f"📈 [TS] {symbol} 레벨{level_num} 활성화 "
+                            f"(목표 {activation_pct:.1f}% 도달, 현재 {profit_pct:.2f}%, 공통고점: {shared_high:,.0f}원)"
+                        )
+                        is_activated = True
+                        # 상태 갱신
+                        ts_state = self.position_manager.get_ts_state(symbol)
+                        level_state = ts_state.get("levels", {}).get(level_key, {})
+
+                elif activation_type == "high":
+                    # 고점 기준
+                    if level_num == 1:
+                        # 레벨 1: 즉시 활성화, 매수가를 고점으로
+                        self.position_manager.update_ts_state(
+                            symbol, level_num,
+                            activated=True,
+                            high=avg_buy_price
+                        )
+                        logger.info(
+                            f"📈 [TS] {symbol} 레벨{level_num} 즉시 활성화 "
+                            f"(고점 기준, 초기 고점: 매수가 {avg_buy_price:,.0f}원)"
+                        )
+                        is_activated = True
+                        ts_state = self.position_manager.get_ts_state(symbol)
+                        level_state = ts_state.get("levels", {}).get(level_key, {})
+                    else:
+                        # 레벨 2+: 이전 레벨이 발동되어야 활성화
+                        prev_level_key = str(level_num - 1)
+                        prev_level_state = ts_state.get("levels", {}).get(prev_level_key, {})
+                        if prev_level_state.get("fired", False):
+                            # 이전 레벨 발동됨 → 현재가를 고점으로 활성화
+                            self.position_manager.update_ts_state(
+                                symbol, level_num,
+                                activated=True,
+                                high=current_price
+                            )
+                            logger.info(
+                                f"📈 [TS] {symbol} 레벨{level_num} 활성화 "
+                                f"(이전 레벨 발동 후, 현재가 {current_price:,.0f}원을 고점으로)"
+                            )
+                            is_activated = True
+                            ts_state = self.position_manager.get_ts_state(symbol)
+                            level_state = ts_state.get("levels", {}).get(level_key, {})
+
+            # 활성화된 레벨만 콜백 체크
+            if is_activated:
+                # 고점 결정 (목표가 기준: 공통 고점, 고점 기준: 개별 고점)
+                if activation_type == "target":
+                    tracking_high = ts_state.get("shared_high", current_price)
+                else:
+                    tracking_high = level_state.get("high", current_price)
+
+                # 고점 갱신 (현재가가 더 높으면)
+                if current_price > tracking_high:
+                    if activation_type == "target":
+                        self.position_manager.update_ts_state(symbol, level_num, shared_high=current_price)
+                    else:
+                        self.position_manager.update_ts_state(symbol, level_num, high=current_price)
+                    tracking_high = current_price
+
+                # 콜백 체크: 고점 대비 callback_pct% 이상 하락 시 매도
+                drop_pct = ((tracking_high - current_price) / tracking_high) * 100 if tracking_high > 0 else 0
+
+                if drop_pct >= callback_pct:
+                    # profit_zone_only 체크
+                    if profit_zone_only and profit_pct <= 0:
+                        logger.debug(
+                            f"   [TS] {symbol} 레벨{level_num} 콜백 도달했지만 "
+                            f"profit_zone_only=True이고 수익률 {profit_pct:.2f}% ≤ 0 → 매도 스킵"
+                        )
+                        continue
+
+                    # 매도 실행
+                    logger.info(
+                        f"🔔 [TS] {symbol} 레벨{level_num} 발동! "
+                        f"(고점: {tracking_high:,.0f}원, 현재: {current_price:,.0f}원, "
+                        f"하락: {drop_pct:.2f}% ≥ 콜백 {callback_pct:.1f}%)"
+                    )
+
+                    # 발동 상태 기록
+                    self.position_manager.update_ts_state(symbol, level_num, fired=True)
+
+                    # 매도 실행
+                    self._execute_sell(
+                        symbol, group_id, group,
+                        reason=f"trailing_stop_L{level_num}",
+                        quantity_ratio=sell_ratio,
+                        level_index=level_num,
+                        profit_pct=profit_pct,
+                        trigger_pct=callback_pct
+                    )
+                    break  # 한 번에 하나의 레벨만 실행
+
+    def _check_rebound_stop(
+        self,
+        symbol: str,
+        group_id: str,
+        group: Dict[str, Any],
+        position: Dict[str, Any],
+        current_price: float,
+        profit_pct: float
+    ):
+        """
+        리바운드 스탑 체크 및 실행
+
+        동작 방식:
+        - 저점 대비 상승 시 매도 (손실 구간에서 반등 시 손절)
+        - activation_type="low": 즉시 저점 추적 시작
+        - activation_type="target": 목표 손실률 도달 후 저점 추적 시작
+        """
+        rs_settings = group.get("rebound_stop_settings", {})
+
+        if not rs_settings.get("enabled", False):
+            return
+
+        # pending_order 체크
+        pending_order = position.get("pending_order")
+        if pending_order:
+            pending_type = pending_order.get('type', '')
+            if pending_type == 'rebound_stop':
+                return
+
+        activation_type = rs_settings.get("activation_type", "low")
+        activation_pct = rs_settings.get("activation_pct")  # 음수 (예: -10.0)
+        rebound_pct = rs_settings.get("rebound_pct", 10.0)
+        sell_ratio = rs_settings.get("sell_ratio", 100) / 100.0
+
+        # RS 상태 조회
+        rs_state = self.position_manager.get_rs_state(symbol)
+        is_activated = rs_state.get("activated", False)
+        tracking_low = rs_state.get("low")
+
+        # 활성화 체크
+        if not is_activated:
+            if activation_type == "low":
+                # 즉시 활성화, 현재가를 저점으로
+                self.position_manager.update_rs_state(symbol, activated=True, low=current_price)
+                logger.info(
+                    f"📉 [RS] {symbol} 즉시 활성화 (저점 기준, 초기 저점: {current_price:,.0f}원)"
+                )
+                is_activated = True
+                tracking_low = current_price
+
+            elif activation_type == "target":
+                # 목표 손실률 도달 시 활성화
+                if activation_pct is not None and profit_pct <= activation_pct:
+                    self.position_manager.update_rs_state(symbol, activated=True, low=current_price)
+                    logger.info(
+                        f"📉 [RS] {symbol} 활성화 "
+                        f"(목표 손실 {activation_pct:.1f}% 도달, 현재 {profit_pct:.2f}%, 저점: {current_price:,.0f}원)"
+                    )
+                    is_activated = True
+                    tracking_low = current_price
+
+        # 활성화된 경우 저점 및 반등 체크
+        if is_activated and tracking_low is not None:
+            # 저점 갱신 (현재가가 더 낮으면)
+            if current_price < tracking_low:
+                self.position_manager.update_rs_state(symbol, low=current_price)
+                tracking_low = current_price
+
+            # 반등 체크: 저점 대비 rebound_pct% 이상 상승 시 매도
+            rise_pct = ((current_price - tracking_low) / tracking_low) * 100 if tracking_low > 0 else 0
+
+            if rise_pct >= rebound_pct:
+                logger.info(
+                    f"🔔 [RS] {symbol} 발동! "
+                    f"(저점: {tracking_low:,.0f}원, 현재: {current_price:,.0f}원, "
+                    f"상승: {rise_pct:.2f}% ≥ 반등 {rebound_pct:.1f}%)"
+                )
+
+                # 상태 리셋 (재활성화 가능하도록)
+                self.position_manager.update_rs_state(symbol, activated=False, low=None)
+
+                # 매도 실행
+                self._execute_sell(
+                    symbol, group_id, group,
+                    reason="rebound_stop",
+                    quantity_ratio=sell_ratio,
+                    level_index=0,
+                    profit_pct=profit_pct,
+                    trigger_pct=rebound_pct
+                )
+
+    def _check_profit_preserve(
+        self,
+        symbol: str,
+        group_id: str,
+        group: Dict[str, Any],
+        position: Dict[str, Any],
+        current_price: float,
+        profit_pct: float
+    ):
+        """
+        이익보존 체크 및 실행
+
+        동작 방식:
+        - trigger_pct 도달 시 활성화
+        - 이후 수익률이 preserve_pct 이하로 떨어지면 매도
+        - 예: trigger_pct=5%, preserve_pct=0.5% → 5% 도달 후 0.5% 이하로 떨어지면 매도
+        """
+        pp_settings = group.get("profit_preserve_settings", {})
+
+        if not pp_settings.get("enabled", False):
+            return
+
+        # pending_order 체크
+        pending_order = position.get("pending_order")
+        if pending_order:
+            pending_type = pending_order.get('type', '')
+            if pending_type == 'profit_preserve':
+                return
+
+        trigger_pct = pp_settings.get("trigger_pct", 5.0)
+        preserve_pct = pp_settings.get("preserve_pct", 0.5)
+        sell_ratio = pp_settings.get("sell_ratio", 100) / 100.0
+
+        # PP 상태 조회
+        pp_state = self.position_manager.get_pp_state(symbol)
+        is_activated = pp_state.get("activated", False)
+
+        # 활성화 체크
+        if not is_activated:
+            if profit_pct >= trigger_pct:
+                self.position_manager.update_pp_state(symbol, activated=True)
+                logger.info(
+                    f"💎 [PP] {symbol} 활성화 "
+                    f"(트리거 {trigger_pct:.1f}% 도달, 현재 {profit_pct:.2f}%, 보존선: {preserve_pct:.1f}%)"
+                )
+                is_activated = True
+
+        # 활성화된 경우 보존선 체크
+        if is_activated:
+            if profit_pct <= preserve_pct:
+                logger.info(
+                    f"🔔 [PP] {symbol} 발동! "
+                    f"(수익률 {profit_pct:.2f}% ≤ 보존선 {preserve_pct:.1f}%)"
+                )
+
+                # 상태 리셋
+                self.position_manager.update_pp_state(symbol, activated=False)
+
+                # 매도 실행
+                self._execute_sell(
+                    symbol, group_id, group,
+                    reason="profit_preserve",
+                    quantity_ratio=sell_ratio,
+                    level_index=0,
+                    profit_pct=profit_pct,
+                    trigger_pct=preserve_pct
+                )
+
     def _execute_sell(
         self,
         symbol: str,
         group_id: str,
         group: Dict[str, Any],
-        reason: str,  # "profit" or "loss"
+        reason: str,  # "profit", "loss", "trailing_stop_L{n}", "rebound_stop", "profit_preserve"
         quantity_ratio: float = 1.0,  # 판매 비율 (1.0 = 전량)
         level_index: int = 0,  # 익절/손절 레벨 인덱스
         profit_pct: float = 0.0,  # 현재 수익률 (%)
@@ -2048,7 +2386,9 @@ class V4TradingEngine:
                             self.position_manager.update_position(symbol, {
                                 "loss_levels_executed": loss_levels_executed
                             })
-                    logger.info(f"✅ [Dry-run] {symbol} 부분 매도 완료: {sell_amount:.8f}개 @ {current_price:,}원")
+                    # TS/RS/PP는 자체 상태 관리 사용 (ts_state, rs_state, pp_state)
+                    # _check_trailing_stop에서 fired 처리, _check_rebound_stop/profit_preserve에서 상태 리셋
+                    logger.info(f"✅ [Dry-run] {symbol} 부분 매도 완료 ({reason}): {sell_amount:.8f}개 @ {current_price:,}원")
 
             else:
                 # Live 모드: pending_order 먼저 저장 → 주문 → 콜백 등록
