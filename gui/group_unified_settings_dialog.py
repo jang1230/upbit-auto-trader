@@ -237,9 +237,22 @@ class GroupUnifiedSettingsDialog(QDialog):
             logger.info(f"  💰 익절 레벨: {len(profit_levels)}개")
             logger.info(f"  🛑 손절 레벨: {len(loss_levels)}개")
 
+            # 탭2: TS/RS/PP 설정 수집
+            ts_settings = self.level_widget._get_trailing_stop_settings()
+            rs_settings = self.level_widget._get_rebound_stop_settings()
+            pp_settings = self.level_widget._get_profit_preserve_settings()
+            logger.info(f"  📊 트레일링 스탑: {'활성화' if ts_settings.get('enabled') else '비활성화'}")
+            logger.info(f"  📊 리바운드 스탑: {'활성화' if rs_settings.get('enabled') else '비활성화'}")
+            logger.info(f"  📊 이익보존: {'활성화' if pp_settings.get('enabled') else '비활성화'}")
+
             # 레벨 검증
             if not self.level_widget._validate_levels(dca_levels, profit_levels, loss_levels):
                 logger.warning("레벨 검증 실패")
+                return
+
+            # TS/RS/PP 검증
+            if not self.level_widget._validate_ts_rs_pp(ts_settings, rs_settings, pp_settings):
+                logger.warning("TS/RS/PP 검증 실패")
                 return
 
             # ConfigManager로 설정 저장
@@ -330,6 +343,11 @@ class GroupUnifiedSettingsDialog(QDialog):
                 group["loss_settings"] = {"mode": "auto"}
             group["loss_settings"]["levels"] = loss_levels
             group["loss_settings"]["mode"] = "auto" if len(loss_levels) > 0 else "disabled"
+
+            # TS/RS/PP 설정 업데이트
+            group["trailing_stop_settings"] = ts_settings
+            group["rebound_stop_settings"] = rs_settings
+            group["profit_preserve_settings"] = pp_settings
 
             # 저장
             try:
