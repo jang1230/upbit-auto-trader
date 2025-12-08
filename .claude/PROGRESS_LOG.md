@@ -5,7 +5,41 @@
 
 ---
 
-## 2025-12-04 세션 2 (최신)
+## 2025-12-08 세션 (최신)
+
+### 작업 내용
+
+1. **QTextCursor PySide6 호환성 버그 수정** (`611c585`)
+   - 문제: `cursor.Start`, `cursor.LineUnderCursor`가 PySide6에서 AttributeError
+   - 해결: `QTextCursor.MoveOperation.Start`, `QTextCursor.SelectionType.LineUnderCursor`로 변경
+   - 파일: `gui/main_window.py`
+
+2. **DCA 로그 반복 방지 강화** (`611c585`, `26bfbac`)
+   - `_dca_balance_warned` set으로 잔고 부족 경고한 심볼 추적
+   - DCA 트리거 로그도 보류 중인 심볼은 스킵
+   - `_check_min_balance()`에 `silent` 파라미터 추가
+   - 잔고 캐시 무효화 시 경고 상태 리셋
+   - 파일: `core/v4_trading_engine.py`
+
+3. **Trailing Stop (TS) 설정 구조 논의**
+   - 옵션 1 (별도 섹션) vs 옵션 2 (profit_settings 내 통합) 비교
+   - 옵션 1 (별도 `trailing_stop_settings`) 선택
+   - B모드(수익률 기준) / C모드(익절 후) 활성화 방식 정의
+   - `callback_pct` (최고가 대비 하락 허용폭) 개념 설명
+   - **구현은 다음 세션으로 연기**
+
+### 변경된 파일
+- `gui/main_window.py` (QTextCursor PySide6 호환성)
+- `core/v4_trading_engine.py` (DCA 로그 반복 방지)
+
+### 다음 세션 권장 작업
+1. **Trailing Stop (TS) 기능 구현** - 설정 구조 확정됨, 구현 시작
+2. Dry-run 테스트 계속 (로그 반복 방지 확인)
+3. TS GUI 탭 추가 (level_settings_dialog.py)
+
+---
+
+## 2025-12-04 세션 2
 
 ### 작업 내용
 

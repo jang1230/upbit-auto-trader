@@ -1,9 +1,9 @@
 {
   "project": "upbit-auto-trader",
   "version": "V4",
-  "last_updated": "2025-12-04",
-  "total_commits": 525,
-  "current_branch": "claude/websocket-unified-12-04-01AUc5V825wqAS4myQLcr7YM",
+  "last_updated": "2025-12-08",
+  "total_commits": 528,
+  "current_branch": "claude/websocket-unified-12-05-01KqTUG7eURXpnSuR6VkLMry",
 
   "development_phases": {
     "v3_legacy": {
@@ -470,6 +470,20 @@
       "description": "매수/매도 후 잔고 캐시가 갱신되지 않아 DCA 지연",
       "solution": "_invalidate_balance_cache() 추가, 매수/매도 완료 시 호출",
       "commits": ["410a306"],
+      "files": ["core/v4_trading_engine.py"]
+    },
+    {
+      "id": "I024",
+      "description": "QTextCursor PySide6 호환성 에러 (cursor.Start AttributeError)",
+      "solution": "QTextCursor.MoveOperation.Start, SelectionType.LineUnderCursor로 변경",
+      "commits": ["611c585"],
+      "files": ["gui/main_window.py"]
+    },
+    {
+      "id": "I025",
+      "description": "DCA 트리거/잔고 부족 로그 매 초마다 반복",
+      "solution": "_dca_balance_warned set으로 추적, silent 파라미터, 잔고 캐시 무효화 시 리셋",
+      "commits": ["611c585", "26bfbac"],
       "files": ["core/v4_trading_engine.py"]
     }
   ],
