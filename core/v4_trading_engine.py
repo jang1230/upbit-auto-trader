@@ -1509,7 +1509,9 @@ class V4TradingEngine:
 
             if triggered:
                 dca_type = "물타기" if price_ratio < 0 else "불타기"
-                logger.info(f"🔔 {symbol}: DCA 레벨 {i+1} {dca_type} 트리거 (현재: {profit_pct:.2f}%, 기준: {price_ratio:.2f}%)")
+                # 🔧 잔고 부족으로 보류 중인 심볼은 트리거 로그 스킵 (로그 스팸 방지)
+                if symbol not in self._dca_balance_warned:
+                    logger.info(f"🔔 {symbol}: DCA 레벨 {i+1} {dca_type} 트리거 (현재: {profit_pct:.2f}%, 기준: {price_ratio:.2f}%)")
                 self._execute_dca(symbol, group_id, group, position, level, i)
                 break  # 한 번에 하나의 DCA만 실행
 
@@ -1550,19 +1552,20 @@ class V4TradingEngine:
                 logger.info(f"   📝 {symbol} DCA 레벨 {dca_level_num} → 최소금액 미달로 스킵 처리됨")
             return
 
-        # 잔고 체크 (DCA 직전에만 REST API 호출)
-        if not self._check_min_balance(dca_amount):
-            # 🔧 잔고 부족 경고 - 이미 경고한 심볼이면 스킵 (로그 스팸 방지)
-            if symbol not in self._dca_balance_warned:
-                krw_balance = self.balance_cache.get('krw', 0)
-                min_balance_config = self.global_settings.get("min_krw_balance", {})
-                min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
-                logger.warning(f"⚠️ {symbol} DCA 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
-                self._dca_balance_warned.add(symbol)
-            # 🔧 pending_order 없이 return → 다음 사이클에 재시도
+        # 🔧 이미 잔고 부족으로 보류 중인 심볼은 잔고 체크 스킵 (잔고 캐시 무효화 시 리셋됨)
+        if symbol in self._dca_balance_warned:
             return
 
-        # 🔧 잔고 충분 → 이전 경고 상태 해제
+        # 잔고 체크 (DCA 직전에만 REST API 호출, silent=True로 중복 로그 방지)
+        if not self._check_min_balance(dca_amount, silent=True):
+            krw_balance = self.balance_cache.get('krw', 0)
+            min_balance_config = self.global_settings.get("min_krw_balance", {})
+            min_reserve = min_balance_config.get("amount", 0) if min_balance_config.get("enabled", False) else 0
+            logger.warning(f"⚠️ {symbol} DCA 보류: 예수금 {krw_balance:,.0f}원 (최소유지 {min_reserve:,.0f}원)")
+            self._dca_balance_warned.add(symbol)
+            return
+
+        # 🔧 잔고 충분 → 이전 경고 상태 해제 (정상적으로 여기 도달하면 warned 아님)
         self._dca_balance_warned.discard(symbol)
 
         logger.info(f"💰 {symbol} DCA 레벨 {dca_level_num} 실행 중... (금액: {dca_amount:,}원, 비율: {quantity_ratio * 100:.0f}% of {total_invested:,}원)")
@@ -4160,12 +4163,13 @@ class V4TradingEngine:
             # 기타 봉 크기는 기본적으로 봉 크기만큼 캐시
             return now + timedelta(minutes=candle_minutes)
 
-    def _check_min_balance(self, required_amount: float) -> bool:
+    def _check_min_balance(self, required_amount: float, silent: bool = False) -> bool:
         """
         최소 잔고 체크 (매수/DCA 직전에만 호출)
 
         Args:
             required_amount: 필요한 KRW 금액
+            silent: True면 로그 출력 안 함 (DCA에서 별도 로그 출력 시 사용)
 
         Returns:
             bool: True면 잔고 충분, False면 잔고 부족
@@ -4177,7 +4181,8 @@ class V4TradingEngine:
         if not min_balance_enabled:
             # 최소 잔고 체크 비활성화 시, 필요 금액만 확인
             if krw_balance < required_amount:
-                logger.warning(f"⚠️ 잔고 부족: {krw_balance:,.0f}원 < {required_amount:,.0f}원")
+                if not silent:
+                    logger.warning(f"⚠️ 잔고 부족: {krw_balance:,.0f}원 < {required_amount:,.0f}원")
                 return False
             return True
 
@@ -4185,11 +4190,12 @@ class V4TradingEngine:
         min_reserve = min_balance_config.get("amount", 50000)
 
         if krw_balance < (required_amount + min_reserve):
-            logger.warning(
-                f"⚠️ 잔고 부족: {krw_balance:,.0f}원 < "
-                f"{required_amount:,.0f}원 (필요) + {min_reserve:,.0f}원 (예비) = "
-                f"{required_amount + min_reserve:,.0f}원"
-            )
+            if not silent:
+                logger.warning(
+                    f"⚠️ 잔고 부족: {krw_balance:,.0f}원 < "
+                    f"{required_amount:,.0f}원 (필요) + {min_reserve:,.0f}원 (예비) = "
+                    f"{required_amount + min_reserve:,.0f}원"
+                )
             return False
 
         return True
