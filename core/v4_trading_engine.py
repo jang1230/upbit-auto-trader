@@ -254,9 +254,11 @@ class V4TradingEngine:
 
         형식: bot_{type}_{currency}_{timestamp}_{uuid8}
         예: bot_dca_BTC_20251127143052_a1b2c3d4
+            bot_trailing-stop-L1_BTC_20251210085027_a1b2c3d4
 
         Args:
-            order_type: 주문 유형 (buy, dca, profit, loss, immediate)
+            order_type: 주문 유형 (buy, dca, profit, loss, immediate,
+                        trailing_stop_L{n}, rebound_stop, profit_preserve)
             symbol: 마켓 코드 (예: KRW-BTC)
 
         Returns:
@@ -266,7 +268,10 @@ class V4TradingEngine:
         short_uuid = uuid.uuid4().hex[:8]
         currency = symbol.replace("KRW-", "")
 
-        identifier = f"bot_{order_type}_{currency}_{timestamp}_{short_uuid}"
+        # 🔧 order_type에 언더스코어가 있으면 하이픈으로 변환 (파싱 시 복원)
+        safe_order_type = order_type.replace("_", "-")
+
+        identifier = f"bot_{safe_order_type}_{currency}_{timestamp}_{short_uuid}"
         logger.debug(f"🏷️ identifier 생성: {identifier}")
         return identifier
 
@@ -280,7 +285,8 @@ class V4TradingEngine:
         Returns:
             Dict or None: 파싱 결과
                 - is_bot: True
-                - order_type: buy, dca, profit, loss, immediate
+                - order_type: buy, dca, profit, loss, immediate,
+                              trailing_stop_L{n}, rebound_stop, profit_preserve
                 - currency: BTC, ETH 등
                 - timestamp: 20251127143052
                 - uuid: a1b2c3d4
@@ -290,9 +296,11 @@ class V4TradingEngine:
 
         parts = identifier.split('_')
         if len(parts) >= 3:
+            # 🔧 하이픈을 언더스코어로 복원 (trailing-stop-L1 → trailing_stop_L1)
+            order_type = parts[1].replace("-", "_")
             result = {
                 'is_bot': True,
-                'order_type': parts[1],  # buy, dca, profit, loss, immediate
+                'order_type': order_type,
             }
             if len(parts) >= 3:
                 result['currency'] = parts[2]
@@ -302,7 +310,7 @@ class V4TradingEngine:
                 result['uuid'] = parts[4]
             return result
 
-        return {'is_bot': True, 'order_type': parts[1] if len(parts) > 1 else 'unknown'}
+        return {'is_bot': True, 'order_type': parts[1].replace("-", "_") if len(parts) > 1 else 'unknown'}
 
     def _is_bot_order(self, data: Dict) -> tuple:
         """
@@ -2525,7 +2533,26 @@ class V4TradingEngine:
 
                 # 🆕 GUI 거래 내역 이벤트
                 actual_profit_pct = (profit / position.get('total_invested_krw', 1) * 100) if position.get('total_invested_krw', 0) > 0 else 0
-                detail_type_kr = f"익절 L{level_index + 1}" if reason == "profit" else f"손절 L{level_index + 1}"
+                # 🔧 TS/RS/PP 지원
+                if reason == "profit":
+                    detail_type_kr = f"익절 L{level_index + 1}"
+                    reason_text = f'{trigger_pct:+.0f}% 도달'
+                elif reason == "loss":
+                    detail_type_kr = f"손절 L{level_index + 1}"
+                    reason_text = f'{trigger_pct:+.0f}% 도달'
+                elif reason == "rebound_stop":
+                    detail_type_kr = "RS"
+                    reason_text = "리바운드 스탑 발동"
+                elif reason == "profit_preserve":
+                    detail_type_kr = "PP"
+                    reason_text = "이익보존 발동"
+                elif reason.startswith("trailing_stop_L"):
+                    level_num = reason.replace("trailing_stop_L", "")
+                    detail_type_kr = f"TS L{level_num}"
+                    reason_text = "트레일링 스탑 발동"
+                else:
+                    detail_type_kr = reason
+                    reason_text = f'{trigger_pct:+.0f}% 도달'
                 sell_type = "(전량)" if quantity_ratio >= 0.99 else "(부분)"
                 self._emit_trade_event(
                     group_name=group.get("name", "Unknown"),
@@ -2537,7 +2564,7 @@ class V4TradingEngine:
                     amount=sell_value,
                     profit=profit,
                     profit_pct=actual_profit_pct,
-                    reason=f'{trigger_pct:+.0f}% 도달 {sell_type}'
+                    reason=f'{reason_text} {sell_type}'
                 )
 
                 # 텔레그램 알림 (Dry-run)
@@ -2979,11 +3006,14 @@ class V4TradingEngine:
                     return
 
             # 🆕 수동 매도 처리 (state='done' or 'cancel' and side='ask')
-            # 🔧 profit/loss 봇 주문은 Phase C (state=cancel 블록)에서 처리하므로 여기서 제외
-            if state in ['done', 'cancel'] and ask_bid == 'ASK' and not (is_bot and bot_order_type in ['profit', 'loss']):
+            # 🔧 봇 매도 주문(profit/loss/TS/RS/PP)은 Phase C에서 처리하므로 여기서 제외
+            bot_sell_types = ['profit', 'loss', 'rebound_stop', 'profit_preserve']
+            is_bot_sell = is_bot and (bot_order_type in bot_sell_types or
+                                      (bot_order_type and bot_order_type.startswith('trailing_stop')))
+            if state in ['done', 'cancel'] and ask_bid == 'ASK' and not is_bot_sell:
                 # 🆕 identifier 기반 봇 주문 구분 (100% 정확)
                 if is_bot:
-                    # profit/loss가 아닌 봇 매도 주문 (immediate 등)
+                    # 위 목록에 없는 봇 매도 주문 (immediate 등)
                     logger.debug(f"   ⏭️ {symbol} 봇 매도 주문 ({order_uuid[:8]}...), type={bot_order_type}, 별도 처리됨")
                     return
 
@@ -3582,10 +3612,179 @@ class V4TradingEngine:
                         except Exception as e:
                             logger.error(f"❌ 익절/손절 완료 GUI 콜백 오류: {e}")
 
+                elif order_type in ['rebound_stop', 'profit_preserve'] or (order_type and order_type.startswith('trailing_stop')):
+                    # 🆕 TS/RS/PP 매도 처리
+                    if order_uuid in self.processed_bot_order_uuids:
+                        logger.debug(f"   ⏭️ {symbol} {order_type} 주문 {order_uuid[:8]}... 이미 처리됨 (state={state}) → 스킵")
+                        return
+                    self.processed_bot_order_uuids.add(order_uuid)
+
+                    group_id = pending_order.get('group_id', 'unknown')
+                    group_name = pending_order.get('group_name', 'Unknown')
+                    quantity_ratio = pending_order.get('quantity_ratio', 1.0)
+                    trigger_pct = pending_order.get('trigger_pct', 0)
+
+                    # action_type과 detail_type 결정
+                    if order_type == 'rebound_stop':
+                        action_type = "리바운드 스탑"
+                        detail_type_kr = "RS"
+                    elif order_type == 'profit_preserve':
+                        action_type = "이익보존"
+                        detail_type_kr = "PP"
+                    else:
+                        # trailing_stop_L{n}
+                        level_num = order_type.replace('trailing_stop_L', '')
+                        action_type = f"트레일링 스탑 L{level_num}"
+                        detail_type_kr = f"TS L{level_num}"
+
+                    # 남은 수량 계산
+                    total_amount = position.get('total_amount', 0)
+                    remaining_amount = total_amount - executed_volume
+
+                    logger.debug(f"   📊 {symbol} {action_type} 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f}")
+
+                    # 현재가 조회
+                    current_price = self._get_current_price_safe(symbol)
+                    if current_price:
+                        remaining_value = remaining_amount * current_price
+                        MIN_ORDER_KRW = 5000
+
+                        if remaining_value < MIN_ORDER_KRW:
+                            # 포지션 종료
+                            logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                            if self.position_manager.get_position(symbol):
+                                self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
+
+                            # 거래 기록
+                            sell_amount_krw = avg_price * executed_volume
+                            self.trade_history.add_trade(
+                                group_id=group_id,
+                                group_name=group_name,
+                                symbol=symbol,
+                                action="sell",
+                                trade_type=order_type,
+                                price=avg_price,
+                                amount=executed_volume,
+                                total_krw=sell_amount_krw,
+                                dry_run=False
+                            )
+
+                            # 수익 계산
+                            avg_buy_price = position.get('avg_buy_price', 0)
+                            profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                            invested_krw = avg_buy_price * executed_volume
+                            actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+
+                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
+
+                            self._invalidate_balance_cache()
+
+                            # 텔레그램 알림
+                            emoji = "🔔"
+                            self._send_telegram_alert(
+                                f"{emoji} {action_type} 매도 완료 (포지션 종료)\n"
+                                f"그룹: {group_name}\n"
+                                f"코인: {symbol}\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"매도 금액: {sell_amount_krw:,.0f}원\n"
+                                f"매도 수량: {executed_volume:.8f}개\n"
+                                f"체결 가격: {avg_price:,.0f}원\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"수익: {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)\n"
+                                f"포지션 전체 종료됨"
+                            )
+
+                            # GUI 거래 내역 이벤트
+                            self._emit_trade_event(
+                                group_name=group_name,
+                                symbol=symbol,
+                                trade_type='sell',
+                                detail_type=detail_type_kr,
+                                price=avg_price,
+                                quantity=executed_volume,
+                                amount=sell_amount_krw,
+                                profit=profit_krw,
+                                profit_pct=actual_profit_pct,
+                                reason=f'{action_type} 발동 (전량)',
+                                order_id=order_uuid
+                            )
+                        else:
+                            # 부분 매도 - 수량만 감소
+                            logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                            self.position_manager.update_position(symbol, {
+                                'pending_order': None,
+                                'total_amount': remaining_amount
+                            })
+
+                            # 거래 기록
+                            sell_amount_krw = avg_price * executed_volume
+                            self.trade_history.add_trade(
+                                group_id=group_id,
+                                group_name=group_name,
+                                symbol=symbol,
+                                action="sell",
+                                trade_type=order_type,
+                                price=avg_price,
+                                amount=executed_volume,
+                                total_krw=sell_amount_krw,
+                                dry_run=False
+                            )
+
+                            # 수익 계산
+                            avg_buy_price = position.get('avg_buy_price', 0)
+                            profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                            invested_krw = avg_buy_price * executed_volume
+                            actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+
+                            logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                            self._invalidate_balance_cache()
+
+                            # 텔레그램 알림
+                            emoji = "🔔"
+                            self._send_telegram_alert(
+                                f"{emoji} {action_type} 부분 매도 완료\n"
+                                f"그룹: {group_name}\n"
+                                f"코인: {symbol}\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"매도 금액: {sell_amount_krw:,.0f}원\n"
+                                f"매도 수량: {executed_volume:.8f}개\n"
+                                f"체결 가격: {avg_price:,.0f}원\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"수익: {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)\n"
+                                f"남은 수량: {remaining_amount:.8f}개\n"
+                                f"남은 금액: {remaining_value:,.0f}원"
+                            )
+
+                            # GUI 거래 내역 이벤트
+                            self._emit_trade_event(
+                                group_name=group_name,
+                                symbol=symbol,
+                                trade_type='sell',
+                                detail_type=detail_type_kr,
+                                price=avg_price,
+                                quantity=executed_volume,
+                                amount=sell_amount_krw,
+                                profit=profit_krw,
+                                profit_pct=actual_profit_pct,
+                                reason=f'{action_type} 발동 (부분)',
+                                order_id=order_uuid
+                            )
+
+                    # MyOrder 처리 완료 마킹
+                    self._mark_processed_by_myorder(symbol)
+
+                    # GUI 새로고침 콜백
+                    if self.on_position_created_callback:
+                        try:
+                            self.on_position_created_callback(symbol)
+                        except Exception as e:
+                            logger.error(f"❌ {action_type} 완료 GUI 콜백 오류: {e}")
+
                 else:
                     # 기타 주문 타입
                     self.position_manager.update_position(symbol, {'pending_order': None})
-                    logger.debug(f"   🗑️ {symbol} pending_order 정리 완료")
+                    logger.debug(f"   🗑️ {symbol} pending_order 정리 완료 (type={order_type})")
 
                 return
 
@@ -3943,6 +4142,166 @@ class V4TradingEngine:
 
                 # 🆕 Phase B-C: MyOrder 처리 완료 마킹 (MyAsset 백업 스킵용)
                 self._mark_processed_by_myorder(symbol)
+
+            elif order_type in ['rebound_stop', 'profit_preserve'] or (order_type and order_type.startswith('trailing_stop')):
+                # 🆕 TS/RS/PP 매도 처리 (state=done)
+                group_id = pending_order.get('group_id', 'unknown')
+                group_name = pending_order.get('group_name', 'Unknown')
+                quantity_ratio = pending_order.get('quantity_ratio', 1.0)
+
+                # action_type과 detail_type 결정
+                if order_type == 'rebound_stop':
+                    action_type = "리바운드 스탑"
+                    detail_type_kr = "RS"
+                elif order_type == 'profit_preserve':
+                    action_type = "이익보존"
+                    detail_type_kr = "PP"
+                else:
+                    level_num = order_type.replace('trailing_stop_L', '')
+                    action_type = f"트레일링 스탑 L{level_num}"
+                    detail_type_kr = f"TS L{level_num}"
+
+                # 남은 수량 계산
+                total_amount = position.get('total_amount', 0)
+                remaining_amount = total_amount - executed_volume
+
+                logger.debug(f"   📊 {symbol} {action_type} 매도 후 수량: {total_amount:.8f} → {remaining_amount:.8f}")
+
+                # 현재가 조회
+                current_price = self._get_current_price_safe(symbol)
+                if current_price:
+                    remaining_value = remaining_amount * current_price
+                    MIN_ORDER_KRW = 5000
+
+                    if remaining_value < MIN_ORDER_KRW:
+                        # 포지션 종료
+                        logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 < {MIN_ORDER_KRW:,.0f}원 → 포지션 종료")
+                        if self.position_manager.get_position(symbol):
+                            self.position_manager.close_position(symbol, close_price=avg_price, close_reason=order_type)
+
+                        # 거래 기록
+                        sell_amount_krw = avg_price * executed_volume
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="sell",
+                            trade_type=order_type,
+                            price=avg_price,
+                            amount=executed_volume,
+                            total_krw=sell_amount_krw,
+                            dry_run=False
+                        )
+
+                        # 수익 계산
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                        invested_krw = avg_buy_price * executed_volume
+                        actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+
+                        logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)")
+
+                        self._invalidate_balance_cache()
+
+                        # 텔레그램 알림
+                        self._send_telegram_alert(
+                            f"🔔 {action_type} 매도 완료 (포지션 종료)\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {sell_amount_krw:,.0f}원\n"
+                            f"매도 수량: {executed_volume:.8f}개\n"
+                            f"체결 가격: {avg_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"수익: {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)\n"
+                            f"포지션 전체 종료됨"
+                        )
+
+                        # GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_name,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type=detail_type_kr,
+                            price=avg_price,
+                            quantity=executed_volume,
+                            amount=sell_amount_krw,
+                            profit=profit_krw,
+                            profit_pct=actual_profit_pct,
+                            reason=f'{action_type} 발동 (전량)',
+                            order_id=order_uuid
+                        )
+                    else:
+                        # 부분 매도 - 수량만 감소
+                        logger.debug(f"   💰 {symbol} 남은 금액 {remaining_value:,.0f}원 → 포지션 유지")
+                        self.position_manager.update_position(symbol, {
+                            'pending_order': None,
+                            'total_amount': remaining_amount
+                        })
+
+                        # 거래 기록
+                        sell_amount_krw = avg_price * executed_volume
+                        self.trade_history.add_trade(
+                            group_id=group_id,
+                            group_name=group_name,
+                            symbol=symbol,
+                            action="sell",
+                            trade_type=order_type,
+                            price=avg_price,
+                            amount=executed_volume,
+                            total_krw=sell_amount_krw,
+                            dry_run=False
+                        )
+
+                        # 수익 계산
+                        avg_buy_price = position.get('avg_buy_price', 0)
+                        profit_krw = sell_amount_krw - (avg_buy_price * executed_volume)
+                        invested_krw = avg_buy_price * executed_volume
+                        actual_profit_pct = ((profit_krw / invested_krw) * 100) if invested_krw > 0 else 0
+
+                        logger.info(f"[{action_type}완료] {symbol} | {sell_amount_krw:,.0f}원 | {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%) | 잔여: {remaining_value:,.0f}원")
+
+                        self._invalidate_balance_cache()
+
+                        # 텔레그램 알림
+                        self._send_telegram_alert(
+                            f"🔔 {action_type} 부분 매도 완료\n"
+                            f"그룹: {group_name}\n"
+                            f"코인: {symbol}\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"매도 금액: {sell_amount_krw:,.0f}원\n"
+                            f"매도 수량: {executed_volume:.8f}개\n"
+                            f"체결 가격: {avg_price:,.0f}원\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"수익: {profit_krw:+,.0f}원 ({actual_profit_pct:+.2f}%)\n"
+                            f"남은 수량: {remaining_amount:.8f}개\n"
+                            f"남은 금액: {remaining_value:,.0f}원"
+                        )
+
+                        # GUI 거래 내역 이벤트
+                        self._emit_trade_event(
+                            group_name=group_name,
+                            symbol=symbol,
+                            trade_type='sell',
+                            detail_type=detail_type_kr,
+                            price=avg_price,
+                            quantity=executed_volume,
+                            amount=sell_amount_krw,
+                            profit=profit_krw,
+                            profit_pct=actual_profit_pct,
+                            reason=f'{action_type} 발동 (부분)',
+                            order_id=order_uuid
+                        )
+
+                # MyOrder 처리 완료 마킹
+                self._mark_processed_by_myorder(symbol)
+
+                # GUI 새로고침 콜백
+                if self.on_position_created_callback:
+                    try:
+                        self.on_position_created_callback(symbol)
+                    except Exception as e:
+                        logger.error(f"❌ {action_type} 완료 GUI 콜백 오류: {e}")
 
             elif order_type == 'dca':
                 # 🔧 중복 처리 방지: 이미 처리된 주문이면 스킵 (state=cancel/done 동시 도착 대응)
