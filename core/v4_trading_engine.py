@@ -108,6 +108,9 @@ class V4TradingEngine:
         else:
             self.position_manager = PositionManager(mode=mode, upbit_api=upbit_api)
 
+        # 🔄 RS/PP 상태 초기화 (프로그램 재시작 시 이전 상태 제거)
+        self.position_manager.reset_all_rs_pp_states()
+
         # 거래 내역
         self.trade_history = TradeHistoryManager()
 

@@ -681,6 +681,37 @@ class PositionManager:
 
         return self.positions[symbol].get('pp_state', {"activated": False})
 
+    def reset_all_rs_pp_states(self) -> int:
+        """
+        모든 포지션의 RS/PP 상태 초기화 (프로그램 재시작 시 호출)
+
+        Returns:
+            초기화된 포지션 개수
+        """
+        reset_count = 0
+        for symbol, position in self.positions.items():
+            changed = False
+
+            # RS 상태 초기화
+            if position.get('rs_state'):
+                position['rs_state'] = {"activated": False, "low": None}
+                changed = True
+
+            # PP 상태 초기화
+            if position.get('pp_state'):
+                position['pp_state'] = {"activated": False}
+                changed = True
+
+            if changed:
+                reset_count += 1
+                logger.debug(f"   🔄 {symbol} RS/PP 상태 초기화")
+
+        if reset_count > 0:
+            self._save_positions()
+            logger.info(f"✅ {reset_count}개 포지션의 RS/PP 상태 초기화 완료")
+
+        return reset_count
+
     def close_position(
         self,
         symbol: str,
