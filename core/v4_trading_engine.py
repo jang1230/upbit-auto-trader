@@ -2696,13 +2696,13 @@ class V4TradingEngine:
 
             # ========================================
             # 🆕 PendingOrderManager 기반 거래내역 업데이트 (Race Condition 방지)
+            # 🔧 remove_order는 Phase C 처리 완료 후에 호출 (동시 주문 대응)
             # ========================================
+            pending_order_from_mgr = None  # Phase C에서 fallback으로 사용
             if state in ['done', 'cancel']:
-                pending_order_info = self.pending_order_mgr.get_order(order_uuid)
-                if pending_order_info:
-                    self._handle_pending_order_completed(pending_order_info, order_data)
-                    # PendingOrderManager에서 제거
-                    self.pending_order_mgr.remove_order(order_uuid)
+                pending_order_from_mgr = self.pending_order_mgr.get_order(order_uuid)
+                if pending_order_from_mgr:
+                    self._handle_pending_order_completed(pending_order_from_mgr, order_data)
 
             # 🔧 초기 매수 주문 체결 처리 (pending_buy 포지션 확인 - Race Condition 방지)
             pending_position = self.position_manager.get_position(symbol)
@@ -3235,8 +3235,28 @@ class V4TradingEngine:
 
                 pending_order = position.get('pending_order')
                 if not pending_order or pending_order.get('order_id') != order_uuid:
-                    logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
-                    return
+                    # 🔧 동시 주문 대응: position.pending_order가 덮어쓰기된 경우 pending_order_mgr에서 조회
+                    if pending_order_from_mgr and pending_order_from_mgr.get('order_id') == order_uuid:
+                        logger.debug(f"   🔧 {symbol} pending_order 불일치 → pending_order_mgr fallback 사용")
+                        # pending_order_mgr 형식을 pending_order 형식으로 변환
+                        trade_type = pending_order_from_mgr.get('trade_type', 'unknown')
+                        pending_order = {
+                            'order_id': order_uuid,
+                            'type': trade_type,
+                            'level': pending_order_from_mgr.get('dca_level') or pending_order_from_mgr.get('profit_level') or pending_order_from_mgr.get('loss_level') or 0,
+                            'group_id': pending_order_from_mgr.get('group_id', 'unknown'),
+                            'group_name': pending_order_from_mgr.get('group_name', 'Unknown'),
+                            'quantity_ratio': pending_order_from_mgr.get('quantity_ratio', 1.0),
+                            'dca_value_krw': pending_order_from_mgr.get('order_amount_krw', 0),
+                            'profit_pct': pending_order_from_mgr.get('profit_pct', 0),
+                            'trigger_pct': pending_order_from_mgr.get('trigger_price', 0),
+                        }
+                    else:
+                        logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
+                        # 🔧 pending_order_mgr에서 제거 (처리 완료)
+                        if pending_order_from_mgr:
+                            self.pending_order_mgr.remove_order(order_uuid)
+                        return
 
                 order_type = pending_order.get('type')
                 level_index = pending_order.get('level')
@@ -3789,6 +3809,10 @@ class V4TradingEngine:
                     self.position_manager.update_position(symbol, {'pending_order': None})
                     logger.debug(f"   🗑️ {symbol} pending_order 정리 완료 (type={order_type})")
 
+                # 🔧 pending_order_mgr에서 제거 (Phase C 처리 완료)
+                if pending_order_from_mgr:
+                    self.pending_order_mgr.remove_order(order_uuid)
+
                 return
 
             # 완전 체결 처리 (state=done, 잔량 없음)
@@ -3800,8 +3824,28 @@ class V4TradingEngine:
 
             pending_order = position.get('pending_order')
             if not pending_order or pending_order.get('order_id') != order_uuid:
-                logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
-                return
+                # 🔧 동시 주문 대응: position.pending_order가 덮어쓰기된 경우 pending_order_mgr에서 조회
+                if pending_order_from_mgr and pending_order_from_mgr.get('order_id') == order_uuid:
+                    logger.debug(f"   🔧 {symbol} pending_order 불일치 → pending_order_mgr fallback 사용 (state=done)")
+                    # pending_order_mgr 형식을 pending_order 형식으로 변환
+                    trade_type = pending_order_from_mgr.get('trade_type', 'unknown')
+                    pending_order = {
+                        'order_id': order_uuid,
+                        'type': trade_type,
+                        'level': pending_order_from_mgr.get('dca_level') or pending_order_from_mgr.get('profit_level') or pending_order_from_mgr.get('loss_level') or 0,
+                        'group_id': pending_order_from_mgr.get('group_id', 'unknown'),
+                        'group_name': pending_order_from_mgr.get('group_name', 'Unknown'),
+                        'quantity_ratio': pending_order_from_mgr.get('quantity_ratio', 1.0),
+                        'dca_value_krw': pending_order_from_mgr.get('order_amount_krw', 0),
+                        'profit_pct': pending_order_from_mgr.get('profit_pct', 0),
+                        'trigger_pct': pending_order_from_mgr.get('trigger_price', 0),
+                    }
+                else:
+                    logger.debug(f"   ⏭️ {symbol} pending_order와 불일치 (무시)")
+                    # 🔧 pending_order_mgr에서 제거 (처리 완료)
+                    if pending_order_from_mgr:
+                        self.pending_order_mgr.remove_order(order_uuid)
+                    return
 
             # pending_order에서 주문 타입과 레벨 정보 가져오기
             order_type = pending_order.get('type')  # 'profit', 'loss', 'dca'
@@ -4437,6 +4481,10 @@ class V4TradingEngine:
                     self.on_position_created_callback(symbol)
                 except Exception as e:
                     logger.error(f"❌ 포지션 변경 GUI 콜백 오류: {e}")
+
+            # 🔧 pending_order_mgr에서 제거 (Phase C 처리 완료 - state=done)
+            if pending_order_from_mgr:
+                self.pending_order_mgr.remove_order(order_uuid)
 
             logger.debug(f"   🎉 {symbol} 주문 {order_uuid[:8]}... 처리 완료")
 
